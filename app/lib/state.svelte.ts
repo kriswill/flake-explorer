@@ -4,6 +4,7 @@
 // swapped in as raw references.
 
 import { SvelteSet } from "svelte/reactivity";
+import type { AboutData } from "../../src/licenses";
 import type { ConfigData, Manifest, OptionEntry } from "../../src/schema";
 import { loadJson } from "./data";
 import { decodeHash, encodeHash, sameSelection, type Filters, type Selection } from "./hash";
@@ -46,6 +47,20 @@ class AppState {
   hover = $state.raw<Hover>(null);
   /** Option tooltip: anchor position + the hovered entry. */
   tip = $state.raw<{ x: number; y: number; entry: OptionEntry } | null>(null);
+
+  aboutOpen = $state(false);
+  about = $state.raw<AboutData | null>(null);
+
+  async openAbout() {
+    this.aboutOpen = true;
+    if (!this.about) {
+      try {
+        this.about = await loadJson<AboutData>("about.json");
+      } catch {
+        // modal degrades to the static blurb without license texts
+      }
+    }
+  }
   q = $state("");
   showAll = $state(false);
 

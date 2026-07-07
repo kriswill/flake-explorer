@@ -10,7 +10,11 @@
 </script>
 
 <header>
-  <h1><button class="home" onclick={() => app.select(null)}>flake-explorer</button></h1>
+  <h1>
+    <button class="home" onclick={() => app.select(null)}>
+      <span class="b1">Flake</span>&nbsp;<span class="b2">Explorer</span>
+    </button>
+  </h1>
   {#if app.manifest}
     <span class="ref" title={app.manifest.flake.path}>{app.manifest.flake.ref}</span>
     {#if app.manifest.flake.description}<span class="desc">{app.manifest.flake.description}</span>{/if}
@@ -36,12 +40,19 @@
     <button type="button" title="Larger text" aria-label="Larger text" onclick={() => app.adjustFontScale(0.1)}>A+</button>
   </span>
   <button
-    class="theme"
+    class="round theme"
     type="button"
     aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
     title={isDark ? "Switch to light theme" : "Switch to dark theme"}
     onclick={toggleTheme}
   >{isDark ? "☀" : "☾"}</button>
+  <button
+    class="round help"
+    type="button"
+    aria-label="About Flake Explorer"
+    title="About Flake Explorer"
+    onclick={() => app.openAbout()}
+  >?</button>
 </header>
 
 <style>
@@ -60,11 +71,16 @@
   .home {
     background: none;
     border: none;
-    color: var(--ink-1);
     font: inherit;
     font-weight: 700;
     cursor: pointer;
     padding: 0;
+  }
+  .b1 {
+    color: var(--ink-1);
+  }
+  .b2 {
+    color: var(--link);
   }
   .ref {
     font-family: ui-monospace, monospace;
@@ -122,7 +138,7 @@
     color: var(--ink-muted);
     font-variant-numeric: tabular-nums;
   }
-  .theme {
+  .round {
     width: 30px;
     height: 30px;
     border: 1px solid var(--grid);
@@ -132,9 +148,13 @@
     cursor: pointer;
     font-size: 0.875rem;
     line-height: 1;
+    flex: none;
   }
-  .theme:hover {
+  .round:hover {
     color: var(--ink-1);
     border-color: var(--ink-muted);
+  }
+  .help {
+    font-weight: 600;
   }
 </style>

@@ -4,6 +4,7 @@
   import OutputsTree from "./components/OutputsTree.svelte";
   import Stage from "./components/Stage.svelte";
   import FileList from "./components/FileList.svelte";
+  import AboutModal from "./components/AboutModal.svelte";
   import Splitter from "./components/Splitter.svelte";
   import Tooltip from "./components/Tooltip.svelte";
 </script>
@@ -27,6 +28,9 @@
     </main>
   {/if}
   <Tooltip />
+  {#if app.aboutOpen}
+    <AboutModal onClose={() => (app.aboutOpen = false)} />
+  {/if}
 </div>
 
 <style>

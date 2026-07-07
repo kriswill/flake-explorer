@@ -5,6 +5,7 @@
 import { join } from "node:path";
 import { SveltePlugin } from "bun-plugin-svelte";
 import { THEMES } from "../app/lib/themes";
+import { collectAbout, type AboutData } from "./licenses";
 
 export interface AppBundle {
   js: string;
@@ -41,6 +42,11 @@ function themeCss(): string {
 
 export function pageHtml(bundle: AppBundle, title: string): string {
   const esc = (s: string) => s.replace(/<\/script/gi, "<\\/script");
+  // App identity + bundled-dependency license notices, embedded so the
+  // About modal works identically in serve mode and a future single-file
+  // build (loadJson checks embedded <script> tags before fetching).
+  const about: AboutData = collectAbout(join(import.meta.dir, ".."));
+  const aboutJson = JSON.stringify(about).replace(/</g, "\\u003c");
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -57,6 +63,7 @@ ${bundle.css.replace(/<\/style/gi, "<\\/style")}
 </head>
 <body>
 <div id="app"></div>
+<script type="application/json" id="data:about.json">${aboutJson}</script>
 <script type="module">${esc(bundle.js)}</script>
 </body>
 </html>`;
