@@ -147,16 +147,18 @@
     backdrop-filter: blur(3px);
   }
   .modal {
-    /* Wide enough for 80-column LICENSE texts in monospace without rewraps. */
-    width: min(640px, calc(100vw - 32px));
-    margin-top: 11vh;
-    max-height: min(82vh, 720px);
+    /* rem-sized so the box grows with the font-scale control instead of
+       cramming scaled-up text into a fixed frame. 36rem fits 80-column
+       LICENSE texts at the 0.66rem pre size without rewraps. */
+    width: min(36rem, calc(100vw - 2rem));
+    margin-top: 10vh;
+    max-height: min(85vh, 42rem);
     overflow-y: auto;
     background: var(--surface-1);
     border: 1px solid var(--grid);
     border-radius: 12px;
     box-shadow: 0 18px 56px rgba(0, 0, 0, 0.4);
-    padding: 20px 24px 22px;
+    padding: 1rem 1.25rem 1.125rem;
   }
   header {
     display: flex;
@@ -262,7 +264,7 @@
     color: var(--ink-muted);
     font-size: 0.75rem;
     margin: 0 0 6px;
-    word-break: break-all;
+    overflow-wrap: break-word;
   }
   table {
     width: 100%;
