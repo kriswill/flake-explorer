@@ -22,6 +22,7 @@
       app.selection.moduleId === node.fileId,
   );
   const colorKey = $derived(node.id.startsWith("input:") ? node.id.split(":")[1]! : node.id);
+  const color = $derived(colorFor(colorKey, gen));
 
   /** Search filter: keep subtrees containing a label match. */
   function matches(n: Node, q: string): boolean {
@@ -42,12 +43,11 @@
 </script>
 
 {#if visible}
-  <li>
+  <li style="--c:{color}">
     <button
       class="row"
       class:hl={highlighted}
       class:sel={selected}
-      style="--c:{colorFor(colorKey, gen)}"
       onclick={click}
       onpointerenter={() => node.fileId && (app.hover = { kind: "module", fileId: node.fileId })}
       onpointerleave={() => node.fileId && (app.hover = null)}
@@ -58,7 +58,7 @@
       {#if node.customized > 0}<span class="badge">{node.customized}</span>{/if}
     </button>
     {#if isDir && expanded}
-      <ul class="tree">
+      <ul class="tree" style="--rail:{color}">
         {#each node.children as child (child.id)}
           <TreeNode node={child} {configId} depth={depth + 1} />
         {/each}
@@ -71,7 +71,34 @@
   .tree {
     list-style: none;
     margin: 0;
-    padding: 0 0 0 14px;
+    padding: 0 0 0 1.15rem;
+  }
+  li {
+    position: relative;
+  }
+  /* Rail: vertical guide in the PARENT's color, spanning to the next sibling. */
+  li:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    left: -0.78rem;
+    top: 0;
+    bottom: 0;
+    border-left: 2px solid color-mix(in srgb, var(--rail, var(--grid)) 45%, transparent);
+    pointer-events: none;
+  }
+  /* Elbow: curved hook into this row, in the CHILD's own color. */
+  li::before {
+    content: "";
+    position: absolute;
+    left: -0.78rem;
+    top: -0.2rem;
+    width: 0.55rem;
+    height: 0.85rem;
+    border-left: 2px solid color-mix(in srgb, var(--c) 70%, transparent);
+    border-bottom: 2px solid color-mix(in srgb, var(--c) 70%, transparent);
+    border-bottom-left-radius: 0.55rem;
+    pointer-events: none;
+    z-index: 1;
   }
   .row {
     display: flex;
@@ -84,9 +111,11 @@
     font: inherit;
     font-size: 0.8125rem;
     padding: 2px 6px;
-    border-radius: 6px;
+    border-radius: 8px;
     cursor: pointer;
     text-align: left;
+    position: relative;
+    z-index: 2;
   }
   .row:hover {
     background: var(--page);
@@ -96,7 +125,10 @@
   }
   .row.sel {
     background: var(--page);
-    box-shadow: inset 2px 0 0 var(--c);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent);
+  }
+  .row.sel .label {
+    font-weight: 600;
   }
   .chev {
     color: var(--ink-muted);

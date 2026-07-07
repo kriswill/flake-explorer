@@ -13,6 +13,7 @@
 
   const gen = $derived(THEMES[app.themeIndex]!.gen);
   const q = $derived(app.q.toLowerCase());
+  const rail = $derived(colorFor(node.colorKey, gen));
 
   /** Filter: a file matches on its full relPath; a folder if any child does. */
   function matches(n: FileTreeNode): boolean {
@@ -40,10 +41,10 @@
   }
 </script>
 
-<ul class="tree" style="--indent:{depth === 0 ? 0 : 12}px">
+<ul class="tree" class:nested={depth > 0} style="--rail:{rail}">
   {#each node.children.filter(matches) as child (child.id)}
     <!-- Top-level folders get breathing room from the root-file list above. -->
-    <li class:gap={depth === 0 && !child.fileId}>
+    <li class:gap={depth === 0 && !child.fileId} style="--c:{colorFor(child.colorKey, gen)}">
       {#if child.fileId}
         <button
           class="row file"
@@ -51,7 +52,6 @@
           class:rel={app.highlightedFiles.has(child.fileId)}
           class:hov={app.hover?.kind === "module" && app.hover.fileId === child.fileId}
           class:modsel={isModSel(child.fileId)}
-          style="--c:{colorFor(child.colorKey, gen)}"
           use:reveal={child.fileId}
           onclick={() => app.select({ kind: "file", fileId: child.fileId! })}
           onpointerenter={() => (app.hover = { kind: "file", fileId: child.fileId! })}
@@ -61,7 +61,7 @@
           <span class="label mono">{child.label}</span>
         </button>
       {:else}
-        <button class="row dir" style="--c:{colorFor(child.colorKey, gen)}" onclick={() => toggle(child)}>
+        <button class="row dir" onclick={() => toggle(child)}>
           <span class="chev">{isOpen(child) ? "▾" : "▸"}</span>
           <span class="label mono">{child.label}/</span>
         </button>
@@ -77,10 +77,40 @@
   .tree {
     list-style: none;
     margin: 0;
-    padding: 0 0 0 var(--indent);
+    padding: 0 0 0 0.35rem;
+  }
+  .tree.nested {
+    padding-left: 1.15rem;
+  }
+  li {
+    position: relative;
   }
   li.gap {
     margin-top: 8px;
+  }
+  /* Rail in the parent's color; elbows in each child's own color — only for
+     nested levels (group roots hang directly under the section header). */
+  .nested > li:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    left: -0.78rem;
+    top: 0;
+    bottom: 0;
+    border-left: 2px solid color-mix(in srgb, var(--rail, var(--grid)) 45%, transparent);
+    pointer-events: none;
+  }
+  .nested > li::before {
+    content: "";
+    position: absolute;
+    left: -0.78rem;
+    top: -0.2rem;
+    width: 0.55rem;
+    height: 0.8rem;
+    border-left: 2px solid color-mix(in srgb, var(--c) 70%, transparent);
+    border-bottom: 2px solid color-mix(in srgb, var(--c) 70%, transparent);
+    border-bottom-left-radius: 0.55rem;
+    pointer-events: none;
+    z-index: 1;
   }
   .row {
     display: flex;
@@ -89,12 +119,14 @@
     width: 100%;
     background: none;
     border: none;
-    border-radius: 6px;
+    border-radius: 8px;
     color: var(--ink-1);
     font: inherit;
     padding: 2px 6px;
     cursor: pointer;
     text-align: left;
+    position: relative;
+    z-index: 2;
   }
   .row.file:hover,
   .row.hov {
@@ -109,7 +141,11 @@
   }
   .row.sel {
     background: var(--page);
-    box-shadow: inset 2px 0 0 var(--c);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 45%, transparent);
+  }
+  .row.sel .label,
+  .row.modsel .label {
+    font-weight: 600;
   }
   .row.dir:hover {
     background: var(--page);

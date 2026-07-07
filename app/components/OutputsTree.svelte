@@ -98,7 +98,8 @@
   .tree {
     list-style: none;
     margin: 0;
-    padding: 0 0 0 12px;
+    /* Wide enough that TreeNode's connector pseudos (-0.78rem) stay inside. */
+    padding: 0 0 0 1.15rem;
   }
   .root {
     padding: 8px 4px;
