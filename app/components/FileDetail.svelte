@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Dot from "./Dot.svelte";
   import { app } from "../lib/state.svelte";
   import { colorFor } from "../lib/color";
   import { THEMES } from "../lib/themes";
@@ -48,7 +49,7 @@
 </script>
 
 <div class="head" style="--c:{colorFor(colorKey, gen)}">
-  <span class="dot"></span>
+  <Dot />
   <h2 class="mono">{relPath}</h2>
 </div>
 
@@ -122,13 +123,6 @@
     align-items: center;
     gap: 8px;
     margin-bottom: 8px;
-  }
-  .dot {
-    width: 11px;
-    height: 11px;
-    border-radius: 50%;
-    background: var(--c);
-    flex: none;
   }
   h2 {
     margin: 0;

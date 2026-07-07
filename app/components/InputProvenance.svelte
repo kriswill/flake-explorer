@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Dot from "./Dot.svelte";
   import type { InputInfo } from "../../src/schema";
   import { app } from "../lib/state.svelte";
   import { colorFor } from "../lib/color";
@@ -12,7 +13,7 @@
 </script>
 
 <div class="prov" style="--c:{colorFor(input.name, gen)}">
-  <span class="dot"></span>
+  <Dot />
   <b>input {input.name}</b>
   <span class="mono type">{input.type}{input.ref ? `:${input.ref}` : ""}</span>
   <dl>
@@ -36,13 +37,6 @@
     align-items: baseline;
     gap: 8px;
     flex-wrap: wrap;
-  }
-  .dot {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--c);
-    align-self: center;
   }
   .type {
     color: var(--ink-muted);

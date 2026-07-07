@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { OutputNode } from "../../src/schema";
   import { app } from "../lib/state.svelte";
+  import Dot from "./Dot.svelte";
   import OutputBranch from "./OutputBranch.svelte";
 
   interface Props {
@@ -27,7 +28,7 @@
     <li>
       {#if child.kind === "attrset"}
         <button class="row" onclick={() => toggle(name)}>
-          <span class="chev">{app.expanded.has(idOf(name)) ? "▾" : "▸"}</span>
+          <Dot dir open={app.expanded.has(idOf(name))} />
           <span class="label">{name}</span>
           <span class="type">{Object.keys(child.children).length}</span>
         </button>
@@ -41,7 +42,7 @@
           class:sel={isSel(name)}
           onclick={() => app.select({ kind: "output", path: [...path, name] })}
         >
-          <span class="chev"></span>
+          <Dot hollow={child.kind !== "leaf"} />
           <span class="label">{name}</span>
           {#if child.kind === "leaf"}
             <span class="type">{child.type}</span>
@@ -86,12 +87,6 @@
   }
   .row.dim .label {
     color: var(--ink-muted);
-  }
-  .chev {
-    color: var(--ink-muted);
-    width: 12px;
-    flex: none;
-    font-size: 0.625rem;
   }
   .label {
     white-space: nowrap;

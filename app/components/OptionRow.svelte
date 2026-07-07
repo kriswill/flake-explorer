@@ -1,6 +1,7 @@
 <script lang="ts">
   import { PRIO, type OptionEntry } from "../../src/schema";
   import { app } from "../lib/state.svelte";
+  import Dot from "./Dot.svelte";
 
   interface Props {
     entry: OptionEntry;
@@ -51,7 +52,7 @@
     onpointerenter={enter}
     onpointerleave={leave}
   >
-    <span class="dot" class:hollow={!entry.customized}></span>
+    <Dot hollow={!entry.customized} />
     <span class="loc mono">{entry.loc.join(".")}</span>
     {#if prioChip}<span class="chip {prioChip.cls}">{prioChip.label}</span>{/if}
     {#if entry.readOnly}<span class="chip ro">read-only</span>{/if}
@@ -78,19 +79,14 @@
     cursor: pointer;
     text-align: left;
   }
+  .opt {
+    --c: var(--link);
+  }
+  .opt:not(.customized) {
+    --c: var(--ink-muted);
+  }
   .opt:hover {
     background: var(--page);
-  }
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--link);
-    flex: none;
-  }
-  .dot.hollow {
-    background: transparent;
-    border: 1.5px solid var(--ink-muted);
   }
   .mono {
     font-family: ui-monospace, monospace;

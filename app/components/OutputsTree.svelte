@@ -2,6 +2,7 @@
   import { app } from "../lib/state.svelte";
   import { colorFor } from "../lib/color";
   import { THEMES } from "../lib/themes";
+  import Dot from "./Dot.svelte";
   import OutputBranch from "./OutputBranch.svelte";
   import TreeNode from "./TreeNode.svelte";
 
@@ -40,9 +41,8 @@
   {#each outputs as [category, node] (category)}
     {@const kind = configKind(category)}
     <li>
-      <button class="row cat" onclick={() => toggle(`out:${category}`)}>
-        <span class="chev">{app.expanded.has(`out:${category}`) ? "▾" : "▸"}</span>
-        <span class="dot" style="background:{colorFor(category, gen)}"></span>
+      <button class="row cat" style="--c:{colorFor(category, gen)}" onclick={() => toggle(`out:${category}`)}>
+        <Dot dir open={app.expanded.has(`out:${category}`)} />
         <span class="label">{category}</span>
       </button>
       {#if app.expanded.has(`out:${category}`)}
@@ -55,9 +55,10 @@
                 <button
                   class="row cfg"
                   class:sel={app.selection?.kind === "config" && app.selection.configId === id}
+                  style="--c:{colorFor(id, gen)}"
                   onclick={() => clickConfig(kind, name)}
                 >
-                  <span class="chev">{app.expanded.has(`cfg:${id}`) ? "▾" : "▸"}</span>
+                  <Dot dir open={app.expanded.has(`cfg:${id}`)} />
                   <span class="label">{name}</span>
                   {#if loaded}
                     <span class="badge">{loaded.data.options.filter((o) => o.customized).length}</span>
@@ -128,18 +129,6 @@
   }
   .cat .label {
     font-weight: 600;
-  }
-  .chev {
-    color: var(--ink-muted);
-    width: 12px;
-    flex: none;
-    font-size: 0.625rem;
-  }
-  .dot {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    flex: none;
   }
   .label {
     white-space: nowrap;

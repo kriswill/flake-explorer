@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Dot from "./Dot.svelte";
   import { app } from "../lib/state.svelte";
   import { colorFor } from "../lib/color";
   import { THEMES } from "../lib/themes";
@@ -75,7 +76,7 @@
   {#each visibleGroups as group (group.key)}
     <section class="group" style="--c:{colorFor(group.colorKey, gen)}">
       <div class="ghead">
-        <span class="dot"></span>
+        <Dot />
         <span class="glabel mono">{group.label}</span>
         <span class="count">{group.count}</span>
       </div>
@@ -122,13 +123,6 @@
     margin-left: auto;
     color: var(--ink-muted);
     font-size: 0.6875rem;
-  }
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--c);
-    flex: none;
   }
   .mono {
     font-family: ui-monospace, monospace;

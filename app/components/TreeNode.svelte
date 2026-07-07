@@ -3,6 +3,7 @@
   import { colorFor } from "../lib/color";
   import { THEMES } from "../lib/themes";
   import type { TreeNode as Node } from "../lib/indexes";
+  import Dot from "./Dot.svelte";
   import TreeNode from "./TreeNode.svelte";
 
   interface Props {
@@ -52,7 +53,7 @@
       onpointerenter={() => node.fileId && (app.hover = { kind: "module", fileId: node.fileId })}
       onpointerleave={() => node.fileId && (app.hover = null)}
     >
-      <span class="dot" class:dir={isDir} class:open={isDir && expanded} class:hollow={node.customized === 0}></span>
+      <Dot dir={isDir} open={isDir && expanded} hollow={node.customized === 0} />
       <span class="label">{node.label}</span>
       {#if node.customized > 0}<span class="badge">{node.customized}</span>{/if}
     </button>
@@ -128,45 +129,6 @@
   }
   .row.sel .label {
     font-weight: 600;
-  }
-  /* Disclosure dot: the expand triangle is cut INTO the circle (surface
-     color) and rotates to indicate orientation; leaves are plain dots. */
-  .dot {
-    width: 0.65rem;
-    height: 0.65rem;
-    border-radius: 50%;
-    background: var(--c);
-    flex: none;
-    position: relative;
-  }
-  .dot.hollow {
-    background: color-mix(in srgb, var(--c) 22%, transparent);
-    box-shadow: inset 0 0 0 1.5px var(--c);
-  }
-  .dot.dir::after {
-    content: "";
-    position: absolute;
-    left: 55%;
-    top: 50%;
-    translate: -50% -50%;
-    border-left: 0.28rem solid var(--surface-1);
-    border-top: 0.2rem solid transparent;
-    border-bottom: 0.2rem solid transparent;
-  }
-  .dot.dir.open::after {
-    left: 50%;
-    top: 55%;
-    border-left: 0.2rem solid transparent;
-    border-right: 0.2rem solid transparent;
-    border-top: 0.28rem solid var(--surface-1);
-    border-bottom: none;
-  }
-  .dot.dir.hollow::after {
-    border-left-color: var(--c);
-  }
-  .dot.dir.open.hollow::after {
-    border-left-color: transparent;
-    border-top-color: var(--c);
   }
   .label {
     white-space: nowrap;

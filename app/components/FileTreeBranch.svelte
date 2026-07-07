@@ -3,6 +3,7 @@
   import { colorFor } from "../lib/color";
   import { THEMES } from "../lib/themes";
   import type { FileTreeNode } from "../lib/indexes";
+  import Dot from "./Dot.svelte";
   import FileTreeBranch from "./FileTreeBranch.svelte";
 
   interface Props {
@@ -57,12 +58,12 @@
           onpointerenter={() => (app.hover = { kind: "file", fileId: child.fileId! })}
           onpointerleave={() => (app.hover = null)}
         >
-          <span class="dot"></span>
+          <Dot />
           <span class="label mono">{child.label}</span>
         </button>
       {:else}
         <button class="row dir" onclick={() => toggle(child)}>
-          <span class="chev">{isOpen(child) ? "▾" : "▸"}</span>
+          <Dot dir open={isOpen(child)} hollow />
           <span class="label mono">{child.label}/</span>
         </button>
         {#if isOpen(child)}
@@ -152,19 +153,6 @@
   }
   .row.dir .label {
     color: var(--ink-muted);
-  }
-  .chev {
-    color: var(--ink-muted);
-    width: 12px;
-    flex: none;
-    font-size: 0.625rem;
-  }
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--c);
-    flex: none;
   }
   .label {
     font-size: 0.75rem;

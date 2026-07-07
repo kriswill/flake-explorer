@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Dot from "./Dot.svelte";
   import { app } from "../lib/state.svelte";
   import { colorFor } from "../lib/color";
   import { THEMES } from "../lib/themes";
@@ -10,7 +11,7 @@
 <div class="legend">
   {#each inputs as input (input.name)}
     <span class="chip" style="--c:{colorFor(input.name, gen)}" title={input.url ?? input.type}>
-      <span class="dot"></span>{input.name}
+      <Dot />{input.name}
     </span>
   {/each}
 </div>
@@ -31,11 +32,5 @@
     border: 1px solid var(--grid);
     border-radius: 10px;
     padding: 2px 8px;
-  }
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--c);
   }
 </style>
