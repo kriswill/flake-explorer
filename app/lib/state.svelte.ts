@@ -22,8 +22,14 @@ export type ConfigSlot = "loading" | { error: string } | { data: ConfigData; ind
 
 export type Hover = { kind: "file"; fileId: string } | { kind: "module"; fileId: string } | null;
 
+const FONT_SCALE_KEY = "flake-explorer:font-scale";
+const FONT_SCALE_MIN = 0.7;
+const FONT_SCALE_MAX = 1.8;
+
 class AppState {
   themeIndex = $state(0);
+  /** Text scale factor; all component type is rem-based, so root font-size scales everything. */
+  fontScale = $state(1);
   manifest = $state.raw<Manifest | null>(null);
   manifestError = $state<string | null>(null);
   flakeIndexes = $state.raw<FlakeIndexes | null>(null);
@@ -182,6 +188,26 @@ class AppState {
     if (typeof window === "undefined") return;
     this.applyHash(window.location.hash);
     window.addEventListener("hashchange", () => this.applyHash(window.location.hash));
+  }
+
+  // ------------------------------------------------------------- font scale
+
+  initFontScale() {
+    if (typeof localStorage === "undefined") return;
+    const saved = Number(localStorage.getItem(FONT_SCALE_KEY));
+    this.setFontScale(Number.isFinite(saved) && saved > 0 ? saved : 1);
+  }
+
+  setFontScale(scale: number) {
+    this.fontScale = Math.round(Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, scale)) * 100) / 100;
+    if (typeof localStorage !== "undefined") localStorage.setItem(FONT_SCALE_KEY, String(this.fontScale));
+    if (typeof document !== "undefined") {
+      document.documentElement.style.fontSize = `${16 * this.fontScale}px`;
+    }
+  }
+
+  adjustFontScale(delta: number) {
+    this.setFontScale(this.fontScale + delta);
   }
 }
 

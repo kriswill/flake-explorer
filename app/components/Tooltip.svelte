@@ -54,12 +54,12 @@
     padding: 8px 10px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
     z-index: 3;
-    font-size: 12px;
+    font-size: 0.75rem;
   }
   #tip b {
     display: block;
     font-family: ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 0.75rem;
   }
   .t {
     color: var(--ink-muted);

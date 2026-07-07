@@ -114,7 +114,7 @@
   }
   h2 {
     margin: 0;
-    font-size: 15px;
+    font-size: 0.9375rem;
     word-break: break-all;
   }
   .mono {
@@ -126,14 +126,14 @@
     border: 1px solid var(--grid);
     border-radius: 6px;
     color: var(--link);
-    font-size: 12px;
+    font-size: 0.75rem;
     padding: 2px 8px;
     cursor: pointer;
     flex: none;
   }
   .git {
     color: var(--ink-muted);
-    font-size: 12px;
+    font-size: 0.75rem;
     margin: 0 0 8px;
     white-space: nowrap;
     overflow: hidden;
@@ -148,7 +148,7 @@
   }
   h3 {
     margin: 0 0 6px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -159,7 +159,7 @@
   }
   .toggle {
     margin-left: auto;
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: normal;
     color: var(--ink-2);
     display: inline-flex;
@@ -174,6 +174,6 @@
   }
   .muted {
     color: var(--ink-muted);
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
 </style>

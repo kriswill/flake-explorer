@@ -112,7 +112,7 @@
     border: none;
     color: var(--ink-1);
     font: inherit;
-    font-size: 13px;
+    font-size: 0.8125rem;
     padding: 3px 6px;
     border-radius: 6px;
     cursor: pointer;
@@ -132,7 +132,7 @@
     color: var(--ink-muted);
     width: 12px;
     flex: none;
-    font-size: 10px;
+    font-size: 0.625rem;
   }
   .dot {
     width: 9px;
@@ -147,7 +147,7 @@
   }
   .badge {
     margin-left: auto;
-    font-size: 11px;
+    font-size: 0.6875rem;
     color: var(--ink-muted);
     background: var(--page);
     border-radius: 8px;
@@ -155,7 +155,7 @@
   }
   .note {
     color: var(--ink-muted);
-    font-size: 12px;
+    font-size: 0.75rem;
     margin: 2px 0 2px 24px;
   }
   .note.err {
@@ -166,7 +166,7 @@
     border: 1px solid var(--grid);
     border-radius: 4px;
     color: var(--ink-2);
-    font-size: 11px;
+    font-size: 0.6875rem;
     cursor: pointer;
     margin-left: 6px;
   }

@@ -71,7 +71,7 @@
     border: none;
     color: var(--ink-1);
     font: inherit;
-    font-size: 13px;
+    font-size: 0.8125rem;
     padding: 2px 6px;
     border-radius: 6px;
     cursor: pointer;
@@ -91,7 +91,7 @@
     color: var(--ink-muted);
     width: 12px;
     flex: none;
-    font-size: 10px;
+    font-size: 0.625rem;
   }
   .label {
     white-space: nowrap;
@@ -101,7 +101,7 @@
   .type {
     margin-left: auto;
     color: var(--ink-muted);
-    font-size: 11px;
+    font-size: 0.6875rem;
     flex: none;
   }
 </style>

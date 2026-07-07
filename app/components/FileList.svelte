@@ -98,7 +98,7 @@
     z-index: 1;
   }
   .glabel {
-    font-size: 12px;
+    font-size: 0.75rem;
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -107,7 +107,7 @@
   .count {
     margin-left: auto;
     color: var(--ink-muted);
-    font-size: 11px;
+    font-size: 0.6875rem;
   }
   .dot {
     width: 8px;

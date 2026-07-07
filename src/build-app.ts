@@ -50,7 +50,7 @@ export function pageHtml(bundle: AppBundle, title: string): string {
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
-body{font-family:system-ui,sans-serif;font-size:14px;background:var(--page);color:var(--ink-1)}
+body{font-family:system-ui,sans-serif;font-size:0.875rem;background:var(--page);color:var(--ink-1)}
 ${themeCss()}
 ${bundle.css.replace(/<\/style/gi, "<\\/style")}
 </style>

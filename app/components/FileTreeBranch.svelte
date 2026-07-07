@@ -117,7 +117,7 @@
     color: var(--ink-muted);
     width: 12px;
     flex: none;
-    font-size: 10px;
+    font-size: 0.625rem;
   }
   .dot {
     width: 8px;
@@ -127,7 +127,7 @@
     flex: none;
   }
   .label {
-    font-size: 12px;
+    font-size: 0.75rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

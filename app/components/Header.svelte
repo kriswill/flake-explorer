@@ -24,6 +24,17 @@
     value={app.q}
     oninput={(e) => app.setFilters({ q: e.currentTarget.value })}
   />
+  <span class="fontctl" role="group" aria-label="Text size">
+    <button type="button" title="Smaller text" aria-label="Smaller text" onclick={() => app.adjustFontScale(-0.1)}>A−</button>
+    <button
+      type="button"
+      class="pct"
+      title="Reset text size"
+      aria-label="Reset text size to 100%"
+      onclick={() => app.setFontScale(1)}
+    >{Math.round(app.fontScale * 100)}%</button>
+    <button type="button" title="Larger text" aria-label="Larger text" onclick={() => app.adjustFontScale(0.1)}>A+</button>
+  </span>
   <button
     class="theme"
     type="button"
@@ -43,7 +54,7 @@
     border-bottom: 1px solid var(--grid);
   }
   h1 {
-    font-size: 15px;
+    font-size: 0.9375rem;
     margin: 0;
   }
   .home {
@@ -57,11 +68,11 @@
   }
   .ref {
     font-family: ui-monospace, monospace;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--link);
   }
   .desc {
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--ink-muted);
     white-space: nowrap;
     overflow: hidden;
@@ -77,12 +88,39 @@
     border-radius: 6px;
     color: var(--ink-1);
     padding: 5px 10px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     width: 220px;
   }
   input:focus {
     outline: none;
     border-color: var(--link);
+  }
+  .fontctl {
+    display: inline-flex;
+    border: 1px solid var(--grid);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .fontctl button {
+    background: var(--surface-1);
+    border: none;
+    color: var(--ink-2);
+    font-size: 0.75rem;
+    padding: 4px 8px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .fontctl button + button {
+    border-left: 1px solid var(--grid);
+  }
+  .fontctl button:hover {
+    color: var(--ink-1);
+    background: var(--page);
+  }
+  .fontctl .pct {
+    min-width: 6ch;
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
   }
   .theme {
     width: 30px;
@@ -92,7 +130,7 @@
     background: var(--surface-1);
     color: var(--ink-2);
     cursor: pointer;
-    font-size: 14px;
+    font-size: 0.875rem;
     line-height: 1;
   }
   .theme:hover {

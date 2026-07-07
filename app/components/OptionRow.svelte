@@ -73,7 +73,7 @@
     border-radius: 6px;
     color: var(--ink-1);
     font: inherit;
-    font-size: 13px;
+    font-size: 0.8125rem;
     padding: 3px 6px;
     cursor: pointer;
     text-align: left;
@@ -107,10 +107,10 @@
   }
   .chip {
     flex: none;
-    font-size: 10px;
+    font-size: 0.625rem;
     border-radius: 8px;
     padding: 0 6px;
-    line-height: 16px;
+    line-height: 1rem;
   }
   .chip.force {
     background: color-mix(in srgb, var(--err) 18%, transparent);
@@ -126,7 +126,7 @@
   }
   .val {
     margin-left: auto;
-    font-size: 12px;
+    font-size: 0.75rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -139,7 +139,7 @@
     background: var(--page);
     border: 1px solid var(--grid);
     border-radius: 6px;
-    font-size: 12px;
+    font-size: 0.75rem;
     margin: 2px 6px 6px 22px;
     padding: 8px 10px;
     overflow-x: auto;

@@ -26,7 +26,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--ink-2);
     border: 1px solid var(--grid);
     border-radius: 10px;

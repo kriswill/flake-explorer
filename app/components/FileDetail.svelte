@@ -132,7 +132,7 @@
   }
   h2 {
     margin: 0;
-    font-size: 15px;
+    font-size: 0.9375rem;
     word-break: break-all;
   }
   .card {
@@ -144,7 +144,7 @@
   }
   h3 {
     margin: 6px 0;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
   .count {
     color: var(--ink-muted);
@@ -154,7 +154,7 @@
     font-family: ui-monospace, monospace;
   }
   .commit {
-    font-size: 13px;
+    font-size: 0.8125rem;
     word-break: break-all;
     margin: 2px 0;
   }
@@ -163,7 +163,7 @@
     border: 1px solid var(--grid);
     border-radius: 4px;
     color: var(--ink-2);
-    font-size: 11px;
+    font-size: 0.6875rem;
     cursor: pointer;
     margin-left: 6px;
   }
@@ -171,24 +171,24 @@
     list-style: none;
     margin: 0;
     padding: 0;
-    font-size: 12px;
+    font-size: 0.75rem;
   }
   .link {
     background: none;
     border: none;
     color: var(--link);
     cursor: pointer;
-    font-size: 12px;
+    font-size: 0.75rem;
     padding: 1px 0;
     text-align: left;
     word-break: break-all;
   }
   .muted {
     color: var(--ink-muted);
-    font-size: 12px;
+    font-size: 0.75rem;
   }
   p {
     margin: 3px 0;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
 </style>

@@ -8,6 +8,7 @@ const prefersDark =
 app.themeIndex = defaultThemeIndex(prefersDark);
 applyThemeVars(app.themeIndex);
 
+app.initFontScale();
 app.initRouting();
 void app.loadManifest();
 

@@ -87,7 +87,7 @@
   }
   h2 {
     margin: 0 0 8px;
-    font-size: 16px;
+    font-size: 1rem;
   }
   .mono {
     font-family: ui-monospace, monospace;
@@ -100,7 +100,7 @@
   }
   .warn {
     color: var(--warn);
-    font-size: 12px;
+    font-size: 0.75rem;
   }
   .k {
     color: var(--ink-muted);
@@ -108,10 +108,10 @@
   }
   p {
     margin: 4px 0;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
   details {
     margin-top: 10px;
-    font-size: 13px;
+    font-size: 0.8125rem;
   }
 </style>

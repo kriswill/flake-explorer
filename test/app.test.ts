@@ -98,6 +98,27 @@ describe("DetailPanel", () => {
   });
 });
 
+describe("font scale", () => {
+  test("adjusts, clamps, persists to localStorage, and restores", () => {
+    app.setFontScale(1);
+    app.adjustFontScale(0.1);
+    expect(app.fontScale).toBe(1.1);
+    expect(localStorage.getItem("flake-explorer:font-scale")).toBe("1.1");
+    expect(document.documentElement.style.fontSize).toBe("17.6px");
+
+    app.setFontScale(99);
+    expect(app.fontScale).toBe(1.8); // clamped
+
+    app.fontScale = 0; // simulate a fresh session
+    app.initFontScale(); // restores the clamped saved value
+    expect(app.fontScale).toBe(1.8);
+
+    localStorage.removeItem("flake-explorer:font-scale");
+    app.initFontScale();
+    expect(app.fontScale).toBe(1);
+  });
+});
+
 describe("FileList", () => {
   test("renders groups as folder trees; files hidden until folder expands", () => {
     withMount(FileList, {}, (host) => {
