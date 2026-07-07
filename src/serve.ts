@@ -8,6 +8,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildApp, pageHtml } from "./build-app";
 import { reconcile, writeSidecar } from "./extract/cache";
+import { tokenizeNix } from "./extract/highlight";
 import { buildManifest } from "./extract/manifest";
 import { extractOptions } from "./extract/options";
 import { checkNix } from "./extract/run-nix";
@@ -94,6 +95,16 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
         const file = Bun.file(join(outDir, rel));
         if (!(await file.exists())) return new Response("not found", { status: 404 });
         return new Response(file, { headers: { "content-type": "application/json" } });
+      }
+      const fm = url.pathname.match(/^\/data\/file\/(.+)$/);
+      if (fm) {
+        const entry = manifest.files.find((f) => f.id === decodeURIComponent(fm[1]!));
+        if (!entry) return new Response("not found", { status: 404 });
+        const file = Bun.file(entry.storePath);
+        if (!(await file.exists())) return new Response("not found", { status: 404 });
+        const text = await file.text();
+        const tokens = await tokenizeNix(text).catch(() => []);
+        return Response.json({ text, tokens });
       }
       if (url.pathname === "/api/refresh" && req.method === "POST") {
         console.log("refreshing manifest ...");

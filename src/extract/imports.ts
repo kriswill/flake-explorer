@@ -4,11 +4,8 @@
 // re-prints Nix (no JSON) so a "real" approach would still be text-munging.
 // tree-sitter-nix is the named upgrade path.
 
-import { dirname, join, normalize } from "node:path";
+import { REL_PATH_RE, resolveKnownRef } from "../pathref";
 import type { ImportEdge } from "../schema";
-
-/** Relative path tokens: ./x, ../x/y.nix, ./dir — quoted or bare. */
-const REL_PATH = /\.{1,2}\/[\w@.+-]+(?:\/[\w@.+-]+)*/g;
 
 /**
  * Build import edges between the given files (repo-relative paths).
@@ -30,17 +27,9 @@ export async function importGraph(
     } catch {
       continue;
     }
-    const dir = dirname(from);
-    for (const m of text.matchAll(REL_PATH)) {
-      const target = normalize(join(dir, m[0]));
-      if (target.startsWith("..")) continue; // escapes the flake root
-      // Direct .nix reference, or a directory reference (dir/default.nix).
-      const to = known.has(target)
-        ? target
-        : known.has(join(target, "default.nix"))
-          ? join(target, "default.nix")
-          : null;
-      if (!to || to === from) continue;
+    for (const m of text.matchAll(REL_PATH_RE)) {
+      const to = resolveKnownRef(from, m[0], known);
+      if (!to) continue;
       const key = `${from}\x00${to}`;
       if (seen.has(key)) continue;
       seen.add(key);

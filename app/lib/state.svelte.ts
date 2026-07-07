@@ -5,7 +5,7 @@
 
 import { SvelteSet } from "svelte/reactivity";
 import type { AboutData } from "../../src/licenses";
-import type { ConfigData, Manifest, OptionEntry } from "../../src/schema";
+import type { ConfigData, FileSource, Manifest, OptionEntry } from "../../src/schema";
 import { loadJson } from "./data";
 import { decodeHash, encodeHash, sameSelection, type Filters, type Selection } from "./hash";
 import {
@@ -20,6 +20,8 @@ import {
 import { registerSlotKeys } from "./color";
 
 export type ConfigSlot = "loading" | { error: string } | { data: ConfigData; indexes: ConfigIndexes };
+
+export type FileContentSlot = "loading" | { error: string } | FileSource;
 
 export type Hover = { kind: "file"; fileId: string } | { kind: "module"; fileId: string } | null;
 
@@ -39,6 +41,7 @@ class AppState {
   manifestError = $state<string | null>(null);
   flakeIndexes = $state.raw<FlakeIndexes | null>(null);
   configs = $state.raw<Record<string, ConfigSlot>>({});
+  fileContents = $state.raw<Record<string, FileContentSlot>>({});
 
   expanded = new SvelteSet<string>();
   /** Expanded folder nodes in the right file tree. */
@@ -127,6 +130,23 @@ class AppState {
     void this.loadConfig(configId);
   }
 
+  async loadFileContent(fileId: string) {
+    if (this.fileContents[fileId]) return;
+    this.fileContents = { ...this.fileContents, [fileId]: "loading" };
+    try {
+      const source = await loadJson<FileSource>(`file/${encodeURIComponent(fileId)}`);
+      this.fileContents = { ...this.fileContents, [fileId]: source };
+    } catch (e) {
+      this.fileContents = { ...this.fileContents, [fileId]: { error: String(e) } };
+    }
+  }
+
+  retryFileContent(fileId: string) {
+    const { [fileId]: _, ...rest } = this.fileContents;
+    this.fileContents = rest;
+    void this.loadFileContent(fileId);
+  }
+
   // ---------------------------------------------------------------- routing
 
   #applyingHash = false;
@@ -148,6 +168,7 @@ class AppState {
       }
     } else if (sel?.kind === "file") {
       this.revealFile(sel.fileId);
+      void this.loadFileContent(sel.fileId);
     }
   }
 

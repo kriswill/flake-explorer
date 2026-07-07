@@ -4,6 +4,8 @@
   import { colorFor } from "../lib/color";
   import { THEMES } from "../lib/themes";
   import InputProvenance from "./InputProvenance.svelte";
+  import { REL_PATH_RE, resolveKnownRef } from "../../src/pathref";
+  import type { FileOrigin } from "../../src/schema";
 
   const { fileId }: { fileId: string } = $props();
 
@@ -30,6 +32,117 @@
 
   const imports = $derived([...(app.flakeIndexes?.imports.get(fileId) ?? [])]);
   const importedBy = $derived([...(app.flakeIndexes?.importedBy.get(fileId) ?? [])]);
+
+  // ------------------------------------------------------------- source view
+
+  const origin = $derived(manifestEntry?.origin ?? configView?.meta.origin ?? null);
+  const contentSlot = $derived(app.fileContents[fileId]);
+
+  const sameOrigin = (a: FileOrigin, b: FileOrigin): boolean => {
+    if (a.kind !== b.kind) return false;
+    if (a.kind === "input" && b.kind === "input") return a.input === b.input;
+    if (a.kind === "unknown" && b.kind === "unknown") return a.group === b.group;
+    return true;
+  };
+
+  /** relPaths this file can address with a "./"/"../" reference: files in the same origin tree. */
+  const siblingIndex = $derived.by(() => {
+    const known = new Set<string>();
+    const byRelPath = new Map<string, string>();
+    if (origin) {
+      for (const f of app.manifest?.files ?? []) {
+        if (sameOrigin(f.origin, origin)) {
+          known.add(f.relPath);
+          byRelPath.set(f.relPath, f.id);
+        }
+      }
+    }
+    return { known, byRelPath };
+  });
+
+  interface Segment {
+    text: string;
+    ref?: string;
+    cls?: string;
+  }
+
+  /** Tree-sitter capture name -> CSS class; unlisted/punctuation-ish captures render unstyled. */
+  function tokenClass(name: string | undefined): string | undefined {
+    switch (name) {
+      case "comment":
+        return "tok-comment";
+      case "keyword":
+        return "tok-keyword";
+      case "number":
+        return "tok-number";
+      case "function":
+        return "tok-function";
+      case "function.builtin":
+      case "variable.builtin":
+        return "tok-builtin";
+      case "property":
+        return "tok-property";
+      case "escape":
+        return "tok-string";
+      default:
+        return name?.startsWith("string") ? "tok-string" : undefined;
+    }
+  }
+
+  interface Interval<T> {
+    start: number;
+    end: number;
+    value: T;
+  }
+
+  function coverAt<T>(intervals: Interval<T>[], pos: number): T | undefined {
+    for (const iv of intervals) if (pos >= iv.start && pos < iv.end) return iv.value;
+    return undefined;
+  }
+
+  /**
+   * Source split into per-line segments: tree-sitter highlight runs (server-computed)
+   * and resolvable "./"/"../" file references (client-computed) are two independent
+   * interval sets over the same line text — union their boundaries so a segment can
+   * carry both a token class and a ref link (e.g. a colored, clickable path literal).
+   */
+  const lines = $derived.by(() => {
+    if (!contentSlot || typeof contentSlot !== "object" || !("text" in contentSlot)) return [];
+    const { text, tokens } = contentSlot;
+    let lineStart = 0;
+    return text.split("\n").map((line): Segment[] => {
+      const lineEnd = lineStart + line.length;
+
+      const refIntervals: Interval<string | undefined>[] = [];
+      for (const m of line.matchAll(REL_PATH_RE)) {
+        const idx = m.index ?? 0;
+        const target = resolveKnownRef(relPath, m[0], siblingIndex.known);
+        refIntervals.push({ start: idx, end: idx + m[0].length, value: target ? siblingIndex.byRelPath.get(target) : undefined });
+      }
+
+      const tokenIntervals: Interval<string>[] = [];
+      for (const t of tokens) {
+        if (t.end <= lineStart || t.start >= lineEnd) continue;
+        tokenIntervals.push({ start: Math.max(t.start, lineStart) - lineStart, end: Math.min(t.end, lineEnd) - lineStart, value: t.name });
+      }
+
+      const bounds = [...new Set([0, line.length, ...refIntervals.flatMap((iv) => [iv.start, iv.end]), ...tokenIntervals.flatMap((iv) => [iv.start, iv.end])])].sort(
+        (a, b) => a - b,
+      );
+
+      const segs: Segment[] = [];
+      for (let i = 0; i < bounds.length - 1; i++) {
+        const p = bounds[i]!;
+        const q = bounds[i + 1]!;
+        if (p === q) continue;
+        segs.push({ text: line.slice(p, q), ref: coverAt(refIntervals, p), cls: tokenClass(coverAt(tokenIntervals, p)) });
+      }
+      if (segs.length === 0) segs.push({ text: "" });
+
+      lineStart = lineEnd + 1; // +1 for the newline
+      return segs;
+    });
+  });
 
   /** Options this file customizes, grouped per loaded config. */
   const customizes = $derived.by(() => {
@@ -72,6 +185,31 @@
     <p class="mono commit">{inputInfo.rev}</p>
   </div>
 {/if}
+
+<div class="card">
+  {#if !contentSlot || contentSlot === "loading"}
+    <p class="muted">loading source…</p>
+  {:else if "error" in contentSlot}
+    <p class="muted err">
+      {contentSlot.error.split("\n")[0]}
+      <button class="retry" onclick={() => app.retryFileContent(fileId)}>retry</button>
+    </p>
+  {:else}
+    <ol class="src">
+      {#each lines as segs, i (i)}
+        <li>
+          {#each segs as seg, j (j)}
+            {#if seg.ref}
+              <button class="ref {seg.cls ?? ''}" onclick={() => app.select({ kind: "file", fileId: seg.ref! })}>{seg.text}</button>
+            {:else if seg.cls}
+              <span class={seg.cls}>{seg.text}</span>
+            {:else}{seg.text}{/if}
+          {/each}
+        </li>
+      {/each}
+    </ol>
+  {/if}
+</div>
 
 {#if imports.length || importedBy.length}
   <div class="card">
@@ -181,8 +319,81 @@
     color: var(--ink-muted);
     font-size: 0.75rem;
   }
+  .err {
+    color: var(--err);
+  }
+  .retry {
+    background: none;
+    border: 1px solid var(--grid);
+    border-radius: 4px;
+    color: var(--ink-2);
+    font-size: 0.6875rem;
+    cursor: pointer;
+    margin-left: 6px;
+  }
   p {
     margin: 3px 0;
     font-size: 0.8125rem;
+  }
+  .src {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    counter-reset: line;
+    overflow-x: auto;
+    white-space: pre;
+    font-family: ui-monospace, monospace;
+    font-size: 0.75rem;
+    line-height: 1.5;
+  }
+  .src li {
+    counter-increment: line;
+    padding-left: 3.25em;
+    position: relative;
+  }
+  .src li::before {
+    content: counter(line);
+    position: absolute;
+    left: 0;
+    width: 2.75em;
+    text-align: right;
+    color: var(--ink-muted);
+    user-select: none;
+  }
+  .ref {
+    background: none;
+    border: none;
+    margin: 0;
+    padding: 0;
+    font: inherit;
+    white-space: inherit;
+    color: var(--link);
+    cursor: pointer;
+  }
+  .ref.tok-string {
+    color: var(--s2);
+    text-decoration: underline;
+  }
+  .tok-comment {
+    color: var(--ink-muted);
+    font-style: italic;
+  }
+  .tok-keyword {
+    color: var(--s5);
+  }
+  .tok-string {
+    color: var(--s2);
+  }
+  .tok-number {
+    color: var(--s3);
+  }
+  .tok-function {
+    color: var(--s1);
+  }
+  .tok-builtin {
+    color: var(--s6);
+  }
+  .tok-property {
+    color: var(--s9);
   }
 </style>

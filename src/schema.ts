@@ -90,6 +90,22 @@ export interface FileEntry {
   git?: { commit: string; date: string; subject: string };
 }
 
+// ---------------------------------------------------------------------------
+// GET /data/file/<id> response (src/extract/highlight.ts tokenizes server-side)
+
+export interface FileSource {
+  text: string;
+  /** Flat, non-overlapping tree-sitter highlight spans over `text`; [] if tokenizing failed. */
+  tokens: TokenRun[];
+}
+
+export interface TokenRun {
+  start: number;
+  end: number;
+  /** Highlight-query capture name, e.g. "keyword", "string", "string.special.path". */
+  name: string;
+}
+
 /** Directed edge: `from` imports `to` (both FileEntry.id). */
 export interface ImportEdge {
   from: string;

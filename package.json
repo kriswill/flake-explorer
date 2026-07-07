@@ -38,7 +38,8 @@
   },
   "dependencies": {
     "bun-plugin-svelte": "^0.0.6",
-    "svelte": "^5.56.4"
+    "svelte": "^5.56.4",
+    "web-tree-sitter": "^0.26.10"
   },
   "optionalDependencies": {
     "bun": "^1.2.0"
