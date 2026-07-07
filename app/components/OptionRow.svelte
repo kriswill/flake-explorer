@@ -75,7 +75,7 @@
     color: var(--ink-1);
     font: inherit;
     font-size: 0.8125rem;
-    padding: 3px 6px;
+    padding: 0.2rem 0.4rem;
     cursor: pointer;
     text-align: left;
   }

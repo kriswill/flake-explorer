@@ -106,7 +106,7 @@
     left: -0.78rem;
     top: -0.2rem;
     width: 0.55rem;
-    height: 0.8rem;
+    height: 0.95rem;
     border-left: 2px solid color-mix(in srgb, var(--c) 70%, transparent);
     border-bottom: 2px solid color-mix(in srgb, var(--c) 70%, transparent);
     border-bottom-left-radius: 0.55rem;
@@ -123,7 +123,7 @@
     border-radius: 8px;
     color: var(--ink-1);
     font: inherit;
-    padding: 2px 6px;
+    padding: 0.2rem 0.4rem;
     cursor: pointer;
     text-align: left;
     position: relative;
