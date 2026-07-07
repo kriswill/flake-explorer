@@ -12,7 +12,7 @@
 <header>
   <h1>
     <button class="home" onclick={() => app.select(null)}>
-      <span class="b1">Flake</span>&nbsp;<span class="b2">Explorer</span>
+      <span class="b1">Flake</span><span class="b2">Explorer</span>
     </button>
   </h1>
   {#if app.manifest}
@@ -76,11 +76,14 @@
     cursor: pointer;
     padding: 0;
   }
+  /* okflight-style two-tone wordmark: bold ink + regular muted, no gap. */
   .b1 {
     color: var(--ink-1);
+    font-weight: 700;
   }
   .b2 {
-    color: var(--link);
+    color: var(--ink-muted);
+    font-weight: 400;
   }
   .ref {
     font-family: ui-monospace, monospace;
