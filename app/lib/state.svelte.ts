@@ -7,7 +7,15 @@ import { SvelteSet } from "svelte/reactivity";
 import type { ConfigData, Manifest, OptionEntry } from "../../src/schema";
 import { loadJson } from "./data";
 import { decodeHash, encodeHash, sameSelection, type Filters, type Selection } from "./hash";
-import { buildConfigIndexes, buildFlakeIndexes, type ConfigIndexes, type FlakeIndexes } from "./indexes";
+import {
+  buildConfigIndexes,
+  buildFlakeIndexes,
+  fileTreeAncestorIds,
+  groupKeyOf,
+  type ConfigIndexes,
+  type FileMeta,
+  type FlakeIndexes,
+} from "./indexes";
 import { registerSlotKeys } from "./color";
 
 export type ConfigSlot = "loading" | { error: string } | { data: ConfigData; indexes: ConfigIndexes };
@@ -22,6 +30,8 @@ class AppState {
   configs = $state.raw<Record<string, ConfigSlot>>({});
 
   expanded = new SvelteSet<string>();
+  /** Expanded folder nodes in the right file tree. */
+  fileExpanded = new SvelteSet<string>();
   selection = $state.raw<Selection | null>(null);
   hover = $state.raw<Hover>(null);
   /** Option tooltip: anchor position + the hovered entry. */
@@ -64,6 +74,9 @@ class AppState {
           .filter((i) => !i.transitive)
           .map((i) => i.name),
       );
+      // A deep link decoded before the manifest arrived couldn't load its
+      // configuration yet — follow it now.
+      this.#followSelection(this.selection);
     } catch (e) {
       this.manifestError = String(e);
     }
@@ -96,8 +109,46 @@ class AppState {
   select(sel: Selection | null) {
     const filterOnly = sameSelection(this.selection, sel);
     this.selection = sel;
-    if (sel?.kind === "config" || sel?.kind === "module") void this.loadConfig(sel.configId);
+    this.#followSelection(sel);
     this.#writeHash(filterOnly);
+  }
+
+  /** Load the config behind a selection and reveal its file in the right tree. */
+  #followSelection(sel: Selection | null) {
+    if (sel?.kind === "config" || sel?.kind === "module") {
+      const p = this.loadConfig(sel.configId);
+      if (sel.kind === "module") {
+        this.revealFile(sel.moduleId);
+        void p.then(() => this.revealFile(sel.moduleId));
+      }
+    } else if (sel?.kind === "file") {
+      this.revealFile(sel.fileId);
+    }
+  }
+
+  /** Expand the right-pane folder chain leading to a file. */
+  revealFile(fileId: string) {
+    let meta: FileMeta | undefined;
+    for (const slot of Object.values(this.configs)) {
+      if (typeof slot === "object" && "indexes" in slot) {
+        meta = slot.indexes.filesById.get(fileId);
+        if (meta) break;
+      }
+    }
+    if (!meta) {
+      // Config not loaded (yet) — the id itself encodes group + path for
+      // self/input files; unknown-bucket files need the config lookup above.
+      if (fileId.startsWith("self:")) {
+        meta = { id: fileId, relPath: fileId.slice(5), origin: { kind: "self" }, storePath: "" };
+      } else {
+        const m = fileId.match(/^input:([^:]+):(.+)$/);
+        if (m) meta = { id: fileId, relPath: m[2]!, origin: { kind: "input", input: m[1]! }, storePath: "" };
+      }
+    }
+    if (!meta) return;
+    const groupKey = groupKeyOf(meta.origin);
+    if (!groupKey) return;
+    for (const id of fileTreeAncestorIds(groupKey, meta.relPath)) this.fileExpanded.add(id);
   }
 
   setFilters(f: Partial<Filters>) {
@@ -121,7 +172,7 @@ class AppState {
       this.selection = view.sel;
       this.q = view.filters.q;
       this.showAll = view.filters.all;
-      if (view.sel?.kind === "config" || view.sel?.kind === "module") void this.loadConfig(view.sel.configId);
+      this.#followSelection(view.sel);
     } finally {
       this.#applyingHash = false;
     }

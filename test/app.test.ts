@@ -24,14 +24,14 @@ function seed() {
   app.expanded.clear();
 }
 
-function withMount<T extends Record<string, unknown>>(
-  component: Parameters<typeof mount>[0],
-  props: T,
+function withMount(
+  component: unknown,
+  props: Record<string, unknown>,
   fn: (host: HTMLElement) => void,
 ) {
   const host = document.createElement("div");
   document.body.appendChild(host);
-  const instance = mount(component, { target: host, props });
+  const instance = mount(component as Parameters<typeof mount>[0], { target: host, props });
   try {
     flushSync();
     fn(host);
@@ -99,16 +99,34 @@ describe("DetailPanel", () => {
 });
 
 describe("FileList", () => {
-  test("groups self and input files; input group appears from loaded config", () => {
+  test("renders groups as folder trees; files hidden until folder expands", () => {
     withMount(FileList, {}, (host) => {
       expect(host.textContent).toContain("/etc/test"); // self group header
       expect(host.textContent).toContain("sops-nix"); // input group from config
+      expect(host.textContent).toContain("modules/"); // grey folder row
+      expect(host.textContent).not.toContain("a.nix"); // collapsed by default
+      app.fileExpanded.add("fdir:self/modules");
+      flushSync();
       expect(host.textContent).toContain("a.nix");
+      expect(host.textContent).toContain("sub/"); // nested folder now visible
+    });
+  });
+
+  test("selecting a module on the left auto-expands and highlights its file", () => {
+    withMount(FileList, {}, (host) => {
+      app.select({ kind: "module", configId: "nixos/test", moduleId: "self:modules/sub/b.nix" });
+      flushSync();
+      expect(app.fileExpanded.has("fdir:self/modules")).toBe(true);
+      expect(app.fileExpanded.has("fdir:self/modules/sub")).toBe(true);
+      const row = host.querySelector(".row.modsel");
+      expect(row?.textContent).toContain("b.nix");
     });
   });
 
   test("import-related files get tinted when a file is selected", () => {
     withMount(FileList, {}, (host) => {
+      app.fileExpanded.add("fdir:self/modules");
+      app.fileExpanded.add("fdir:self/modules/sub");
       app.selection = { kind: "file", fileId: "self:lib/c.nix" };
       flushSync();
       // a.nix and sub/b.nix import c.nix — both rows carry .rel
@@ -116,12 +134,14 @@ describe("FileList", () => {
     });
   });
 
-  test("search filters rows", () => {
+  test("filter hides non-matching subtrees and auto-reveals matches", () => {
     withMount(FileList, {}, (host) => {
       app.q = "sub/b";
       flushSync();
-      expect(host.textContent).toContain("b.nix");
+      expect(host.textContent).toContain("b.nix"); // revealed without manual expand
       expect(host.textContent).not.toContain("a.nix");
+      expect(host.textContent).not.toContain("lib/"); // subtree without matches hidden
+      expect(host.textContent).not.toContain("sops-nix"); // group without matches hidden
     });
   });
 });

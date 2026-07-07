@@ -208,6 +208,79 @@ function sortAndSum(node: TreeNode): void {
   }
 }
 
+// ------------------------------------------------------------ right pane
+
+/** Folder tree for the file list: files sort before folders at every level. */
+export interface FileTreeNode {
+  /** Dirs: "fdir:<groupKey>/<dirpath>"; files: the fileId. */
+  id: string;
+  label: string;
+  /** relPath of the file, or the dir path ("" on the group root). */
+  path: string;
+  fileId?: string;
+  colorKey: string;
+  children: FileTreeNode[];
+}
+
+export function buildFileTree(
+  files: { id: string; relPath: string; colorKey: string }[],
+  groupKey: string,
+): FileTreeNode {
+  const root: FileTreeNode = { id: `fdir:${groupKey}`, label: "", path: "", colorKey: groupKey, children: [] };
+  const dirs = new Map<string, FileTreeNode>([["", root]]);
+  const dirFor = (parts: string[]): FileTreeNode => {
+    let path = "";
+    let node = root;
+    for (const part of parts) {
+      path = path ? `${path}/${part}` : part;
+      let child = dirs.get(path);
+      if (!child) {
+        child = { id: `fdir:${groupKey}/${path}`, label: part, path, colorKey: groupKey, children: [] };
+        dirs.set(path, child);
+        node.children.push(child);
+      }
+      node = child;
+    }
+    return node;
+  };
+  for (const f of files) {
+    const parts = f.relPath.split("/");
+    dirFor(parts.slice(0, -1)).children.push({
+      id: f.id,
+      label: parts[parts.length - 1]!,
+      path: f.relPath,
+      fileId: f.id,
+      colorKey: f.colorKey,
+      children: [],
+    });
+  }
+  const sortLevel = (n: FileTreeNode) => {
+    n.children.sort((a, b) => (a.fileId ? 0 : 1) - (b.fileId ? 0 : 1) || a.label.localeCompare(b.label));
+    n.children.forEach(sortLevel);
+  };
+  sortLevel(root);
+  return root;
+}
+
+/** File-list group a file belongs to ("self" | "input:<name>"), null if none. */
+export function groupKeyOf(origin: FileOrigin): string | null {
+  if (origin.kind === "self") return "self";
+  if (origin.kind === "input") return `input:${origin.input}`;
+  if (origin.group) return `input:${origin.group}`;
+  return null;
+}
+
+/** Folder-node ids on the way to relPath within a group (for auto-expand). */
+export function fileTreeAncestorIds(groupKey: string, relPath: string): string[] {
+  const ids: string[] = [];
+  let path = "";
+  for (const part of relPath.split("/").slice(0, -1)) {
+    path = path ? `${path}/${part}` : part;
+    ids.push(`fdir:${groupKey}/${path}`);
+  }
+  return ids;
+}
+
 function buildFileToNodes(root: TreeNode): Map<string, Set<string>> {
   const map = new Map<string, Set<string>>();
   const walk = (node: TreeNode, ancestors: string[]) => {

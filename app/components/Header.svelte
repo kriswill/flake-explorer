@@ -18,6 +18,8 @@
   <span class="spacer"></span>
   <input
     type="search"
+    name="filter"
+    aria-label="Filter modules and files"
     placeholder="filter modules & files…"
     value={app.q}
     oninput={(e) => app.setFilters({ q: e.currentTarget.value })}
