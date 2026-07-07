@@ -1,0 +1,6 @@
+node_modules/
+result
+result-*
+flake-explorer-data/
+dist/
+.direnv/
