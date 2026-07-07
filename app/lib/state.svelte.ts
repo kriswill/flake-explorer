@@ -213,6 +213,48 @@ class AppState {
   adjustFontScale(delta: number) {
     this.setFontScale(this.fontScale + delta);
   }
+
+  // ------------------------------------------------------------ pane widths
+
+  paneLeft = $state(PANE_DEFAULTS.left);
+  paneRight = $state(PANE_DEFAULTS.right);
+
+  initPanes() {
+    if (typeof localStorage === "undefined") return;
+    try {
+      const saved = JSON.parse(localStorage.getItem(PANE_KEY) ?? "{}") as { left?: number; right?: number };
+      if (Number.isFinite(saved.left)) this.setPane("left", saved.left!);
+      if (Number.isFinite(saved.right)) this.setPane("right", saved.right!);
+    } catch {
+      // corrupt value — keep defaults
+    }
+  }
+
+  setPane(side: "left" | "right", px: number) {
+    const { min, max } = PANE_LIMITS[side];
+    const clamped = Math.round(Math.min(max, Math.max(min, px)));
+    if (side === "left") this.paneLeft = clamped;
+    else this.paneRight = clamped;
+  }
+
+  /** Called at drag end / after keyboard resize — not per pointermove. */
+  savePanes() {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(PANE_KEY, JSON.stringify({ left: this.paneLeft, right: this.paneRight }));
+  }
+
+  resetPanes() {
+    this.paneLeft = PANE_DEFAULTS.left;
+    this.paneRight = PANE_DEFAULTS.right;
+    this.savePanes();
+  }
 }
+
+const PANE_KEY = "flake-explorer:panes@1";
+const PANE_DEFAULTS = { left: 280, right: 340 };
+const PANE_LIMITS = {
+  left: { min: 160, max: 640 },
+  right: { min: 200, max: 720 },
+} as const;
 
 export const app = new AppState();

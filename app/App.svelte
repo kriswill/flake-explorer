@@ -4,6 +4,7 @@
   import OutputsTree from "./components/OutputsTree.svelte";
   import Stage from "./components/Stage.svelte";
   import FileList from "./components/FileList.svelte";
+  import Splitter from "./components/Splitter.svelte";
   import Tooltip from "./components/Tooltip.svelte";
 </script>
 
@@ -17,9 +18,11 @@
   {:else if !app.manifest}
     <div class="err"><p class="muted">Loading flake data…</p></div>
   {:else}
-    <main>
+    <main style="grid-template-columns: {app.paneLeft}px 6px 1fr 6px {app.paneRight}px">
       <nav class="pane left"><OutputsTree /></nav>
+      <Splitter side="left" />
       <section class="pane stage"><Stage /></section>
+      <Splitter side="right" />
       <aside class="pane right"><FileList /></aside>
     </main>
   {/if}
@@ -37,15 +40,13 @@
   main {
     flex: 1;
     display: grid;
-    grid-template-columns: minmax(240px, 300px) 1fr minmax(280px, 340px);
-    gap: 1px;
-    background: var(--grid);
     min-height: 0;
   }
   .pane {
     background: var(--surface-1);
     overflow-y: auto;
     min-height: 0;
+    min-width: 0;
   }
   .stage {
     background: var(--page);

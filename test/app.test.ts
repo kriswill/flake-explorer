@@ -120,6 +120,27 @@ describe("font scale", () => {
   });
 });
 
+describe("pane widths", () => {
+  test("clamps, persists on save, and restores", () => {
+    app.resetPanes();
+    app.setPane("left", 5000);
+    expect(app.paneLeft).toBe(640); // clamped to max
+    app.setPane("right", 10);
+    expect(app.paneRight).toBe(200); // clamped to min
+    app.savePanes();
+
+    app.paneLeft = 0;
+    app.paneRight = 0;
+    app.initPanes();
+    expect(app.paneLeft).toBe(640);
+    expect(app.paneRight).toBe(200);
+
+    app.resetPanes();
+    expect(app.paneLeft).toBe(280);
+    expect(app.paneRight).toBe(340);
+  });
+});
+
 describe("FileList", () => {
   test("renders groups as folder trees; files hidden until folder expands", () => {
     withMount(FileList, {}, (host) => {

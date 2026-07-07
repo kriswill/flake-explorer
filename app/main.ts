@@ -9,6 +9,7 @@ app.themeIndex = defaultThemeIndex(prefersDark);
 applyThemeVars(app.themeIndex);
 
 app.initFontScale();
+app.initPanes();
 app.initRouting();
 void app.loadManifest();
 
