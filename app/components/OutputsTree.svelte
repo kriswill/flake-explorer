@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { OutputNode } from "../../src/schema";
   import { app } from "../lib/state.svelte";
   import { colorFor } from "../lib/color";
   import { THEMES } from "../lib/themes";
@@ -7,9 +8,6 @@
   import TreeNode from "./TreeNode.svelte";
 
   const gen = $derived(THEMES[app.themeIndex]!.gen);
-  const outputs = $derived(
-    app.manifest?.outputs.kind === "attrset" ? Object.entries(app.manifest.outputs.children) : [],
-  );
 
   /** nixos/darwin configuration categories get the module-tree treatment. */
   const configKind = (category: string) =>
@@ -19,6 +17,23 @@
     const kind = configKind(category);
     return (app.manifest?.configurations ?? []).filter((c) => c.kind === kind).map((c) => c.name);
   };
+
+  /**
+   * A leaf/unknown node is real content; "omitted" just means "other system,
+   * not evaluated here" and carries no information either way.
+   */
+  const hasContent = (node: OutputNode): boolean =>
+    node.kind === "attrset" ? Object.values(node.children).some(hasContent) : node.kind !== "omitted";
+
+  /** Categories with nothing under them (e.g. an unused `apps` or `overlays`) just clutter the tree. */
+  const isEmptyCategory = (category: string, node: OutputNode): boolean =>
+    configKind(category) ? configNames(category).length === 0 : !hasContent(node);
+
+  const outputs = $derived(
+    app.manifest?.outputs.kind === "attrset"
+      ? Object.entries(app.manifest.outputs.children).filter(([category, node]) => !isEmptyCategory(category, node))
+      : [],
+  );
 
   function toggle(id: string) {
     if (app.expanded.has(id)) app.expanded.delete(id);
