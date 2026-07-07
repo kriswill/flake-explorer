@@ -73,18 +73,28 @@
 
 <div class="files">
   {#each visibleGroups as group (group.key)}
-    <div class="ghead" style="--c:{colorFor(group.colorKey, gen)}">
-      <span class="dot"></span>
-      <span class="glabel mono">{group.label}</span>
-      <span class="count">{group.count}</span>
-    </div>
-    <FileTreeBranch node={group.tree} depth={0} />
+    <section class="group" style="--c:{colorFor(group.colorKey, gen)}">
+      <div class="ghead">
+        <span class="dot"></span>
+        <span class="glabel mono">{group.label}</span>
+        <span class="count">{group.count}</span>
+      </div>
+      <div class="gbody">
+        <FileTreeBranch node={group.tree} depth={0} />
+      </div>
+    </section>
   {/each}
 </div>
 
 <style>
   .files {
-    padding: 8px 6px;
+    padding: 8px;
+  }
+  .group {
+    border: 1px solid color-mix(in srgb, var(--c) 30%, var(--grid));
+    border-radius: 10px;
+    margin-bottom: 12px;
+    /* no overflow:hidden — it would break the sticky header */
   }
   .ghead {
     position: sticky;
@@ -92,10 +102,14 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    background: var(--surface-1);
-    padding: 6px;
-    border-bottom: 1px solid var(--grid);
+    background: color-mix(in srgb, var(--c) 12%, var(--surface-1));
+    padding: 6px 8px;
+    border-bottom: 1px solid color-mix(in srgb, var(--c) 30%, var(--grid));
+    border-radius: 9px 9px 0 0;
     z-index: 1;
+  }
+  .gbody {
+    padding: 4px 4px 6px;
   }
   .glabel {
     font-size: 0.75rem;
