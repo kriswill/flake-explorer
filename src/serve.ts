@@ -11,7 +11,7 @@ import { reconcile, writeSidecar } from "./extract/cache";
 import { tokenizeNix } from "./extract/highlight";
 import { buildManifest } from "./extract/manifest";
 import { extractOptions } from "./extract/options";
-import { checkNix } from "./extract/run-nix";
+import { checkNix, readInputFile } from "./extract/run-nix";
 import type { Manifest } from "./schema";
 
 export interface ServeFlags {
@@ -96,13 +96,29 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
         if (!(await file.exists())) return new Response("not found", { status: 404 });
         return new Response(file, { headers: { "content-type": "application/json" } });
       }
-      const fm = url.pathname.match(/^\/data\/file\/(.+)$/);
-      if (fm) {
-        const entry = manifest.files.find((f) => f.id === decodeURIComponent(fm[1]!));
-        if (!entry) return new Response("not found", { status: 404 });
-        const file = Bun.file(entry.storePath);
-        if (!(await file.exists())) return new Response("not found", { status: 404 });
-        const text = await file.text();
+      if (url.pathname.startsWith("/data/file/")) {
+        // The id alone isn't enough: it only covers self + import-tree files.
+        // Option declarations/definitions can point anywhere (e.g. inside
+        // nixpkgs itself), so the client resolves and sends the real storePath.
+        const storePath = url.searchParams.get("storePath");
+        if (!storePath?.startsWith("/")) return new Response("storePath required", { status: 400 });
+        let text: string;
+        const file = Bun.file(storePath);
+        if (await file.exists()) {
+          text = await file.text();
+        } else {
+          // A cached ConfigData's storePath can be stale (GC'd, or a lazy-trees
+          // synthetic path that was never real to begin with) — for input-origin
+          // files, re-fetch straight from the flake input instead of 404ing.
+          const id = decodeURIComponent(url.pathname.slice("/data/file/".length));
+          const inputMatch = id.match(/^input:([^:]+):(.+)$/);
+          if (!inputMatch) return new Response("not found", { status: 404 });
+          try {
+            text = await readInputFile(flakeRef, inputMatch[1]!, inputMatch[2]!, flags.timeout * 1000);
+          } catch (e) {
+            return new Response(String(e), { status: 500 });
+          }
+        }
         const tokens = await tokenizeNix(text).catch(() => []);
         return Response.json({ text, tokens });
       }

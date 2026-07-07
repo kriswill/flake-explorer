@@ -36,7 +36,14 @@
   // ------------------------------------------------------------- source view
 
   const origin = $derived(manifestEntry?.origin ?? configView?.meta.origin ?? null);
+  const storePath = $derived(manifestEntry?.storePath ?? configView?.meta.storePath ?? null);
   const contentSlot = $derived(app.fileContents[fileId]);
+
+  /** manifestEntry only covers self + import-tree files; configView.meta also resolves
+   *  option-only files (e.g. inside nixpkgs itself) — either way, wait for a real storePath. */
+  $effect(() => {
+    if (storePath) app.loadFileContent(fileId, storePath);
+  });
 
   const sameOrigin = (a: FileOrigin, b: FileOrigin): boolean => {
     if (a.kind !== b.kind) return false;
@@ -161,101 +168,124 @@
   const label = (id: string) => id.replace(/^self:/, "").replace(/^input:[^:]+:/, "");
 </script>
 
-<div class="head" style="--c:{colorFor(colorKey, gen)}">
-  <Dot />
-  <h2 class="mono">{relPath}</h2>
-</div>
+<div class="file-detail">
+  <div class="fd-head">
+    <div class="head" style="--c:{colorFor(colorKey, gen)}">
+      <Dot />
+      <h2 class="mono">{relPath}</h2>
+    </div>
 
-{#if inputInfo}
-  <InputProvenance input={inputInfo} />
-{/if}
-
-{#if manifestEntry?.git}
-  <div class="card">
-    <h3>last commit</h3>
-    <p class="mono commit">
-      {manifestEntry.git.commit}
-      <button class="copy" onclick={copyHash}>{copied ? "copied" : "copy"}</button>
-    </p>
-    <p class="muted">{manifestEntry.git.date.slice(0, 19).replace("T", " ")} — {manifestEntry.git.subject}</p>
-  </div>
-{:else if inputInfo?.rev}
-  <div class="card">
-    <h3>locked revision</h3>
-    <p class="mono commit">{inputInfo.rev}</p>
-  </div>
-{/if}
-
-<div class="card">
-  {#if !contentSlot || contentSlot === "loading"}
-    <p class="muted">loading source…</p>
-  {:else if "error" in contentSlot}
-    <p class="muted err">
-      {contentSlot.error.split("\n")[0]}
-      <button class="retry" onclick={() => app.retryFileContent(fileId)}>retry</button>
-    </p>
-  {:else}
-    <ol class="src">
-      {#each lines as segs, i (i)}
-        <li>
-          {#each segs as seg, j (j)}
-            {#if seg.ref}
-              <button class="ref {seg.cls ?? ''}" onclick={() => app.select({ kind: "file", fileId: seg.ref! })}>{seg.text}</button>
-            {:else if seg.cls}
-              <span class={seg.cls}>{seg.text}</span>
-            {:else}{seg.text}{/if}
-          {/each}
-        </li>
-      {/each}
-    </ol>
-  {/if}
-</div>
-
-{#if imports.length || importedBy.length}
-  <div class="card">
-    {#if importedBy.length}
-      <h3>imported by <span class="count">{importedBy.length}</span></h3>
-      <ul>
-        {#each importedBy as id (id)}
-          <li><button class="link mono" onclick={() => app.select({ kind: "file", fileId: id })}>{label(id)}</button></li>
-        {/each}
-      </ul>
+    {#if inputInfo}
+      <InputProvenance input={inputInfo} />
     {/if}
-    {#if imports.length}
-      <h3>imports <span class="count">{imports.length}</span></h3>
-      <ul>
-        {#each imports as id (id)}
-          <li><button class="link mono" onclick={() => app.select({ kind: "file", fileId: id })}>{label(id)}</button></li>
-        {/each}
-      </ul>
+
+    {#if manifestEntry?.git}
+      <div class="section">
+        <h3>last commit</h3>
+        <p class="mono commit">
+          {manifestEntry.git.commit}
+          <button class="copy" onclick={copyHash}>{copied ? "copied" : "copy"}</button>
+        </p>
+        <p class="muted">{manifestEntry.git.date.slice(0, 19).replace("T", " ")} — {manifestEntry.git.subject}</p>
+      </div>
+    {:else if inputInfo?.rev}
+      <div class="section">
+        <h3>locked revision</h3>
+        <p class="mono commit">{inputInfo.rev}</p>
+      </div>
     {/if}
   </div>
-{/if}
 
-{#if configView}
-  <div class="card">
-    <h3>customizes in {configView.configId} <span class="count">{customizes.length}</span></h3>
-    {#if customizes.length === 0}
-      <p class="muted">No customized option values from this file.</p>
+  <div class="fd-body">
+    {#if !contentSlot || contentSlot === "loading"}
+      <p class="muted">loading source…</p>
+    {:else if "error" in contentSlot}
+      <p class="muted err">
+        {contentSlot.error.split("\n")[0]}
+        <button class="retry" onclick={() => app.retryFileContent(fileId, storePath!)}>retry</button>
+      </p>
     {:else}
-      <ul>
-        {#each customizes.slice(0, 50) as o (o.loc.join("."))}
+      <ol class="src">
+        {#each lines as segs, i (i)}
           <li>
-            <button
-              class="link mono"
-              onclick={() => app.select({ kind: "module", configId: configView.configId, moduleId: fileId })}
-            >{o.loc.join(".")}</button>
+            {#each segs as seg, j (j)}
+              {#if seg.ref}
+                <button class="ref {seg.cls ?? ''}" onclick={() => app.select({ kind: "file", fileId: seg.ref! })}>{seg.text}</button>
+              {:else if seg.cls}
+                <span class={seg.cls}>{seg.text}</span>
+              {:else}{seg.text}{/if}
+            {/each}
           </li>
         {/each}
-        {#if customizes.length > 50}<li class="muted">… and {customizes.length - 50} more</li>{/if}
-      </ul>
+      </ol>
     {/if}
   </div>
-{:else}
-  <p class="muted">Load a configuration on the left to see which options this file affects.</p>
-{/if}
+
+  <div class="fd-foot">
+    {#if imports.length || importedBy.length}
+      <div class="section">
+        {#if importedBy.length}
+          <h3>imported by <span class="count">{importedBy.length}</span></h3>
+          <ul>
+            {#each importedBy as id (id)}
+              <li><button class="link mono" onclick={() => app.select({ kind: "file", fileId: id })}>{label(id)}</button></li>
+            {/each}
+          </ul>
+        {/if}
+        {#if imports.length}
+          <h3>imports <span class="count">{imports.length}</span></h3>
+          <ul>
+            {#each imports as id (id)}
+              <li><button class="link mono" onclick={() => app.select({ kind: "file", fileId: id })}>{label(id)}</button></li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+    {/if}
+
+    {#if configView}
+      <div class="section">
+        <h3>customizes in {configView.configId} <span class="count">{customizes.length}</span></h3>
+        {#if customizes.length === 0}
+          <p class="muted">No customized option values from this file.</p>
+        {:else}
+          <ul>
+            {#each customizes.slice(0, 50) as o (o.loc.join("."))}
+              <li>
+                <button
+                  class="link mono"
+                  onclick={() => app.select({ kind: "module", configId: configView.configId, moduleId: fileId })}
+                >{o.loc.join(".")}</button>
+              </li>
+            {/each}
+            {#if customizes.length > 50}<li class="muted">… and {customizes.length - 50} more</li>{/if}
+          </ul>
+        {/if}
+      </div>
+    {:else}
+      <p class="muted section">Load a configuration on the left to see which options this file affects.</p>
+    {/if}
+  </div>
+</div>
 
 <style>
+  .file-detail {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .fd-head,
+  .fd-foot {
+    flex: none;
+  }
+  .fd-body {
+    flex: 1 1 0%;
+    min-height: 120px;
+    overflow-y: auto;
+    border-top: 1px solid var(--grid);
+    padding-top: 10px;
+    margin-top: 10px;
+  }
   .head {
     display: flex;
     align-items: center;
@@ -267,11 +297,9 @@
     font-size: 0.9375rem;
     word-break: break-all;
   }
-  .card {
-    background: var(--surface-1);
-    border: 1px solid var(--grid);
-    border-radius: 10px;
-    padding: 10px 14px;
+  .section {
+    border-top: 1px solid var(--grid);
+    padding-top: 10px;
     margin-top: 10px;
   }
   h3 {
@@ -341,6 +369,7 @@
     padding: 0;
     counter-reset: line;
     overflow-x: auto;
+    overflow-y: hidden;
     white-space: pre;
     font-family: ui-monospace, monospace;
     font-size: 0.75rem;

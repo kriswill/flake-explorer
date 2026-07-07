@@ -21,69 +21,57 @@
   {:else if app.selection?.kind === "file"}
     <FileDetail fileId={app.selection.fileId} />
   {:else if app.selection?.kind === "output"}
-    <div class="card">
-      <h2 class="mono">{app.selection.path.join(".")}</h2>
-      {#if outputLeaf?.kind === "leaf"}
-        <p><span class="k">type</span> {outputLeaf.type}</p>
-        {#if outputLeaf.name}<p><span class="k">name</span> <span class="mono">{outputLeaf.name}</span></p>{/if}
-        {#if outputLeaf.description}<p>{outputLeaf.description}</p>{/if}
-      {:else if outputLeaf?.kind === "omitted"}
-        <p class="muted">Not evaluated for this system (re-extract with --all-systems).</p>
-      {:else}
-        <p class="muted">nix flake show could not classify this output.</p>
-      {/if}
-    </div>
+    <h2 class="mono">{app.selection.path.join(".")}</h2>
+    {#if outputLeaf?.kind === "leaf"}
+      <p><span class="k">type</span> {outputLeaf.type}</p>
+      {#if outputLeaf.name}<p><span class="k">name</span> <span class="mono">{outputLeaf.name}</span></p>{/if}
+      {#if outputLeaf.description}<p>{outputLeaf.description}</p>{/if}
+    {:else if outputLeaf?.kind === "omitted"}
+      <p class="muted">Not evaluated for this system (re-extract with --all-systems).</p>
+    {:else}
+      <p class="muted">nix flake show could not classify this output.</p>
+    {/if}
   {:else if app.selection?.kind === "config" && app.activeConfigId}
     {@const configId = app.activeConfigId}
     {@const ref = app.manifest?.configurations.find((c) => c.id === configId)}
-    <div class="card">
-      <h2 class="mono">{configId}</h2>
-      {#if app.activeConfig}
-        {@const opts = app.activeConfig.data.options}
-        <p>
-          {opts.length} options, {opts.filter((o) => o.customized).length} customized,
-          {app.activeConfig.indexes.filesById.size} contributing files.
-        </p>
-        <p class="muted">Expand the configuration on the left and select a module to inspect its options.</p>
-      {:else if app.configs[configId] === "loading"}
-        <p class="muted">Extracting / loading options… (first run can take a minute or two)</p>
-      {:else if ref?.status === "error"}
-        <p class="err">{ref.error}</p>
-      {/if}
-    </div>
-  {:else if app.manifest}
-    <div class="card">
-      <h2>{app.manifest.flake.description ?? app.manifest.flake.ref}</h2>
-      <p class="mono muted">{app.manifest.flake.ref}{app.manifest.flake.rev ? ` @ ${app.manifest.flake.rev.slice(0, 12)}` : ""}</p>
+    <h2 class="mono">{configId}</h2>
+    {#if app.activeConfig}
+      {@const opts = app.activeConfig.data.options}
       <p>
-        {app.manifest.files.length} .nix files ·
-        {Object.keys(app.manifest.inputs).length} inputs ·
-        {app.manifest.configurations.length} configurations
+        {opts.length} options, {opts.filter((o) => o.customized).length} customized,
+        {app.activeConfig.indexes.filesById.size} contributing files.
       </p>
-      <Legend />
-      {#if app.manifest.warnings.length}
-        <details>
-          <summary>{app.manifest.warnings.length} extraction warnings</summary>
-          <ul>
-            {#each app.manifest.warnings as w}<li class="mono warn">{w}</li>{/each}
-          </ul>
-        </details>
-      {/if}
-    </div>
+      <p class="muted">Expand the configuration on the left and select a module to inspect its options.</p>
+    {:else if app.configs[configId] === "loading"}
+      <p class="muted">Extracting / loading options… (first run can take a minute or two)</p>
+    {:else if ref?.status === "error"}
+      <p class="err">{ref.error}</p>
+    {/if}
+  {:else if app.manifest}
+    <h2>{app.manifest.flake.description ?? app.manifest.flake.ref}</h2>
+    <p class="mono muted">{app.manifest.flake.ref}{app.manifest.flake.rev ? ` @ ${app.manifest.flake.rev.slice(0, 12)}` : ""}</p>
+    <p>
+      {app.manifest.files.length} .nix files ·
+      {Object.keys(app.manifest.inputs).length} inputs ·
+      {app.manifest.configurations.length} configurations
+    </p>
+    <Legend />
+    {#if app.manifest.warnings.length}
+      <details>
+        <summary>{app.manifest.warnings.length} extraction warnings</summary>
+        <ul>
+          {#each app.manifest.warnings as w}<li class="mono warn">{w}</li>{/each}
+        </ul>
+      </details>
+    {/if}
   {/if}
 </div>
 
 <style>
   .stage {
     padding: 16px;
-    min-height: 100%;
+    height: 100%;
     box-sizing: border-box;
-  }
-  .card {
-    background: var(--surface-1);
-    border: 1px solid var(--grid);
-    border-radius: 10px;
-    padding: 16px 18px;
   }
   h2 {
     margin: 0 0 8px;

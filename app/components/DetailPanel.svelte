@@ -134,10 +134,8 @@
     text-overflow: ellipsis;
   }
   section {
-    background: var(--surface-1);
-    border: 1px solid var(--grid);
-    border-radius: 10px;
-    padding: 10px 14px;
+    border-top: 1px solid var(--grid);
+    padding-top: 10px;
     margin-top: 12px;
   }
   h3 {

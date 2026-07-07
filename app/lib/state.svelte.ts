@@ -130,21 +130,28 @@ class AppState {
     void this.loadConfig(configId);
   }
 
-  async loadFileContent(fileId: string) {
+  /**
+   * storePath is the caller's job to resolve (see FileDetail.svelte): a file
+   * reached only through an option's declarations/definitions — e.g. a file
+   * inside nixpkgs itself, never walked by the self/import-tree file
+   * enumeration — has no entry in manifest.files for an id-only lookup to
+   * find server-side.
+   */
+  async loadFileContent(fileId: string, storePath: string) {
     if (this.fileContents[fileId]) return;
     this.fileContents = { ...this.fileContents, [fileId]: "loading" };
     try {
-      const source = await loadJson<FileSource>(`file/${encodeURIComponent(fileId)}`);
+      const source = await loadJson<FileSource>(`file/${encodeURIComponent(fileId)}?storePath=${encodeURIComponent(storePath)}`);
       this.fileContents = { ...this.fileContents, [fileId]: source };
     } catch (e) {
       this.fileContents = { ...this.fileContents, [fileId]: { error: String(e) } };
     }
   }
 
-  retryFileContent(fileId: string) {
+  retryFileContent(fileId: string, storePath: string) {
     const { [fileId]: _, ...rest } = this.fileContents;
     this.fileContents = rest;
-    void this.loadFileContent(fileId);
+    void this.loadFileContent(fileId, storePath);
   }
 
   // ---------------------------------------------------------------- routing
@@ -168,7 +175,6 @@ class AppState {
       }
     } else if (sel?.kind === "file") {
       this.revealFile(sel.fileId);
-      void this.loadFileContent(sel.fileId);
     }
   }
 

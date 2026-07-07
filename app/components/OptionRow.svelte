@@ -20,17 +20,29 @@
     return null;
   });
 
+  /**
+   * Merge-type options (attrsOf/listOf) fold every file's contribution into
+   * one big value — meta.maintainers, e.g., merges to an 859-key attrset (one
+   * per nixos module), which trips the extractor's breadth cap and shows as
+   * "«attrs:859»". This file's own definition is usually small and never hit
+   * that cap, so prefer it — it's also just the more relevant number: what
+   * *this* file actually sets, not the whole config's merged result.
+   */
+  const ownDefinition = $derived(entry.definitions.find((d) => d.file === highlightFile));
+  const shownValue = $derived(ownDefinition ? ownDefinition.value : entry.value);
+  const shownValueError = $derived(ownDefinition ? ownDefinition.valueError : entry.valueError);
+
   const preview = $derived.by(() => {
-    if (entry.valueError) return "⚠ value failed to evaluate";
-    if (entry.value === undefined) {
+    if (shownValueError) return "⚠ value failed to evaluate";
+    if (shownValue === undefined) {
       return entry.customized ? "(value skipped)" : (entry.defaultText ?? "—");
     }
-    const s = JSON.stringify(entry.value);
+    const s = JSON.stringify(shownValue);
     return s === undefined ? "—" : s;
   });
 
   const full = $derived(
-    entry.value !== undefined ? JSON.stringify(entry.value, null, 2) : preview,
+    shownValue !== undefined ? JSON.stringify(shownValue, null, 2) : preview,
   );
 
   let timer: ReturnType<typeof setTimeout> | undefined;

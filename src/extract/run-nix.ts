@@ -98,6 +98,33 @@ export function evalExtract<T>(args: ExtractArgs, timeoutMs: number): Promise<T>
   return runJson<T>(["eval", "--impure", "--json", "--expr", expr], timeoutMs);
 }
 
+/**
+ * Read a file out of a flake input directly through Nix, bypassing the store
+ * path entirely. A cached ConfigData blob's declaration/definition file
+ * strings are store paths frozen at extraction time — they 404 once GC has
+ * swept that input's (usually unrooted) source tree, or under lazy-trees
+ * (Determinate Nix), which mints synthetic per-access-route paths that were
+ * never a real on-disk directory to begin with. `getFlake` + `readFile`
+ * re-resolves/re-fetches the input as needed instead of trusting a stale path.
+ */
+export async function readInputFile(flakeRef: string, inputName: string, relPath: string, timeoutMs = 60_000): Promise<string> {
+  try {
+    return await readInputFileRaw(flakeRef, inputName, relPath, timeoutMs);
+  } catch (e) {
+    // A directory-mounted "module" (import ./modules/sops) records its id/relPath
+    // as the directory itself; Nix resolves the same import to default.nix.
+    if (e instanceof NixError && /Is a directory/.test(e.stderr)) {
+      return readInputFileRaw(flakeRef, inputName, `${relPath}/default.nix`, timeoutMs);
+    }
+    throw e;
+  }
+}
+
+function readInputFileRaw(flakeRef: string, inputName: string, relPath: string, timeoutMs: number): Promise<string> {
+  const expr = `builtins.readFile ((builtins.getFlake ${JSON.stringify(flakeRef)}).inputs.${JSON.stringify(inputName)} + ${JSON.stringify("/" + relPath)})`;
+  return runText(["eval", "--impure", "--raw", "--expr", expr], timeoutMs);
+}
+
 export interface ExtractArgs {
   flakeRef: string;
   mode: "manifest" | "options" | "optionNames";
