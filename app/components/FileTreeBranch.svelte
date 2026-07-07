@@ -42,7 +42,8 @@
 
 <ul class="tree" style="--indent:{depth === 0 ? 0 : 12}px">
   {#each node.children.filter(matches) as child (child.id)}
-    <li>
+    <!-- Top-level folders get breathing room from the root-file list above. -->
+    <li class:gap={depth === 0 && !child.fileId}>
       {#if child.fileId}
         <button
           class="row file"
@@ -77,6 +78,9 @@
     list-style: none;
     margin: 0;
     padding: 0 0 0 var(--indent);
+  }
+  li.gap {
+    margin-top: 8px;
   }
   .row {
     display: flex;
