@@ -103,17 +103,18 @@ describe("font scale", () => {
     app.setFontScale(1);
     app.adjustFontScale(0.1);
     expect(app.fontScale).toBe(1.1);
-    expect(localStorage.getItem("flake-explorer:font-scale")).toBe("1.1");
-    expect(document.documentElement.style.fontSize).toBe("17.6px");
+    expect(localStorage.getItem("flake-explorer:font-scale@2")).toBe("1.1");
+    // 100% == 22.4px base (the old 140%), so 1.1 => 24.64px
+    expect(document.documentElement.style.fontSize).toBe("24.64px");
 
     app.setFontScale(99);
-    expect(app.fontScale).toBe(1.8); // clamped
+    expect(app.fontScale).toBe(1.5); // clamped
 
     app.fontScale = 0; // simulate a fresh session
     app.initFontScale(); // restores the clamped saved value
-    expect(app.fontScale).toBe(1.8);
+    expect(app.fontScale).toBe(1.5);
 
-    localStorage.removeItem("flake-explorer:font-scale");
+    localStorage.removeItem("flake-explorer:font-scale@2");
     app.initFontScale();
     expect(app.fontScale).toBe(1);
   });

@@ -22,9 +22,13 @@ export type ConfigSlot = "loading" | { error: string } | { data: ConfigData; ind
 
 export type Hover = { kind: "file"; fileId: string } | { kind: "module"; fileId: string } | null;
 
-const FONT_SCALE_KEY = "flake-explorer:font-scale";
-const FONT_SCALE_MIN = 0.7;
-const FONT_SCALE_MAX = 1.8;
+// Baseline root font-size at 100%. 22.4px = the old 16px base at 140%,
+// rebased so the comfortable reading size reads as "100%". The storage key
+// is versioned: values saved against the 16px base would render wrong.
+const FONT_BASE_PX = 22.4;
+const FONT_SCALE_KEY = "flake-explorer:font-scale@2";
+const FONT_SCALE_MIN = 0.5;
+const FONT_SCALE_MAX = 1.5;
 
 class AppState {
   themeIndex = $state(0);
@@ -202,7 +206,7 @@ class AppState {
     this.fontScale = Math.round(Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, scale)) * 100) / 100;
     if (typeof localStorage !== "undefined") localStorage.setItem(FONT_SCALE_KEY, String(this.fontScale));
     if (typeof document !== "undefined") {
-      document.documentElement.style.fontSize = `${16 * this.fontScale}px`;
+      document.documentElement.style.fontSize = `${FONT_BASE_PX * this.fontScale}px`;
     }
   }
 
