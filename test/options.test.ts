@@ -34,4 +34,21 @@ describe("buildFileIndex", () => {
     expect(idx["/f/def.nix"]).toEqual({ defines: [0], declares: [] });
     expect(idx["/f/decl.nix"]).toEqual({ defines: [], declares: [0, 1] });
   });
+
+  test("an option defined twice by the same file is indexed once", () => {
+    const options = [
+      entry({
+        loc: ["environment", "profiles"],
+        customized: true,
+        declarations: [{ file: "/f/decl.nix" }, { file: "/f/decl.nix" }],
+        definitions: [
+          { file: "/f/env.nix", value: ["a"] },
+          { file: "/f/env.nix", value: ["b"] },
+        ],
+      }),
+    ];
+    const idx = buildFileIndex(options);
+    expect(idx["/f/env.nix"]).toEqual({ defines: [0], declares: [] });
+    expect(idx["/f/decl.nix"]).toEqual({ defines: [], declares: [0] });
+  });
 });

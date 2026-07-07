@@ -225,9 +225,21 @@ export function buildFileIndex(options: OptionEntry[]): Record<string, FileOptio
   const index: Record<string, FileOptionRefs> = {};
   const at = (file: string) => (index[file] ??= { defines: [], declares: [] });
   options.forEach((o, i) => {
-    for (const d of o.declarations) at(d.file).declares.push(i);
+    // A file can declare/define the same option more than once (e.g. two
+    // `environment.profiles` definitions in one module) — index it once.
+    const declared = new Set<string>();
+    for (const d of o.declarations) {
+      if (declared.has(d.file)) continue;
+      declared.add(d.file);
+      at(d.file).declares.push(i);
+    }
     if (o.customized) {
-      for (const d of o.definitions) at(d.file).defines.push(i);
+      const defined = new Set<string>();
+      for (const d of o.definitions) {
+        if (defined.has(d.file)) continue;
+        defined.add(d.file);
+        at(d.file).defines.push(i);
+      }
     }
   });
   return index;

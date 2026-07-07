@@ -120,6 +120,12 @@ export function buildConfigIndexes(manifest: Manifest, config: ConfigData, fx: F
       refsByFile.set(meta.id, { defines: [...refs.defines], declares: [...refs.declares] });
     }
   }
+  // Blobs from older extractors can carry duplicate indices (same option
+  // defined twice by one file) — dedupe so keyed lists never collide.
+  for (const refs of refsByFile.values()) {
+    refs.defines = [...new Set(refs.defines)];
+    refs.declares = [...new Set(refs.declares)];
+  }
 
   const tree = buildTree(filesById, refsByFile);
   const fileToNodes = buildFileToNodes(tree);
