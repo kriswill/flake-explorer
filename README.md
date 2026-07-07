@@ -4,6 +4,8 @@ Interactive visualizer for Nix flakes — built for dendritic
 ([flake-parts](https://flake.parts) + [import-tree](https://github.com/vic/import-tree))
 configurations, works on any flake.
 
+![flake-explorer browsing a NixOS configuration: module tree filtered to "hypr", option detail with input provenance and a hover tooltip, file tree grouped by origin](docs/preview.png)
+
 Three panes:
 
 - **Left — outputs & modules.** Every flake output (`nixosConfigurations`,
