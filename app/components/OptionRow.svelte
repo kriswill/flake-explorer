@@ -41,9 +41,43 @@
     return s === undefined ? "—" : s;
   });
 
-  const full = $derived(
-    shownValue !== undefined ? JSON.stringify(shownValue, null, 2) : preview,
-  );
+  interface JsonSeg {
+    text: string;
+    cls?: string;
+  }
+
+  /** Walks a parsed JSON value and emits {text, cls} runs, matching JSON.stringify(v, null, 2)'s layout. */
+  function jsonSegments(value: unknown, indent: string): JsonSeg[] {
+    if (value === null || typeof value === "boolean") return [{ text: JSON.stringify(value), cls: "tok-atom" }];
+    if (typeof value === "number") return [{ text: JSON.stringify(value), cls: "tok-number" }];
+    if (typeof value === "string") return [{ text: JSON.stringify(value), cls: "tok-string" }];
+
+    const nextIndent = `${indent}  `;
+    if (Array.isArray(value)) {
+      if (value.length === 0) return [{ text: "[]" }];
+      const segs: JsonSeg[] = [{ text: "[\n" }];
+      value.forEach((item, i) => {
+        segs.push({ text: nextIndent }, ...jsonSegments(item, nextIndent));
+        segs.push({ text: i < value.length - 1 ? ",\n" : "\n" });
+      });
+      segs.push({ text: `${indent}]` });
+      return segs;
+    }
+    if (typeof value === "object") {
+      const entries = Object.entries(value as Record<string, unknown>);
+      if (entries.length === 0) return [{ text: "{}" }];
+      const segs: JsonSeg[] = [{ text: "{\n" }];
+      entries.forEach(([k, v], i) => {
+        segs.push({ text: nextIndent }, { text: JSON.stringify(k), cls: "tok-key" }, { text: ": " }, ...jsonSegments(v, nextIndent));
+        segs.push({ text: i < entries.length - 1 ? ",\n" : "\n" });
+      });
+      segs.push({ text: `${indent}}` });
+      return segs;
+    }
+    return [{ text: String(value) }];
+  }
+
+  const fullSegments = $derived(shownValue !== undefined ? jsonSegments(shownValue, "") : undefined);
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   function enter(e: PointerEvent) {
@@ -71,7 +105,7 @@
     <span class="val mono" class:muted={!entry.customized}>{preview}</span>
   </button>
   {#if open}
-    <pre class="mono">{full}</pre>
+    <pre class="mono">{#if fullSegments}{#each fullSegments as seg}<span class={seg.cls}>{seg.text}</span>{/each}{:else}{preview}{/if}</pre>
   {/if}
 </li>
 
@@ -154,5 +188,17 @@
     max-height: 300px;
     white-space: pre-wrap;
     word-break: break-all;
+  }
+  .tok-key {
+    color: var(--s9);
+  }
+  .tok-string {
+    color: var(--s8);
+  }
+  .tok-number {
+    color: var(--s3);
+  }
+  .tok-atom {
+    color: var(--s5);
   }
 </style>
