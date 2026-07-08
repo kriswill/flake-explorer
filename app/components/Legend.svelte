@@ -3,6 +3,7 @@
   import { app } from "../lib/state.svelte";
   import { colorFor } from "../lib/color";
   import { THEMES } from "../lib/themes";
+  import { webUrl } from "../lib/url";
 
   const gen = $derived(THEMES[app.themeIndex]!.gen);
   const inputs = $derived(Object.values(app.manifest?.inputs ?? {}).filter((i) => !i.transitive));
@@ -10,9 +11,16 @@
 
 <div class="legend">
   {#each inputs as input (input.name)}
-    <span class="chip" style="--c:{colorFor(input.name, gen)}" title={input.url ?? input.type}>
-      <Dot />{input.name}
-    </span>
+    {@const link = webUrl(input.url)}
+    {#if link}
+      <a class="chip" style="--c:{colorFor(input.name, gen)}" href={link} target="_blank" rel="noopener" title={input.url}>
+        <Dot />{input.name}
+      </a>
+    {:else}
+      <span class="chip" style="--c:{colorFor(input.name, gen)}" title={input.url ?? input.type}>
+        <Dot />{input.name}
+      </span>
+    {/if}
   {/each}
 </div>
 
@@ -32,5 +40,16 @@
     border: 1px solid var(--grid);
     border-radius: 10px;
     padding: 2px 8px;
+    text-decoration: none;
+  }
+  a.chip {
+    cursor: pointer;
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+  a.chip:hover {
+    color: var(--c);
+    border-color: var(--c);
   }
 </style>
