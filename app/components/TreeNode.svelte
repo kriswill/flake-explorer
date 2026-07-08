@@ -76,29 +76,35 @@
   li {
     position: relative;
   }
-  /* Rail: vertical guide in the PARENT's color, spanning to the next sibling. */
+  /* Rail: vertical guide in the PARENT's color, spanning to the next sibling.
+     Centered under the parent dot: left = row-pad(0.4) + dot-radius(0.325) - indent(1.15) - border/2. */
   li:not(:last-child)::after {
     content: "";
     position: absolute;
-    left: -0.78rem;
+    left: -0.4609rem;
     top: 0;
     bottom: 0;
-    border-left: 2px solid color-mix(in srgb, var(--rail, var(--grid)) 45%, transparent);
+    /* Mixed against the panel bg (not transparent) so it stays a consistent
+       opaque color crossing hovered/selected rows instead of darkening. */
+    border-left: 2px solid color-mix(in srgb, var(--rail, var(--grid)) 45%, var(--surface-1));
     pointer-events: none;
+    z-index: 3;
   }
-  /* Elbow: curved hook into this row, in the CHILD's own color. */
+  /* Elbow: curved hook into this row, in the CHILD's own color.
+     Top abuts the parent dot's bottom edge; right/bottom land on the child dot's left-center. */
   li::before {
     content: "";
     position: absolute;
-    left: -0.78rem;
-    top: -0.2rem;
-    width: 0.55rem;
-    height: 0.95rem;
-    border-left: 2px solid color-mix(in srgb, var(--c) 70%, transparent);
-    border-bottom: 2px solid color-mix(in srgb, var(--c) 70%, transparent);
-    border-bottom-left-radius: 0.55rem;
+    left: -0.4609rem;
+    top: -0.3393rem;
+    width: 0.8605rem;
+    height: 1.0391rem;
+    border-left: 2px solid color-mix(in srgb, var(--c) 70%, var(--surface-1));
+    border-bottom: 2px solid color-mix(in srgb, var(--c) 70%, var(--surface-1));
+    border-bottom-left-radius: 0.8605rem;
     pointer-events: none;
-    z-index: 1;
+    /* Above .row's z-index:2 so highlighted/selected rows don't clip the curve above them. */
+    z-index: 3;
   }
   .row {
     display: flex;
