@@ -4,7 +4,7 @@ Interactive visualizer for Nix flakes — built for dendritic
 ([flake-parts](https://flake.parts) + [import-tree](https://github.com/vic/import-tree))
 configurations, works on any flake.
 
-![flake-explorer browsing a NixOS configuration: module tree filtered to "hypr", option detail with input provenance and a hover tooltip, file tree grouped by origin](docs/preview.png)
+![flake-explorer browsing a NixOS configuration: module tree on the left, portal.nix detail showing input provenance, Configures/Declares with a hover tooltip and syntax-highlighted JSON value, nixpkgs module tree on the right](docs/preview.png)
 
 Three panes:
 
