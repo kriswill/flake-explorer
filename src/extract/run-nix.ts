@@ -46,19 +46,23 @@ export async function checkNix(): Promise<string> {
 const COMMON_OPTS = ["--option", "lazy-trees", "false"];
 
 async function run(args: string[], timeoutMs: number): Promise<string> {
-  const proc = Bun.spawn(["nix", ...COMMON_OPTS, ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  const proc = Bun.spawn(["nix", ...COMMON_OPTS, ...args], { stdout: "pipe", stderr: "pipe" });
+  // Not signal: AbortSignal.timeout(timeoutMs) — some test/runtime setups
+  // (e.g. this repo's happy-dom preload) replace the global AbortSignal, and
+  // Bun.spawn rejects a signal instance that isn't identically its own class.
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    proc.kill();
+  }, timeoutMs);
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
     proc.exited,
-  ]).catch((e) => {
-    proc.kill();
-    throw new NixError(`nix ${args[0]} timed out after ${timeoutMs / 1000}s`, String(e), null);
-  });
+  ]).finally(() => clearTimeout(timer));
+  if (timedOut) {
+    throw new NixError(`nix ${args[0]} timed out after ${timeoutMs / 1000}s`, stderr, exitCode);
+  }
   if (exitCode !== 0) {
     const tail = stderr.trim().split("\n").slice(-15).join("\n");
     throw new NixError(`nix ${args.slice(0, 3).join(" ")} failed (exit ${exitCode}):\n${tail}`, stderr, exitCode);
