@@ -39,10 +39,15 @@
   const storePath = $derived(manifestEntry?.storePath ?? configView?.meta.storePath ?? null);
   const contentSlot = $derived(app.fileContents[fileId]);
 
+  /** The module system reports some declarations under a relative pseudo-path
+   *  (nixpkgs declares _module.* as literally "lib/modules.nix") — there is no
+   *  store file behind those, so don't ask the server for one. */
+  const virtualPath = $derived(storePath !== null && !storePath.startsWith("/"));
+
   /** manifestEntry only covers self + import-tree files; configView.meta also resolves
    *  option-only files (e.g. inside nixpkgs itself) — either way, wait for a real storePath. */
   $effect(() => {
-    if (storePath) app.loadFileContent(fileId, storePath);
+    if (storePath && !virtualPath) app.loadFileContent(fileId, storePath);
   });
 
   const sameOrigin = (a: FileOrigin, b: FileOrigin): boolean => {
@@ -213,7 +218,12 @@
   </div>
 
   <div class="fd-body">
-    {#if !contentSlot || contentSlot === "loading"}
+    {#if virtualPath}
+      <p class="muted">
+        The module system reports this declaration under the virtual path
+        <span class="mono">{storePath}</span> — there is no store file to show.
+      </p>
+    {:else if !contentSlot || contentSlot === "loading"}
       <p class="muted">loading source…</p>
     {:else if "error" in contentSlot}
       <p class="muted err">
