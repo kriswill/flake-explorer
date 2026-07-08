@@ -1,0 +1,22 @@
+{
+  "nodes": {
+    "root": {
+      "inputs": {
+        "vendor": "vendor"
+      }
+    },
+    "vendor": {
+      "locked": {
+        "path": "./vendor",
+        "type": "path"
+      },
+      "original": {
+        "path": "./vendor",
+        "type": "path"
+      },
+      "parent": []
+    }
+  },
+  "root": "root",
+  "version": 7
+}
