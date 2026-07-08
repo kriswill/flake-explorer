@@ -15,12 +15,8 @@
       <span class="b1">Flake</span><span class="b2">Explorer</span>
     </button>
   </h1>
-  {#if app.manifest}
-    <span class="ref" title={app.manifest.flake.path}>{app.manifest.flake.ref}</span>
-    {#if app.manifest.flake.description}<span class="desc">{app.manifest.flake.description}</span>{/if}
-  {/if}
-  <span class="spacer"></span>
   <input
+    class="search"
     type="search"
     name="filter"
     aria-label="Filter modules and files"
@@ -28,38 +24,41 @@
     value={app.q}
     oninput={(e) => app.setFilters({ q: e.currentTarget.value })}
   />
-  <span class="fontctl" role="group" aria-label="Text size">
-    <button type="button" title="Smaller text" aria-label="Smaller text" onclick={() => app.adjustFontScale(-0.1)}>A−</button>
+  <div class="controls">
+    <span class="fontctl" role="group" aria-label="Text size">
+      <button type="button" title="Smaller text" aria-label="Smaller text" onclick={() => app.adjustFontScale(-0.1)}>A−</button>
+      <button
+        type="button"
+        class="pct"
+        title="Reset text size"
+        aria-label="Reset text size to 100%"
+        onclick={() => app.setFontScale(1)}
+      >{Math.round(app.fontScale * 100)}%</button>
+      <button type="button" title="Larger text" aria-label="Larger text" onclick={() => app.adjustFontScale(0.1)}>A+</button>
+    </span>
     <button
+      class="round theme"
       type="button"
-      class="pct"
-      title="Reset text size"
-      aria-label="Reset text size to 100%"
-      onclick={() => app.setFontScale(1)}
-    >{Math.round(app.fontScale * 100)}%</button>
-    <button type="button" title="Larger text" aria-label="Larger text" onclick={() => app.adjustFontScale(0.1)}>A+</button>
-  </span>
-  <button
-    class="round theme"
-    type="button"
-    aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
-    title={isDark ? "Switch to light theme" : "Switch to dark theme"}
-    onclick={toggleTheme}
-  >{isDark ? "☀" : "☾"}</button>
-  <button
-    class="round help"
-    type="button"
-    aria-label="About Flake Explorer"
-    title="About Flake Explorer"
-    onclick={() => app.openAbout()}
-  >?</button>
+      aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
+      title={isDark ? "Switch to light theme" : "Switch to dark theme"}
+      onclick={toggleTheme}
+    >{isDark ? "☀" : "☾"}</button>
+    <button
+      class="round help"
+      type="button"
+      aria-label="About Flake Explorer"
+      title="About Flake Explorer"
+      onclick={() => app.openAbout()}
+    >?</button>
+  </div>
 </header>
 
 <style>
   header {
     position: relative;
     z-index: 10;
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr minmax(280px, 480px) 1fr;
     align-items: center;
     gap: 12px;
     padding: 8px 14px;
@@ -87,34 +86,24 @@
     color: var(--ink-muted);
     font-weight: 400;
   }
-  .ref {
-    font-family: ui-monospace, monospace;
-    font-size: 0.75rem;
-    color: var(--link);
-  }
-  .desc {
-    font-size: 0.75rem;
-    color: var(--ink-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 32ch;
-  }
-  .spacer {
-    flex: 1;
-  }
-  input {
+  .search {
     background: var(--page);
     border: 1px solid var(--grid);
     border-radius: 6px;
     color: var(--ink-1);
     padding: 5px 10px;
     font-size: 0.8125rem;
-    width: 220px;
+    width: 100%;
   }
-  input:focus {
+  .search:focus {
     outline: none;
     border-color: var(--link);
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    justify-self: end;
   }
   .fontctl {
     display: inline-flex;

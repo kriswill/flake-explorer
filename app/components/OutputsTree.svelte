@@ -63,9 +63,21 @@
     const slot = app.configs[id];
     return slot && typeof slot === "object" && "data" in slot ? slot : null;
   };
+
+  /** Last path segment of the flake ref, e.g. "/home/k/src/nixos-config" -> "nixos-config". */
+  const pathName = $derived.by(() => {
+    const ref = app.manifest?.flake.ref.replace(/\/+$/, "") ?? "";
+    return ref.slice(ref.lastIndexOf("/") + 1);
+  });
 </script>
 
 <div class="panel">
+  {#if app.manifest}
+    <section class="path-section">
+      <p class="path mono" title={app.manifest.flake.path}>{pathName}</p>
+    </section>
+  {/if}
+
   <section>
     <h3 class="eyebrow">description</h3>
     {#if app.manifest?.flake.description}
@@ -210,6 +222,13 @@
     margin-top: 10px;
     padding-top: 10px;
     border-top: 1px solid var(--grid);
+  }
+  .path {
+    margin: 0;
+    padding: 0 8px;
+    font-size: 0.8125rem;
+    color: var(--link);
+    word-break: break-all;
   }
   .eyebrow {
     margin: 0 0 4px;
