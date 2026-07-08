@@ -48,11 +48,12 @@ export const THEMES: ThemeDef[] = [
       "--s1": "#1481f3", "--s2": "#46a87f", "--s3": "#c68413", "--s4": "#007600",
       "--s5": "#857dd3", "--s6": "#ad4b4b", "--s7": "#b31d60", "--s8": "#cb5e36",
       "--s9": "#16a295", "--s10": "#359eba", "--s11": "#81a05a", "--s12": "#77569b",
-      // Dark theme's --sN text already reads fine against the near-black page —
-      // code-* just mirrors the roles it uses.
-      "--code-keyword": "#857dd3", "--code-string": "#46a87f", "--code-number": "#c68413",
-      "--code-function": "#1481f3", "--code-builtin": "#ad4b4b", "--code-property": "#16a295",
-      "--code-json-string": "#cb5e36",
+      // Code-syntax roles: same hues as their --sN counterparts, brightened so
+      // small text clears ~7:1 against the near-black page (the --sN values
+      // themselves stay put — they're shared with the CVD-tuned category dots).
+      "--code-keyword": "#9a93eb", "--code-string": "#4dae85", "--code-number": "#d39029",
+      "--code-function": "#3fa1ff", "--code-builtin": "#e77f7c", "--code-property": "#2dafa1",
+      "--code-json-string": "#ee7d55",
     },
   },
 ];
