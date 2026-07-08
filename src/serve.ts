@@ -20,6 +20,8 @@ export interface ServeFlags {
   timeout: number;
   positional: string[];
   port?: number;
+  /** Watch app/ and rebuild+push-reload the UI bundle; pair with `bun --watch`. */
+  dev?: boolean;
 }
 
 export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> {
@@ -28,7 +30,46 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
   mkdirSync(join(outDir, "config"), { recursive: true });
 
   console.log(`building UI ...`);
-  const page = pageHtml(await buildApp(), `flake-explorer — ${flakeRef}`);
+  const title = `flake-explorer — ${flakeRef}`;
+  const dev = flags.dev ?? false;
+  let page = pageHtml(await buildApp(dev), title, { dev });
+
+  // Dev mode: rebuild the in-memory bundle when app/ (or the src/ files it
+  // pulls in) change, then push a reload to connected browsers over SSE.
+  // Server-side .ts changes are bun --watch's job — the process restarts,
+  // the SSE connection drops, and the client reloads on reconnect.
+  const sseEncoder = new TextEncoder();
+  const devClients = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  const devNotify = () => {
+    for (const c of devClients) {
+      try {
+        c.enqueue(sseEncoder.encode("data: reload\n\n"));
+      } catch {
+        devClients.delete(c);
+      }
+    }
+  };
+  if (dev) {
+    const { watch } = await import("node:fs");
+    const repoRoot = join(import.meta.dir, "..");
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const onChange = (_event: string, filename: string | Buffer | null) => {
+      if (!/\.(svelte|ts|css)$/.test(String(filename ?? ""))) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(async () => {
+        try {
+          const t0 = Date.now();
+          page = pageHtml(await buildApp(true), title, { dev: true });
+          console.log(`dev: UI rebuilt in ${Date.now() - t0}ms — reloading clients`);
+          devNotify();
+        } catch (e) {
+          console.error(`dev: UI rebuild failed: ${String(e).split("\n")[0]}`);
+        }
+      }, 150);
+    };
+    watch(join(repoRoot, "app"), { recursive: true }, onChange);
+    console.log("dev: watching app/ for UI changes");
+  }
 
   console.log(`extracting manifest of ${flakeRef} ...`);
   let manifest: Manifest = await buildManifest(flakeRef, {
@@ -77,6 +118,23 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
       const url = new URL(req.url);
       if (url.pathname === "/") {
         return new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } });
+      }
+      if (url.pathname === "/dev/events") {
+        if (!dev) return new Response("not found", { status: 404 });
+        let ctrl: ReadableStreamDefaultController<Uint8Array>;
+        const stream = new ReadableStream<Uint8Array>({
+          start(c) {
+            ctrl = c;
+            devClients.add(c);
+            c.enqueue(sseEncoder.encode(": connected\n\n"));
+          },
+          cancel() {
+            devClients.delete(ctrl);
+          },
+        });
+        return new Response(stream, {
+          headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
+        });
       }
       if (url.pathname === "/data/manifest.json") {
         return Response.json(manifest);

@@ -16,11 +16,12 @@ interface Flags {
   allSystems: boolean;
   timeout: number;
   port?: number;
+  dev: boolean;
   positional: string[];
 }
 
 function parseFlags(argv: string[]): Flags {
-  const f: Flags = { out: "./flake-explorer-data", configs: null, allSystems: false, timeout: 600, positional: [] };
+  const f: Flags = { out: "./flake-explorer-data", configs: null, allSystems: false, timeout: 600, dev: false, positional: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--out") f.out = argv[++i] ?? f.out;
@@ -29,6 +30,7 @@ function parseFlags(argv: string[]): Flags {
     else if (a === "--all-systems") f.allSystems = true;
     else if (a === "--timeout") f.timeout = Number(argv[++i] ?? f.timeout);
     else if (a === "--port") f.port = Number(argv[++i]);
+    else if (a === "--dev") f.dev = true;
     else if (a.startsWith("--")) die(`unknown flag: ${a}`);
     else f.positional.push(a);
   }
@@ -115,7 +117,7 @@ switch (cmd) {
     break;
   case "serve": {
     const { serve } = await import("./src/serve");
-    await serve(canonicalRef(flags.positional[0] ?? die("usage: serve <flakeref> [--port N] [--out DIR]")), flags);
+    await serve(canonicalRef(flags.positional[0] ?? die("usage: serve <flakeref> [--port N] [--out DIR] [--dev]")), flags);
     break;
   }
   default:
@@ -124,8 +126,9 @@ switch (cmd) {
 commands:
   extract <flakeref> [--out DIR] [--configs kind/name,... | --all] [--all-systems] [--timeout SECS]
       Extract manifest (+ selected configurations) to the data dir.
-  serve <flakeref> [--port N] [--out DIR]
+  serve <flakeref> [--port N] [--out DIR] [--dev]
       Extract manifest, then serve the explorer UI with on-demand
-      per-configuration extraction.`);
+      per-configuration extraction. --dev watches app/ and live-reloads
+      the browser (run under \`bun --watch\` to cover server files too).`);
     process.exit(cmd ? 1 : 0);
 }

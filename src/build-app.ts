@@ -17,7 +17,10 @@ export async function buildApp(development = false): Promise<AppBundle> {
     entrypoints: [join(import.meta.dir, "..", "app", "main.ts")],
     target: "browser",
     format: "esm",
-    minify: !development,
+    // Whitespace minification stays ON in dev: bun-plugin-svelte derives
+    // Svelte's preserveWhitespace from it, and preserved template whitespace
+    // leaks visible text nodes into the white-space:pre source views.
+    minify: development ? { whitespace: true, syntax: false, identifiers: false } : true,
     plugins: [SveltePlugin({ development, compilerOptions: { runes: true } })],
   });
   if (!build.success) {
@@ -40,13 +43,28 @@ function themeCss(): string {
 @media (prefers-color-scheme: dark){:root{color-scheme:dark;${vars(1)}}}`;
 }
 
-export function pageHtml(bundle: AppBundle, title: string): string {
+export function pageHtml(bundle: AppBundle, title: string, opts: { dev?: boolean } = {}): string {
   const esc = (s: string) => s.replace(/<\/script/gi, "<\\/script");
   // App identity + bundled-dependency license notices, embedded so the
   // About modal works identically in serve mode and a future single-file
   // build (loadJson checks embedded <script> tags before fetching).
   const about: AboutData = collectAbout(join(import.meta.dir, ".."));
   const aboutJson = JSON.stringify(about).replace(/</g, "\\u003c");
+  // Dev auto-reload client: an SSE "reload" means the UI bundle was rebuilt;
+  // a dropped-then-reestablished connection means the server itself
+  // restarted (bun --watch) — reload in both cases.
+  const devScript = opts.dev
+    ? `<script>(() => {
+  let wasConnected = false;
+  function connect() {
+    const es = new EventSource("/dev/events");
+    es.onopen = () => { if (wasConnected) location.reload(); wasConnected = true; };
+    es.onmessage = (e) => { if (e.data === "reload") location.reload(); };
+    es.onerror = () => { es.close(); setTimeout(connect, 400); };
+  }
+  connect();
+})();</script>`
+    : "";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -65,6 +83,7 @@ ${bundle.css.replace(/<\/style/gi, "<\\/style")}
 <div id="app"></div>
 <script type="application/json" id="data:about.json">${aboutJson}</script>
 <script type="module">${esc(bundle.js)}</script>
+${devScript}
 </body>
 </html>`;
 }
