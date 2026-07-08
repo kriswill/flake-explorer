@@ -57,12 +57,14 @@
 
 <style>
   header {
+    position: relative;
+    z-index: 10;
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 8px 14px;
     background: var(--surface-1);
-    border-bottom: 1px solid var(--grid);
+    border-bottom: 1px solid color-mix(in srgb, var(--ink-1) 15%, var(--grid));
   }
   h1 {
     font-size: 0.9375rem;

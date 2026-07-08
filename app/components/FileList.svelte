@@ -107,7 +107,9 @@
     padding: 6px 8px;
     border-bottom: 1px solid color-mix(in srgb, var(--c) 30%, var(--grid));
     border-radius: 9px 9px 0 0;
-    z-index: 1;
+    /* Above FileTreeBranch's .row (z-index: 2) so scrolled rows tuck behind
+       the sticky header instead of painting over it. */
+    z-index: 3;
   }
   .gbody {
     padding: 4px 4px 6px;

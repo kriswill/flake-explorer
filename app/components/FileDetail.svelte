@@ -173,12 +173,33 @@
     <div class="head" style="--c:{colorFor(colorKey, gen)}">
       <Dot />
       <h2 class="mono">{relPath}</h2>
+      {#if configView}
+        <button
+          class="modulechip mono"
+          onclick={() => app.select({ kind: "module", configId: configView.configId, moduleId: fileId })}
+        >
+          <!-- puzzle piece: a config module is one interlocking piece of the whole -->
+          <svg viewBox="0 0 362.125 362.126" width="14" height="14" aria-hidden="true" focusable="false">
+            <path
+              fill="currentColor"
+              d="M329.278,242.223l-18.053,0.024c-3.188,0.004-6.243,1.301-8.459,3.592c-5.436,5.634-12.708,8.742-20.479,8.757 c-15.736,0.015-28.568-12.774-28.592-28.519c0-15.754,12.78-28.559,28.489-28.586c7.781-0.02,15.066,3.064,20.518,8.666 c2.223,2.277,5.271,3.568,8.454,3.562l18.048-0.021c3.126-0.005,6.121-1.25,8.323-3.462c2.202-2.211,3.442-5.202,3.442-8.321 c0,0,0-0.004,0-0.017l-0.146-94.278c-0.004-3.127-1.25-6.121-3.461-8.324c-2.213-2.207-5.211-3.445-8.337-3.441L225.62,92.017 H203.88L203.859,80.9v-0.035c0-4.48,1.823-8.771,5.042-11.9c7.844-7.602,12.162-17.768,12.162-28.617v-0.227 c-0.031-22.074-17.948-40.02-40-40.121c-22.052,0.102-39.969,18.047-40,40.121v0.227c0,10.85,4.318,21.016,12.162,28.617 c3.219,3.129,5.042,7.42,5.042,11.9V80.9l-0.021,11.117h-21.74L33.1,91.855c-3.126-0.004-6.124,1.234-8.337,3.441 c-2.211,2.203-3.457,5.197-3.461,8.324l-0.144,94.278c0,0.013,0,0.017,0,0.017c0,3.119,1.24,6.11,3.442,8.321 c2.202,2.212,5.197,3.457,8.323,3.462l18.048,0.021c3.184,0.011,6.233-1.28,8.454-3.562c5.45-5.602,12.736-8.686,20.518-8.666 c15.709,0.028,28.489,12.832,28.489,28.586c-0.021,15.741-12.854,28.53-28.592,28.519c-7.77-0.015-15.045-3.123-20.478-8.757 c-2.216-2.291-5.271-3.588-8.459-3.592l-18.053-0.024c-6.502-0.007-11.781,5.252-11.789,11.757l0.122,96.268 c0,0.006,0,0.012,0,0.018c0,6.496,5.258,11.769,11.756,11.777l120.108,0.084c3.127,0.004,6.126-1.229,8.338-3.436 c2.212-2.203,3.459-5.197,3.463-8.32l0.019-9.994c0-0.006,0-0.01,0-0.022c0-3.185-1.296-6.232-3.583-8.455 c-5.572-5.398-8.64-12.623-8.64-20.33v-0.159c0.022-15.686,12.752-28.434,28.417-28.505c15.665,0.071,28.395,12.819,28.417,28.505 v0.159c0,7.707-3.067,14.932-8.64,20.33c-2.287,2.223-3.584,5.271-3.584,8.455c0,0.014,0,0.018,0,0.022l0.02,9.994 c0.004,3.123,1.251,6.117,3.463,8.32c2.212,2.207,5.211,3.438,8.338,3.436l120.108-0.084c6.498-0.01,11.756-5.281,11.756-11.777 c0-0.006,0-0.012,0-0.018l0.126-96.268C341.059,247.475,335.78,242.216,329.278,242.223z"
+            />
+          </svg>
+          module
+          <!-- diagonal arrow -->
+          <svg class="arrow" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" focusable="false">
+            <path d="M6 10 10 6M8 6h2v2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+      {/if}
     </div>
 
     {#if inputInfo}
       <InputProvenance input={inputInfo} />
     {/if}
 
+    <!-- Input-origin files skip this: InputProvenance above already shows the
+         locked rev, and repeating it as a section was pure noise. -->
     {#if manifestEntry?.git}
       <div class="section">
         <h3>last commit</h3>
@@ -187,11 +208,6 @@
           <button class="copy" onclick={copyHash}>{copied ? "copied" : "copy"}</button>
         </p>
         <p class="muted">{manifestEntry.git.date.slice(0, 19).replace("T", " ")} — {manifestEntry.git.subject}</p>
-      </div>
-    {:else if inputInfo?.rev}
-      <div class="section">
-        <h3>locked revision</h3>
-        <p class="mono commit">{inputInfo.rev}</p>
       </div>
     {/if}
   </div>
@@ -274,8 +290,7 @@
     flex-direction: column;
     height: 100%;
   }
-  .fd-head,
-  .fd-foot {
+  .fd-head {
     flex: none;
   }
   .fd-body {
@@ -285,6 +300,25 @@
     border-top: 1px solid var(--grid);
     padding-top: 10px;
     margin-top: 10px;
+  }
+  /* Capped rather than flex:none — with 100+ "imported by" entries this would
+     otherwise take its full natural height and squash .fd-body to its floor. */
+  .fd-foot {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: 33%;
+    overflow-y: auto;
+    border-top: 1px solid var(--grid);
+    padding-top: 10px;
+    margin-top: 10px;
+  }
+  /* The border already lives on .fd-foot itself so it stays put as that box
+     scrolls — without this, .section's own border-top (its first child)
+     would scroll away with the content instead of staying pinned. */
+  .fd-foot > .section:first-child {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
   }
   .head {
     display: flex;
@@ -296,6 +330,42 @@
     margin: 0;
     font-size: 0.9375rem;
     word-break: break-all;
+  }
+  .modulechip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    background: var(--surface-1);
+    border: 1px solid var(--grid);
+    border-radius: 7px;
+    color: var(--ink-2);
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 4px 10px;
+    cursor: pointer;
+    flex: none;
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease,
+      color 0.15s ease;
+  }
+  .modulechip:hover {
+    background: var(--page);
+    border-color: var(--c);
+    color: var(--c);
+  }
+  .modulechip:active {
+    transform: translateY(1px);
+  }
+  .modulechip svg {
+    flex: none;
+  }
+  .modulechip .arrow {
+    opacity: 0.6;
+  }
+  .modulechip:hover .arrow {
+    opacity: 1;
   }
   .section {
     border-top: 1px solid var(--grid);
