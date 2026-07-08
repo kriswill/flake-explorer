@@ -184,6 +184,8 @@ export interface ManifestEval {
   inputs: Record<string, InputsTreeNode>;
   configurations: { kind: "nixos" | "darwin"; n: string }[];
   files: string[];
+  grafts: { output: string; input: string; added: string[]; inherited: number }[];
+  outputNames: Record<string, string[]>;
 }
 
 export interface OptionsEval {

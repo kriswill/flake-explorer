@@ -24,8 +24,28 @@ export interface Manifest {
   configurations: ConfigRef[];
   /** Discovered import-tree roots relative to the flake root, e.g. ["modules"]. */
   moduleDirs: string[];
+  /** Outputs that extend an input's same-named namespace (lib = nixpkgs.lib.extend …). */
+  grafts: GraftInfo[];
+  /** Top-level attr names per output — fills in where nix flake show says "unknown". */
+  outputNames: Record<string, string[]>;
   /** Non-fatal extraction problems, surfaced in the UI. */
   warnings: string[];
+}
+
+/**
+ * A top-level output detected as a graft onto an input's same-named
+ * namespace: ≥90% of the input's attr names reappear in the output. The UI
+ * shows only `added` and hides the inherited bulk.
+ */
+export interface GraftInfo {
+  /** Top-level output name, e.g. "lib". */
+  output: string;
+  /** Direct input whose namespace it extends, e.g. "nixpkgs". */
+  input: string;
+  /** Keys the flake adds on top of the input's namespace. */
+  added: string[];
+  /** Count of keys inherited (by name) from the input. */
+  inherited: number;
 }
 
 export interface FlakeInfo {

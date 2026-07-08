@@ -2,6 +2,7 @@
   import { app } from "../lib/state.svelte";
   import DetailPanel from "./DetailPanel.svelte";
   import FileDetail from "./FileDetail.svelte";
+  import InputDetail from "./InputDetail.svelte";
   import Legend from "./Legend.svelte";
 
   const outputLeaf = $derived.by(() => {
@@ -20,6 +21,8 @@
     <DetailPanel configId={app.selection.configId} moduleId={app.selection.moduleId} />
   {:else if app.selection?.kind === "file"}
     <FileDetail fileId={app.selection.fileId} />
+  {:else if app.selection?.kind === "input"}
+    <InputDetail name={app.selection.name} />
   {:else if app.selection?.kind === "output"}
     <h2 class="mono">{app.selection.path.join(".")}</h2>
     {#if outputLeaf?.kind === "leaf"}

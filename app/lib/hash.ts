@@ -8,13 +8,15 @@
 //   #/c/<configId>                    configuration selection
 //   #/c/<configId>/m/<moduleId>       module within a configuration
 //   #/f/<fileId>                      file selection
+//   #/i/<inputName>                   flake input selection
 // filters: ?q=<search>&all=1 (option filter "all" instead of "customized")
 
 export type Selection =
   | { kind: "output"; path: string[] }
   | { kind: "config"; configId: string }
   | { kind: "module"; configId: string; moduleId: string }
-  | { kind: "file"; fileId: string };
+  | { kind: "file"; fileId: string }
+  | { kind: "input"; name: string };
 
 export interface Filters {
   q: string;
@@ -42,6 +44,8 @@ function encodeSel(sel: Selection | null): string {
       return "/c/" + enc(sel.configId) + "/m/" + enc(sel.moduleId);
     case "file":
       return "/f/" + enc(sel.fileId);
+    case "input":
+      return "/i/" + enc(sel.name);
   }
 }
 
@@ -80,6 +84,7 @@ function decodeSel(path: string): Selection | null {
   if (tag === "c" && a && tag2 === "m" && b) return { kind: "module", configId: seg(a), moduleId: seg(b) };
   if (tag === "c" && a) return { kind: "config", configId: seg(a) };
   if (tag === "f" && a) return { kind: "file", fileId: seg(a) };
+  if (tag === "i" && a) return { kind: "input", name: seg(a) };
   return null;
 }
 

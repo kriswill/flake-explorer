@@ -78,6 +78,8 @@ export async function buildManifest(flakeRef: string, opts: ManifestOptions = {}
       status: "pending" as const,
     })),
     moduleDirs: await discoverModuleDirs(ev, localCheckout),
+    grafts: ev.grafts ?? [],
+    outputNames: ev.outputNames ?? {},
     warnings,
   };
 }

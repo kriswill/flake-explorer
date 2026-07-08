@@ -105,12 +105,82 @@ let
     in
     go 3 (flake.inputs or { });
 
+  # Outputs that extend an input's same-named namespace (e.g. lib =
+  # nixpkgs.lib.extend ...): record only the keys ADDED on top of the
+  # input's attrset so the UI can show the graft instead of re-listing the
+  # whole inherited namespace. Name-level comparison only — values are
+  # never forced.
+  attrNamesSafe =
+    v:
+    let
+      r = builtins.tryEval (
+        if builtins.isAttrs v && (v.type or null) != "derivation" then builtins.attrNames v else null
+      );
+    in
+    if r.success then r.value else null;
+
+  # Per-system output categories (packages.x86_64-linux…) would "overlap"
+  # any input's same category purely by system names — never a graft.
+  isSystemName = n: builtins.match ".*-(linux|darwin)" n != null;
+
+  grafts = builtins.concatLists (
+    map (
+      outName:
+      let
+        oNames = attrNamesSafe (flake.outputs.${outName} or null);
+        best = builtins.foldl' (
+          acc: iName:
+          let
+            iNames = attrNamesSafe (flake.inputs.${iName}.${outName} or null);
+            shared = builtins.filter (n: builtins.elem n iNames) oNames;
+            sc = builtins.length shared;
+          in
+          if iNames == null || builtins.length iNames < 5 then
+            acc
+          # ≥90% of the input's names must reappear in the output to call it
+          # a graft (an extend/overlay keeps the whole base namespace).
+          else if sc * 10 < builtins.length iNames * 9 then
+            acc
+          else if acc != null && acc.inherited >= sc then
+            acc
+          else
+            {
+              output = outName;
+              input = iName;
+              inherited = sc;
+              added = builtins.filter (n: !(builtins.elem n iNames)) oNames;
+            }
+        ) null (builtins.attrNames (flake.inputs or { }));
+      in
+      if oNames == null || oNames == [ ] || builtins.all isSystemName oNames || best == null then
+        [ ]
+      else
+        [ best ]
+    ) (builtins.attrNames (flake.outputs or { }))
+  );
+
+  # Top-level attr names per output (name-level only, values never forced):
+  # lets the UI list e.g. a standalone `lib`'s keys where `nix flake show`
+  # gives up with "unknown".
+  outputNames =
+    let
+      pairs = map (
+        n:
+        let
+          ns = attrNamesSafe (flake.outputs.${n} or null);
+        in
+        if ns == null then null else { name = n; value = ns; }
+      ) (builtins.attrNames (flake.outputs or { }));
+    in
+    builtins.listToAttrs (builtins.filter (p: p != null) pairs);
+
   manifest = {
     self = toString flake.outPath;
     description = flake.description or null;
     inputs = inputsTree;
     configurations = configNames "nixosConfigurations" "nixos" ++ configNames "darwinConfigurations" "darwin";
     files = listNixFiles (toString flake.outPath);
+    inherit grafts outputNames;
   };
 
   # ----------------------------------------------------------------- options
