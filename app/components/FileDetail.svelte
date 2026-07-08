@@ -480,7 +480,7 @@
     cursor: pointer;
   }
   .ref.tok-string {
-    color: var(--s2);
+    color: var(--code-string);
     text-decoration: underline;
   }
   .tok-comment {
@@ -488,21 +488,21 @@
     font-style: italic;
   }
   .tok-keyword {
-    color: var(--s5);
+    color: var(--code-keyword);
   }
   .tok-string {
-    color: var(--s2);
+    color: var(--code-string);
   }
   .tok-number {
-    color: var(--s3);
+    color: var(--code-number);
   }
   .tok-function {
-    color: var(--s1);
+    color: var(--code-function);
   }
   .tok-builtin {
-    color: var(--s6);
+    color: var(--code-builtin);
   }
   .tok-property {
-    color: var(--s9);
+    color: var(--code-property);
   }
 </style>

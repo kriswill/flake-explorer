@@ -28,6 +28,12 @@ export const THEMES: ThemeDef[] = [
       "--s1": "#4478bc", "--s2": "#009766", "--s3": "#d38f00", "--s4": "#056b00",
       "--s5": "#5041ae", "--s6": "#c54b46", "--s7": "#e9709e", "--s8": "#e66e41",
       "--s9": "#2fbbb9", "--s10": "#51abd7", "--s11": "#87b46f", "--s12": "#6c4686",
+      // Code-syntax roles: same hues as their --sN counterparts, darkened so
+      // small text clears ~4.5:1 against the light page (the --sN values
+      // themselves stay put — they're shared with the CVD-tuned category dots).
+      "--code-keyword": "#5041ae", "--code-string": "#007e4f", "--code-number": "#9f5e00",
+      "--code-function": "#3b6fb2", "--code-builtin": "#be4540", "--code-property": "#007a79",
+      "--code-json-string": "#bc4816",
     },
   },
   {
@@ -42,6 +48,11 @@ export const THEMES: ThemeDef[] = [
       "--s1": "#1481f3", "--s2": "#46a87f", "--s3": "#c68413", "--s4": "#007600",
       "--s5": "#857dd3", "--s6": "#ad4b4b", "--s7": "#b31d60", "--s8": "#cb5e36",
       "--s9": "#16a295", "--s10": "#359eba", "--s11": "#81a05a", "--s12": "#77569b",
+      // Dark theme's --sN text already reads fine against the near-black page —
+      // code-* just mirrors the roles it uses.
+      "--code-keyword": "#857dd3", "--code-string": "#46a87f", "--code-number": "#c68413",
+      "--code-function": "#1481f3", "--code-builtin": "#ad4b4b", "--code-property": "#16a295",
+      "--code-json-string": "#cb5e36",
     },
   },
 ];

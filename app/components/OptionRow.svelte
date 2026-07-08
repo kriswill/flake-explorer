@@ -190,15 +190,15 @@
     word-break: break-all;
   }
   .tok-key {
-    color: var(--s9);
+    color: var(--code-property);
   }
   .tok-string {
-    color: var(--s8);
+    color: var(--code-json-string);
   }
   .tok-number {
-    color: var(--s3);
+    color: var(--code-number);
   }
   .tok-atom {
-    color: var(--s5);
+    color: var(--code-keyword);
   }
 </style>
