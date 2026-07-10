@@ -1,6 +1,6 @@
 <script lang="ts">
   import { app } from "../lib/state.svelte";
-  import DetailPanel from "./DetailPanel.svelte";
+  import ModuleDetail from "./ModuleDetail.svelte";
   import FileDetail from "./FileDetail.svelte";
   import InputDetail from "./InputDetail.svelte";
   import Legend from "./Legend.svelte";
@@ -18,7 +18,7 @@
 
 <div class="stage">
   {#if app.selection?.kind === "module"}
-    <DetailPanel configId={app.selection.configId} moduleId={app.selection.moduleId} />
+    <ModuleDetail configId={app.selection.configId} moduleId={app.selection.moduleId} />
   {:else if app.selection?.kind === "file"}
     <FileDetail fileId={app.selection.fileId} />
   {:else if app.selection?.kind === "input"}

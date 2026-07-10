@@ -6,6 +6,7 @@
 import { SvelteSet } from "svelte/reactivity";
 import type { AboutData } from "../../src/licenses";
 import type { ConfigData, FileSource, Manifest, OptionEntry } from "../../src/schema";
+import { parseFileId, SCHEMA_VERSION } from "../../src/schema";
 import { loadJson } from "./data";
 import { decodeHash, encodeHash, sameSelection, type Filters, type Selection } from "./hash";
 import {
@@ -18,8 +19,19 @@ import {
   type FlakeIndexes,
 } from "./indexes";
 import { registerSlotKeys } from "./color";
+import { applyThemeVars, defaultThemeIndex, THEMES } from "./themes";
 
 export type ConfigSlot = "loading" | { error: string } | { data: ConfigData; indexes: ConfigIndexes };
+
+/** Narrow a ConfigSlot to its loaded shape; null while loading/errored/absent. */
+export function loadedConfig(slot: ConfigSlot | undefined): Extract<ConfigSlot, { data: ConfigData }> | null {
+  return slot && typeof slot === "object" && "data" in slot ? slot : null;
+}
+
+/** Error text of a failed ConfigSlot; null otherwise. */
+export function configError(slot: ConfigSlot | undefined): string | null {
+  return slot && typeof slot === "object" && "error" in slot ? slot.error : null;
+}
 
 export type FileContentSlot = "loading" | { error: string } | FileSource;
 
@@ -32,6 +44,8 @@ const FONT_BASE_PX = 22.4;
 const FONT_SCALE_KEY = "flake-explorer:font-scale@2";
 const FONT_SCALE_MIN = 0.5;
 const FONT_SCALE_MAX = 1.5;
+
+const THEME_KEY = "flake-explorer:theme@1";
 
 class AppState {
   themeIndex = $state(0);
@@ -74,8 +88,7 @@ class AppState {
 
   activeConfig = $derived.by(() => {
     const id = this.activeConfigId;
-    const slot = id ? this.configs[id] : undefined;
-    return slot && typeof slot === "object" && "data" in slot ? slot : null;
+    return loadedConfig(id ? this.configs[id] : undefined);
   });
 
   /** Tree node ids to tint while hovering a file (file leaf + ancestors). */
@@ -95,6 +108,7 @@ class AppState {
     this.manifestError = null;
     try {
       const m = await loadJson<Manifest>("manifest.json");
+      if (m.version !== SCHEMA_VERSION) throw new Error(incompatibleData("manifest.json", m.version));
       this.manifest = m;
       this.flakeIndexes = buildFlakeIndexes(m);
       registerSlotKeys(
@@ -117,6 +131,7 @@ class AppState {
     this.configs = { ...this.configs, [configId]: "loading" };
     try {
       const data = await loadJson<ConfigData>(ref.dataFile);
+      if (data.version !== SCHEMA_VERSION) throw new Error(incompatibleData(ref.dataFile, data.version));
       const indexes = buildConfigIndexes(this.manifest, data, this.flakeIndexes!);
       this.configs = { ...this.configs, [configId]: { data, indexes } };
     } catch (e) {
@@ -182,19 +197,23 @@ class AppState {
   revealFile(fileId: string) {
     let meta: FileMeta | undefined;
     for (const slot of Object.values(this.configs)) {
-      if (typeof slot === "object" && "indexes" in slot) {
-        meta = slot.indexes.filesById.get(fileId);
+      const loaded = loadedConfig(slot);
+      if (loaded) {
+        meta = loaded.indexes.filesById.get(fileId);
         if (meta) break;
       }
     }
     if (!meta) {
       // Config not loaded (yet) — the id itself encodes group + path for
       // self/input files; unknown-bucket files need the config lookup above.
-      if (fileId.startsWith("self:")) {
-        meta = { id: fileId, relPath: fileId.slice(5), origin: { kind: "self" }, storePath: "" };
-      } else {
-        const m = fileId.match(/^input:([^:]+):(.+)$/);
-        if (m) meta = { id: fileId, relPath: m[2]!, origin: { kind: "input", input: m[1]! }, storePath: "" };
+      const parsed = parseFileId(fileId);
+      if (parsed) {
+        meta = {
+          id: fileId,
+          relPath: parsed.relPath,
+          origin: parsed.kind === "self" ? { kind: "self" } : { kind: "input", input: parsed.input },
+          storePath: "",
+        };
       }
     }
     if (!meta) return;
@@ -234,6 +253,23 @@ class AppState {
     if (typeof window === "undefined") return;
     this.applyHash(window.location.hash);
     window.addEventListener("hashchange", () => this.applyHash(window.location.hash));
+  }
+
+  // ------------------------------------------------------------------ theme
+
+  /** Restore the saved theme; fall back to the OS preference on first visit. */
+  initTheme(prefersDark: boolean) {
+    const saved = typeof localStorage === "undefined" ? null : localStorage.getItem(THEME_KEY);
+    const i = saved === null ? Number.NaN : Number(saved);
+    this.setTheme(Number.isInteger(i) && i >= 0 && i < THEMES.length ? i : defaultThemeIndex(prefersDark));
+  }
+
+  /** Single write path for the theme: state + persisted choice + CSS vars stay in sync. */
+  setTheme(i: number) {
+    if (!THEMES[i]) return;
+    this.themeIndex = i;
+    if (typeof localStorage !== "undefined") localStorage.setItem(THEME_KEY, String(i));
+    applyThemeVars(i);
   }
 
   // ------------------------------------------------------------- font scale
@@ -291,6 +327,10 @@ class AppState {
     this.savePanes();
   }
 }
+
+/** Both data documents carry SCHEMA_VERSION — surface drift as a clear "re-extract" message. */
+const incompatibleData = (name: string, got: unknown) =>
+  `${name} was produced by an incompatible extractor (schema v${got ?? "pre-1"}, this UI expects v${SCHEMA_VERSION}) — re-run extract`;
 
 const PANE_KEY = "flake-explorer:panes@1";
 const PANE_DEFAULTS = { left: 280, right: 340 };

@@ -4,6 +4,9 @@
   import { THEMES } from "../lib/themes";
   import Dot from "./Dot.svelte";
   import InputProvenance from "./InputProvenance.svelte";
+  import SourceView from "./SourceView.svelte";
+  import { segmentLines } from "../lib/segments";
+  import { makeFileId } from "../../src/schema";
 
   const { name }: { name: string } = $props();
 
@@ -11,62 +14,16 @@
   const input = $derived(app.manifest?.inputs[name] ?? null);
 
   /** The input's own flake.nix out of the store — same id scheme as option files. */
-  const fileId = $derived(`input:${name}:flake.nix`);
+  const fileId = $derived(makeFileId({ kind: "input", input: name }, "flake.nix"));
   const contentSlot = $derived(app.fileContents[fileId]);
 
   $effect(() => {
     if (input?.storePath) app.loadFileContent(fileId, `${input.storePath}/flake.nix`);
   });
 
-  /** Tree-sitter capture name -> CSS class (subset shared with FileDetail). */
-  function tokenClass(n: string | undefined): string | undefined {
-    switch (n) {
-      case "comment":
-        return "tok-comment";
-      case "keyword":
-        return "tok-keyword";
-      case "number":
-        return "tok-number";
-      case "function":
-        return "tok-function";
-      case "function.builtin":
-      case "variable.builtin":
-        return "tok-builtin";
-      case "property":
-        return "tok-property";
-      case "escape":
-        return "tok-string";
-      default:
-        return n?.startsWith("string") ? "tok-string" : undefined;
-    }
-  }
-
-  interface Segment {
-    text: string;
-    cls?: string;
-  }
-
   const lines = $derived.by(() => {
     if (!contentSlot || typeof contentSlot !== "object" || !("text" in contentSlot)) return [];
-    const { text, tokens } = contentSlot;
-    let lineStart = 0;
-    return text.split("\n").map((line): Segment[] => {
-      const lineEnd = lineStart + line.length;
-      const segs: Segment[] = [];
-      let pos = 0;
-      for (const t of tokens) {
-        if (t.end <= lineStart || t.start >= lineEnd) continue;
-        const s = Math.max(t.start, lineStart) - lineStart;
-        const e = Math.min(t.end, lineEnd) - lineStart;
-        if (s > pos) segs.push({ text: line.slice(pos, s) });
-        segs.push({ text: line.slice(s, e), cls: tokenClass(t.name) });
-        pos = e;
-      }
-      if (pos < line.length) segs.push({ text: line.slice(pos) });
-      if (segs.length === 0) segs.push({ text: "" });
-      lineStart = lineEnd + 1;
-      return segs;
-    });
+    return segmentLines(contentSlot.text, contentSlot.tokens);
   });
 </script>
 
@@ -100,15 +57,7 @@
           <button class="retry" onclick={() => app.retryFileContent(fileId, `${input.storePath}/flake.nix`)}>retry</button>
         </p>
       {:else}
-        <ol class="src">
-          {#each lines as segs, i (i)}
-            <li>
-              {#each segs as seg, j (j)}
-                {#if seg.cls}<span class={seg.cls}>{seg.text}</span>{:else}{seg.text}{/if}
-              {/each}
-            </li>
-          {/each}
-        </ol>
+        <SourceView {lines} />
       {/if}
     </div>
   {/if}
@@ -177,55 +126,5 @@
     font-size: 0.6875rem;
     cursor: pointer;
     margin-left: 6px;
-  }
-  .src {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    counter-reset: line;
-    overflow-x: auto;
-    /* overflow-x:auto implies overflow-y:auto — pin it or the horizontal
-       scrollbar's height triggers a second, vertical one. */
-    overflow-y: hidden;
-    white-space: pre;
-    font-family: ui-monospace, monospace;
-    font-size: 0.75rem;
-    line-height: 1.5;
-  }
-  .src li {
-    counter-increment: line;
-    padding-left: 3.25em;
-    position: relative;
-  }
-  .src li::before {
-    content: counter(line);
-    position: absolute;
-    left: 0;
-    width: 2.75em;
-    text-align: right;
-    color: var(--ink-muted);
-    user-select: none;
-  }
-  .tok-comment {
-    color: var(--ink-muted);
-    font-style: italic;
-  }
-  .tok-keyword {
-    color: var(--code-keyword);
-  }
-  .tok-string {
-    color: var(--code-string);
-  }
-  .tok-number {
-    color: var(--code-number);
-  }
-  .tok-function {
-    color: var(--code-function);
-  }
-  .tok-builtin {
-    color: var(--code-builtin);
-  }
-  .tok-property {
-    color: var(--code-property);
   }
 </style>

@@ -1,0 +1,70 @@
+/* Rail + elbow tree connectors, shared by TreeNode.svelte, OutputsTree.svelte
+   and FileTreeBranch.svelte (global — the Svelte-scoped copies kept drifting).
+   Explicit opt-in classes, emitted by the components:
+
+     .connect — draw the elbow hooking into this row, in the row's own
+                color (--c, set on the li)
+     .railed  — draw the vertical rail crossing this row down to the NEXT
+                sibling, in that sibling's color (--rail, set per-li or on
+                the ul when all children share one color) — a connector line
+                is always owned by the child it leads to
+
+   Horizontal geometry derives from the per-level cascade width --indent via
+   calc(): row-pad(0.4) + dot-radius(0.325) - indent - border/2, solved
+   against the shipped 1.15rem/-0.4609rem/0.8605rem numbers to recover the
+   two indent-independent constants (0.6891, 0.2895). The vertical constants
+   are ROW-HEIGHT-dependent, so they are custom properties: the defaults
+   below fit the 0.8125rem-label trees (TreeNode, OutputsTree); the smaller
+   0.75rem file tree (FileTreeBranch) overrides them. */
+:root {
+  --elbow-h: 0.6998rem;
+  --elbow-first-top: -0.3393rem;
+  --elbow-first-h: 1.0391rem;
+}
+
+li.connect,
+li.railed {
+  position: relative;
+}
+
+/* Rail: centered under the parent dot, crossing the whole row. Mixed against
+   the panel bg (not transparent) so it stays a consistent opaque color
+   crossing hovered/selected rows instead of darkening. */
+li.railed::after {
+  content: "";
+  position: absolute;
+  left: calc(0.6891rem - var(--indent));
+  top: 0;
+  bottom: 0;
+  border-left: 2px solid color-mix(in srgb, var(--rail) 45%, var(--surface-1));
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Elbow: curved hook into this row, ending on the child dot's left edge.
+   Starts at the row's own top — exactly where the preceding sibling's rail
+   ends — so it never repaints the rail above it. Two-value (h v) radius
+   fills the whole box as one quarter-ellipse: the vertical tangent at the
+   top makes it branch smoothly off the rail. */
+li.connect::before {
+  content: "";
+  position: absolute;
+  left: calc(0.6891rem - var(--indent));
+  top: 0;
+  width: calc(var(--indent) - 0.2895rem);
+  height: var(--elbow-h);
+  border-left: 2px solid color-mix(in srgb, var(--c) 70%, var(--surface-1));
+  border-bottom: 2px solid color-mix(in srgb, var(--c) 70%, var(--surface-1));
+  border-bottom-left-radius: calc(var(--indent) - 0.2895rem) var(--elbow-h);
+  pointer-events: none;
+  /* Above rails (3) — the child's elbow always wins where they meet — and
+     above the row buttons' z-index:2 so highlighted rows don't clip the curve. */
+  z-index: 4;
+}
+
+/* First child: no sibling rail above, so reach up to abut the parent dot's bottom edge. */
+li.connect:first-child::before {
+  top: var(--elbow-first-top);
+  height: var(--elbow-first-h);
+  border-bottom-left-radius: calc(var(--indent) - 0.2895rem) var(--elbow-first-h);
+}

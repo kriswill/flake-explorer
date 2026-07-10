@@ -1,12 +1,8 @@
 <script lang="ts">
   import { app } from "../lib/state.svelte";
-  import { applyThemeVars } from "../lib/themes";
 
   const isDark = $derived(app.themeIndex === 1);
-  function toggleTheme() {
-    app.themeIndex = isDark ? 0 : 1;
-    applyThemeVars(app.themeIndex);
-  }
+  const toggleTheme = () => app.setTheme(isDark ? 0 : 1);
 </script>
 
 <header>

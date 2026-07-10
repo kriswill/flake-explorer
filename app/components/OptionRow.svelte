@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { PRIO, type OptionEntry } from "../../src/schema";
   import { app } from "../lib/state.svelte";
   import Dot from "./Dot.svelte";
@@ -88,6 +89,13 @@
     clearTimeout(timer);
     app.tip = null;
   }
+  // pointerleave never fires on DOM removal (selection change, filter toggle
+  // while hovering) — kill the pending timer AND release the tooltip if this
+  // row owns it, or it sticks anchored to a dead position.
+  onDestroy(() => {
+    clearTimeout(timer);
+    if (app.tip?.entry === entry) app.tip = null;
+  });
 </script>
 
 <li>

@@ -1,6 +1,6 @@
 <script lang="ts">
   import Dot from "./Dot.svelte";
-  import { app } from "../lib/state.svelte";
+  import { app, loadedConfig } from "../lib/state.svelte";
   import { colorFor } from "../lib/color";
   import { THEMES } from "../lib/themes";
   import { buildFileTree, type FileMeta, type FileTreeNode } from "../lib/indexes";
@@ -23,8 +23,9 @@
 
     // Input files appear once a configuration referencing them is loaded.
     const inputFiles = new Map<string, FileMeta[]>();
-    for (const slot of Object.values(app.configs)) {
-      if (typeof slot !== "object" || !("indexes" in slot)) continue;
+    for (const s of Object.values(app.configs)) {
+      const slot = loadedConfig(s);
+      if (!slot) continue;
       for (const meta of slot.indexes.filesById.values()) {
         const key =
           meta.origin.kind === "input"

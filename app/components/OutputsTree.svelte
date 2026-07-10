@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { GraftInfo, InputInfo, OutputNode } from "../../src/schema";
-  import { app } from "../lib/state.svelte";
+  import { app, configError, loadedConfig } from "../lib/state.svelte";
   import { colorFor } from "../lib/color";
   import { THEMES } from "../lib/themes";
   import Dot from "./Dot.svelte";
@@ -59,10 +59,7 @@
     app.expanded.add(`cfg:${id}`);
   }
 
-  const slotOf = (id: string) => {
-    const slot = app.configs[id];
-    return slot && typeof slot === "object" && "data" in slot ? slot : null;
-  };
+  const slotOf = (id: string) => loadedConfig(app.configs[id]);
 
   /** Last path segment of the flake ref, e.g. "/home/k/src/nixos-config" -> "nixos-config". */
   const pathName = $derived.by(() => {
@@ -128,8 +125,11 @@
                 {#each names as name, i (name)}
                   {@const id = `${kind}/${name}`}
                   {@const loaded = slotOf(id)}
-                  <!-- --rail: the vertical line crossing this row belongs to the NEXT config it leads to. -->
+                  <!-- .connect/.railed: shared connector styles (tree-connectors.css);
+                       --rail: the vertical line crossing this row belongs to the NEXT config it leads to. -->
                   <li
+                    class="connect"
+                    class:railed={i < names.length - 1}
                     style="--c:{colorFor(id, gen)}"
                     style:--rail={i < names.length - 1 ? colorFor(`${kind}/${names[i + 1]}`, gen) : null}
                   >
@@ -147,9 +147,9 @@
                     {#if app.expanded.has(`cfg:${id}`)}
                       {#if app.configs[id] === "loading"}
                         <p class="note">loading options…</p>
-                      {:else if app.configs[id] && typeof app.configs[id] === "object" && "error" in app.configs[id]}
+                      {:else if configError(app.configs[id]) !== null}
                         <p class="note err">
-                          {app.configs[id].error.split("\n")[0]}
+                          {configError(app.configs[id])?.split("\n")[0]}
                           <button class="retry" onclick={() => app.retryConfig(id)}>retry</button>
                         </p>
                       {:else if loaded}
@@ -176,11 +176,12 @@
               <!-- Grafted namespace: only the keys this flake ADDS are shown;
                    the input's inherited names would just re-list the input. -->
               <ul class="tree" style="--rail:{colorFor(category, gen)}">
-                <li class="noline">
+                <!-- note row: railed (the line leads down to the keys) but no elbow -->
+                <li class:railed={graft.added.length > 0}>
                   <p class="note">extends {graft.input}.{graft.output} · {graft.inherited} inherited keys hidden</p>
                 </li>
-                {#each graft.added as key (key)}
-                  <li style="--c:{colorFor(category, gen)}">
+                {#each graft.added as key, i (key)}
+                  <li class="connect" class:railed={i < graft.added.length - 1} style="--c:{colorFor(category, gen)}">
                     <button
                       class="row leaf"
                       class:sel={app.selection?.kind === "output" &&
@@ -198,9 +199,10 @@
               <OutputBranch {node} path={[category]} depth={1} />
             {:else if node.kind !== "leaf" && (app.manifest?.outputNames?.[category] ?? []).length}
               <!-- flake show gave up ("unknown") but the eval knows the attr names. -->
+              {@const names = app.manifest?.outputNames?.[category] ?? []}
               <ul class="tree" style="--rail:{colorFor(category, gen)}">
-                {#each app.manifest?.outputNames?.[category] ?? [] as key (key)}
-                  <li style="--c:{colorFor(category, gen)}">
+                {#each names as key, i (key)}
+                  <li class="connect" class:railed={i < names.length - 1} style="--c:{colorFor(category, gen)}">
                     <button
                       class="row leaf"
                       class:sel={app.selection?.kind === "output" &&
@@ -276,44 +278,10 @@
   .root {
     padding: 0 4px;
   }
-  /* Rail + elbow connectors for OutputsTree's own nested levels (config names
-     under a category, graft/unknown leaf keys) — same geometry and semantics
-     as TreeNode.svelte: the rail crossing a row belongs to the NEXT sibling
-     it leads down to (--rail, set per-li; via the ul where all children share
-     one color), elbow in each child's own color (--c, set on the li). Root
-     lists hang directly under their section header and get no connectors. */
-  .tree:not(.root) > li {
-    position: relative;
-  }
-  .tree:not(.root) > li:not(:last-child)::after {
-    content: "";
-    position: absolute;
-    left: calc(0.6891rem - var(--indent));
-    top: 0;
-    bottom: 0;
-    border-left: 2px solid color-mix(in srgb, var(--rail) 45%, var(--surface-1));
-    pointer-events: none;
-    z-index: 3;
-  }
-  .tree:not(.root) > li:not(.noline)::before {
-    content: "";
-    position: absolute;
-    left: calc(0.6891rem - var(--indent));
-    top: 0;
-    width: calc(var(--indent) - 0.2895rem);
-    height: 0.6998rem;
-    border-left: 2px solid color-mix(in srgb, var(--c) 70%, var(--surface-1));
-    border-bottom: 2px solid color-mix(in srgb, var(--c) 70%, var(--surface-1));
-    border-bottom-left-radius: calc(var(--indent) - 0.2895rem) 0.6998rem;
-    pointer-events: none;
-    /* Above rails (3) — the child's elbow always wins where they meet. */
-    z-index: 4;
-  }
-  .tree:not(.root) > li:not(.noline):first-child::before {
-    top: -0.3393rem;
-    height: 1.0391rem;
-    border-bottom-left-radius: calc(var(--indent) - 0.2895rem) 1.0391rem;
-  }
+  /* Nested levels (config names under a category, graft/unknown leaf keys)
+     emit .connect/.railed for the shared connector styles in
+     tree-connectors.css; root lists hang directly under their section
+     header and get neither class. */
   .row {
     display: flex;
     align-items: center;

@@ -4,7 +4,7 @@
 // these are big, immutable structures.
 
 import type { ConfigData, FileEntry, FileOptionRefs, FileOrigin, Manifest } from "../../src/schema";
-import { UNKNOWN_FILE } from "../../src/schema";
+import { makeFileId, UNKNOWN_FILE } from "../../src/schema";
 
 export interface FileMeta {
   id: string;
@@ -75,12 +75,13 @@ export function resolveFile(storePath: string, manifest: Manifest, fx: FlakeInde
   if (storePath.startsWith(selfPrefix)) {
     // A self file outside the manifest listing (shouldn't happen, but degrade).
     const relPath = storePath.slice(selfPrefix.length);
-    return { id: `self:${relPath}`, relPath, origin: { kind: "self" }, storePath };
+    return { id: makeFileId({ kind: "self" }, relPath), relPath, origin: { kind: "self" }, storePath };
   }
   for (const { prefix, input } of fx.inputPrefixes) {
     if (storePath.startsWith(prefix)) {
       const relPath = storePath.slice(prefix.length);
-      return { id: `input:${input}:${relPath}`, relPath, origin: { kind: "input", input }, storePath };
+      const origin = { kind: "input" as const, input };
+      return { id: makeFileId(origin, relPath), relPath, origin, storePath };
     }
   }
   // Patched copy of an input: nixpkgs.applyPatches-style trees are named
@@ -91,12 +92,8 @@ export function resolveFile(storePath: string, manifest: Manifest, fx: FlakeInde
     const originalName = root!.replace(/^[a-z0-9]{32}-/, "");
     const input = fx.inputByStoreName.get(originalName);
     if (input) {
-      return {
-        id: `input:${input}:${relPath}`,
-        relPath: relPath!,
-        origin: { kind: "input", input, patched: true },
-        storePath,
-      };
+      const origin = { kind: "input" as const, input, patched: true as const };
+      return { id: makeFileId(origin, relPath!), relPath: relPath!, origin, storePath };
     }
     // Unattributable — bucket by store root so siblings at least cluster.
     const group = `${originalName.replace(/^[a-z0-9]{32}-/, "")}@${root!.slice(0, 7)}`;
@@ -266,6 +263,15 @@ export function buildFileTree(
   };
   sortLevel(root);
   return root;
+}
+
+/**
+ * Input name from a TREE-NODE id — tolerates both the "input:<name>" group
+ * roots buildTree emits and "input:<name>:<rel>" file-leaf ids, which is why
+ * this is not parseFileId (that grammar rejects the two-segment root form).
+ */
+export function inputNameOf(id: string): string | null {
+  return id.startsWith("input:") ? id.slice("input:".length).split(":")[0]! : null;
 }
 
 /** File-list group a file belongs to ("self" | "input:<name>"), null if none. */

@@ -3,7 +3,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 import { flushSync, mount, unmount } from "svelte";
-import DetailPanel from "../app/components/DetailPanel.svelte";
+import ModuleDetail from "../app/components/ModuleDetail.svelte";
 import FileList from "../app/components/FileList.svelte";
 import OutputsTree from "../app/components/OutputsTree.svelte";
 import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes";
@@ -74,10 +74,10 @@ describe("OutputsTree", () => {
   });
 });
 
-describe("DetailPanel", () => {
+describe("ModuleDetail", () => {
   test("shows Configures and Declares sections with priority chips", () => {
     app.selection = { kind: "module", configId: "nixos/test", moduleId: "self:modules/a.nix" };
-    withMount(DetailPanel, { configId: "nixos/test", moduleId: "self:modules/a.nix" }, (host) => {
+    withMount(ModuleDetail, { configId: "nixos/test", moduleId: "self:modules/a.nix" }, (host) => {
       expect(host.textContent).toContain("Configures");
       expect(host.textContent).toContain("services.x.enable");
       expect(host.textContent).toContain("sops.secrets");
@@ -88,7 +88,7 @@ describe("DetailPanel", () => {
 
   test("declares section hides untouched options until toggled", () => {
     app.selection = { kind: "module", configId: "nixos/test", moduleId: "self:modules/sub/b.nix" };
-    withMount(DetailPanel, { configId: "nixos/test", moduleId: "self:modules/sub/b.nix" }, (host) => {
+    withMount(ModuleDetail, { configId: "nixos/test", moduleId: "self:modules/sub/b.nix" }, (host) => {
       expect(host.textContent).toContain("services.x.enable");
       expect(host.textContent).not.toContain("services.x.port");
       app.showAll = true;
@@ -117,6 +117,26 @@ describe("font scale", () => {
     localStorage.removeItem("flake-explorer:font-scale@2");
     app.initFontScale();
     expect(app.fontScale).toBe(1);
+  });
+});
+
+describe("theme", () => {
+  test("persists the chosen theme; saved choice beats the OS preference", () => {
+    app.setTheme(1);
+    expect(app.themeIndex).toBe(1);
+    expect(localStorage.getItem("flake-explorer:theme@1")).toBe("1");
+    expect(document.documentElement.style.getPropertyValue("color-scheme")).toBe("dark");
+
+    app.themeIndex = 0; // simulate a fresh session
+    app.initTheme(false); // OS prefers light, but the saved choice wins
+    expect(app.themeIndex).toBe(1);
+
+    app.setTheme(99); // out of bounds — ignored
+    expect(app.themeIndex).toBe(1);
+
+    localStorage.removeItem("flake-explorer:theme@1");
+    app.initTheme(false); // nothing saved — falls back to the OS preference
+    expect(app.themeIndex).toBe(0);
   });
 });
 

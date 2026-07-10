@@ -1,11 +1,13 @@
 <script lang="ts">
   import Dot from "./Dot.svelte";
-  import { app } from "../lib/state.svelte";
+  import { app, loadedConfig } from "../lib/state.svelte";
   import { colorFor } from "../lib/color";
   import { THEMES } from "../lib/themes";
   import InputProvenance from "./InputProvenance.svelte";
+  import SourceView from "./SourceView.svelte";
+  import { segmentLines, type Interval } from "../lib/segments";
   import { REL_PATH_RE, resolveKnownRef } from "../../src/pathref";
-  import type { FileOrigin } from "../../src/schema";
+  import { displayLabel, type FileOrigin } from "../../src/schema";
 
   const { fileId }: { fileId: string } = $props();
 
@@ -14,8 +16,9 @@
 
   /** Config-side view of this file (any loaded config that references it). */
   const configView = $derived.by(() => {
-    for (const [configId, slot] of Object.entries(app.configs)) {
-      if (typeof slot !== "object" || !("indexes" in slot)) continue;
+    for (const [configId, s] of Object.entries(app.configs)) {
+      const slot = loadedConfig(s);
+      if (!slot) continue;
       const meta = slot.indexes.filesById.get(fileId);
       if (meta) return { configId, slot, meta, refs: slot.indexes.refsByFile.get(fileId)! };
     }
@@ -72,88 +75,21 @@
     return { known, byRelPath };
   });
 
-  interface Segment {
-    text: string;
-    ref?: string;
-    cls?: string;
-  }
-
-  /** Tree-sitter capture name -> CSS class; unlisted/punctuation-ish captures render unstyled. */
-  function tokenClass(name: string | undefined): string | undefined {
-    switch (name) {
-      case "comment":
-        return "tok-comment";
-      case "keyword":
-        return "tok-keyword";
-      case "number":
-        return "tok-number";
-      case "function":
-        return "tok-function";
-      case "function.builtin":
-      case "variable.builtin":
-        return "tok-builtin";
-      case "property":
-        return "tok-property";
-      case "escape":
-        return "tok-string";
-      default:
-        return name?.startsWith("string") ? "tok-string" : undefined;
+  /** Resolvable "./"/"../" file references in one line — segmentLines unions
+   *  these with the highlight runs so a path literal is colored AND clickable. */
+  const refsForLine = (line: string): Interval<string | undefined>[] => {
+    const refs: Interval<string | undefined>[] = [];
+    for (const m of line.matchAll(REL_PATH_RE)) {
+      const idx = m.index ?? 0;
+      const target = resolveKnownRef(relPath, m[0], siblingIndex.known);
+      refs.push({ start: idx, end: idx + m[0].length, value: target ? siblingIndex.byRelPath.get(target) : undefined });
     }
-  }
+    return refs;
+  };
 
-  interface Interval<T> {
-    start: number;
-    end: number;
-    value: T;
-  }
-
-  function coverAt<T>(intervals: Interval<T>[], pos: number): T | undefined {
-    for (const iv of intervals) if (pos >= iv.start && pos < iv.end) return iv.value;
-    return undefined;
-  }
-
-  /**
-   * Source split into per-line segments: tree-sitter highlight runs (server-computed)
-   * and resolvable "./"/"../" file references (client-computed) are two independent
-   * interval sets over the same line text — union their boundaries so a segment can
-   * carry both a token class and a ref link (e.g. a colored, clickable path literal).
-   */
   const lines = $derived.by(() => {
     if (!contentSlot || typeof contentSlot !== "object" || !("text" in contentSlot)) return [];
-    const { text, tokens } = contentSlot;
-    let lineStart = 0;
-    return text.split("\n").map((line): Segment[] => {
-      const lineEnd = lineStart + line.length;
-
-      const refIntervals: Interval<string | undefined>[] = [];
-      for (const m of line.matchAll(REL_PATH_RE)) {
-        const idx = m.index ?? 0;
-        const target = resolveKnownRef(relPath, m[0], siblingIndex.known);
-        refIntervals.push({ start: idx, end: idx + m[0].length, value: target ? siblingIndex.byRelPath.get(target) : undefined });
-      }
-
-      const tokenIntervals: Interval<string>[] = [];
-      for (const t of tokens) {
-        if (t.end <= lineStart || t.start >= lineEnd) continue;
-        tokenIntervals.push({ start: Math.max(t.start, lineStart) - lineStart, end: Math.min(t.end, lineEnd) - lineStart, value: t.name });
-      }
-
-      const bounds = [...new Set([0, line.length, ...refIntervals.flatMap((iv) => [iv.start, iv.end]), ...tokenIntervals.flatMap((iv) => [iv.start, iv.end])])].sort(
-        (a, b) => a - b,
-      );
-
-      const segs: Segment[] = [];
-      for (let i = 0; i < bounds.length - 1; i++) {
-        const p = bounds[i]!;
-        const q = bounds[i + 1]!;
-        if (p === q) continue;
-        segs.push({ text: line.slice(p, q), ref: coverAt(refIntervals, p), cls: tokenClass(coverAt(tokenIntervals, p)) });
-      }
-      if (segs.length === 0) segs.push({ text: "" });
-
-      lineStart = lineEnd + 1; // +1 for the newline
-      return segs;
-    });
+    return segmentLines(contentSlot.text, contentSlot.tokens, refsForLine);
   });
 
   /** Options this file customizes, grouped per loaded config. */
@@ -170,7 +106,7 @@
     setTimeout(() => (copied = false), 1200);
   }
 
-  const label = (id: string) => id.replace(/^self:/, "").replace(/^input:[^:]+:/, "");
+  const label = displayLabel;
 </script>
 
 <div class="file-detail">
@@ -231,19 +167,7 @@
         <button class="retry" onclick={() => app.retryFileContent(fileId, storePath!)}>retry</button>
       </p>
     {:else}
-      <ol class="src">
-        {#each lines as segs, i (i)}
-          <li>
-            {#each segs as seg, j (j)}
-              {#if seg.ref}
-                <button class="ref {seg.cls ?? ''}" onclick={() => app.select({ kind: "file", fileId: seg.ref! })}>{seg.text}</button>
-              {:else if seg.cls}
-                <span class={seg.cls}>{seg.text}</span>
-              {:else}{seg.text}{/if}
-            {/each}
-          </li>
-        {/each}
-      </ol>
+      <SourceView {lines} onref={(id) => app.select({ kind: "file", fileId: id })} />
     {/if}
   </div>
 
@@ -442,67 +366,5 @@
   p {
     margin: 3px 0;
     font-size: 0.8125rem;
-  }
-  .src {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    counter-reset: line;
-    overflow-x: auto;
-    overflow-y: hidden;
-    white-space: pre;
-    font-family: ui-monospace, monospace;
-    font-size: 0.75rem;
-    line-height: 1.5;
-  }
-  .src li {
-    counter-increment: line;
-    padding-left: 3.25em;
-    position: relative;
-  }
-  .src li::before {
-    content: counter(line);
-    position: absolute;
-    left: 0;
-    width: 2.75em;
-    text-align: right;
-    color: var(--ink-muted);
-    user-select: none;
-  }
-  .ref {
-    background: none;
-    border: none;
-    margin: 0;
-    padding: 0;
-    font: inherit;
-    white-space: inherit;
-    color: var(--link);
-    cursor: pointer;
-  }
-  .ref.tok-string {
-    color: var(--code-string);
-    text-decoration: underline;
-  }
-  .tok-comment {
-    color: var(--ink-muted);
-    font-style: italic;
-  }
-  .tok-keyword {
-    color: var(--code-keyword);
-  }
-  .tok-string {
-    color: var(--code-string);
-  }
-  .tok-number {
-    color: var(--code-number);
-  }
-  .tok-function {
-    color: var(--code-function);
-  }
-  .tok-builtin {
-    color: var(--code-builtin);
-  }
-  .tok-property {
-    color: var(--code-property);
   }
 </style>
