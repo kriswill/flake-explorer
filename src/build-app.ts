@@ -5,7 +5,7 @@
 import { join } from "node:path";
 import { SveltePlugin } from "bun-plugin-svelte";
 import { THEMES } from "../app/lib/themes";
-import { collectAbout, type AboutData } from "./licenses";
+import { type AboutData, collectAbout } from "./licenses";
 
 export interface AppBundle {
   js: string;
@@ -24,7 +24,7 @@ export async function buildApp(development = false): Promise<AppBundle> {
     plugins: [SveltePlugin({ development, compilerOptions: { runes: true } })],
   });
   if (!build.success) {
-    throw new Error("app build failed:\n" + build.logs.map(String).join("\n"));
+    throw new Error(`app build failed:\n${build.logs.map(String).join("\n")}`);
   }
   const entry = build.outputs.find((o) => o.kind === "entry-point");
   if (!entry) throw new Error("app build produced no entry point");

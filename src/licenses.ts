@@ -40,7 +40,9 @@ function packageDir(name: string, from: string): string {
     if (existsSync(cand)) return cand;
     const parent = dirname(dir);
     if (parent === dir) {
-      throw new Error(`cannot locate node_modules/${name} from ${from} — are dependencies installed?`);
+      throw new Error(
+        `cannot locate node_modules/${name} from ${from} — are dependencies installed?`,
+      );
     }
     dir = parent;
   }
@@ -73,7 +75,9 @@ export function collectAbout(dir: string): AboutData {
         .filter((f) => /^licen[cs]e([.-]|$)/i.test(f))
         .sort((a, b) => a.length - b.length || a.localeCompare(b))[0];
       if (!file) {
-        throw new Error(`no license file in node_modules/${name} — its notice must ship with the bundled copy`);
+        throw new Error(
+          `no license file in node_modules/${name} — its notice must ship with the bundled copy`,
+        );
       }
       return {
         name,

@@ -49,7 +49,13 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
     expect(edges.has("self:flake.nix->self:hosts/mini.nix")).toBe(true);
 
     expect(m.configurations).toEqual([
-      { id: "nixos/mini", kind: "nixos", name: "mini", dataFile: "config/nixos.mini.json", status: "pending" },
+      {
+        id: "nixos/mini",
+        kind: "nixos",
+        name: "mini",
+        dataFile: "config/nixos.mini.json",
+        status: "pending",
+      },
     ]);
   });
 
@@ -58,9 +64,21 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
     const { data } = await extractOptions(FIXTURE, "nixos", "mini", { timeoutMs: 60_000 });
 
     const byLoc = new Map(data.options.map((o) => [o.loc.join("."), o]));
-    expect(byLoc.get("networking.hostName")).toMatchObject({ customized: true, value: "mini", default: "unset" });
-    expect(byLoc.get("services.nginx.enable")).toMatchObject({ customized: true, value: true, default: false });
-    expect(byLoc.get("services.nginx.package")).toMatchObject({ customized: false, isDefined: false, default: "nginx" });
+    expect(byLoc.get("networking.hostName")).toMatchObject({
+      customized: true,
+      value: "mini",
+      default: "unset",
+    });
+    expect(byLoc.get("services.nginx.enable")).toMatchObject({
+      customized: true,
+      value: true,
+      default: false,
+    });
+    expect(byLoc.get("services.nginx.package")).toMatchObject({
+      customized: false,
+      isDefined: false,
+      default: "nginx",
+    });
 
     const fx = buildFlakeIndexes(m);
     const indexes = buildConfigIndexes(m, data, fx);
@@ -77,7 +95,10 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
 
     // The module tree groups both declaring files under a "modules" dir node.
     const modulesDir = indexes.tree.children.find((n) => n.label === "modules");
-    expect(modulesDir?.children.map((c) => c.label).sort()).toEqual(["networking.nix", "nginx.nix"]);
+    expect(modulesDir?.children.map((c) => c.label).sort()).toEqual([
+      "networking.nix",
+      "nginx.nix",
+    ]);
   });
 
   test("vendor input is listed and its files resolve (even if not option-attributed)", async () => {

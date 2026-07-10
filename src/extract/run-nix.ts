@@ -65,7 +65,11 @@ async function run(args: string[], timeoutMs: number): Promise<string> {
   }
   if (exitCode !== 0) {
     const tail = stderr.trim().split("\n").slice(-15).join("\n");
-    throw new NixError(`nix ${args.slice(0, 3).join(" ")} failed (exit ${exitCode}):\n${tail}`, stderr, exitCode);
+    throw new NixError(
+      `nix ${args.slice(0, 3).join(" ")} failed (exit ${exitCode}):\n${tail}`,
+      stderr,
+      exitCode,
+    );
   }
   return stdout;
 }
@@ -107,7 +111,12 @@ export function evalExtract<T>(args: ExtractArgs, timeoutMs: number): Promise<T>
  * never a real on-disk directory to begin with. `getFlake` + `readFile`
  * re-resolves/re-fetches the input as needed instead of trusting a stale path.
  */
-export async function readInputFile(flakeRef: string, inputName: string, relPath: string, timeoutMs = 60_000): Promise<string> {
+export async function readInputFile(
+  flakeRef: string,
+  inputName: string,
+  relPath: string,
+  timeoutMs = 60_000,
+): Promise<string> {
   try {
     return await readInputFileRaw(flakeRef, inputName, relPath, timeoutMs);
   } catch (e) {
@@ -120,8 +129,13 @@ export async function readInputFile(flakeRef: string, inputName: string, relPath
   }
 }
 
-function readInputFileRaw(flakeRef: string, inputName: string, relPath: string, timeoutMs: number): Promise<string> {
-  const expr = `builtins.readFile ((builtins.getFlake ${JSON.stringify(flakeRef)}).inputs.${JSON.stringify(inputName)} + ${JSON.stringify("/" + relPath)})`;
+function readInputFileRaw(
+  flakeRef: string,
+  inputName: string,
+  relPath: string,
+  timeoutMs: number,
+): Promise<string> {
+  const expr = `builtins.readFile ((builtins.getFlake ${JSON.stringify(flakeRef)}).inputs.${JSON.stringify(inputName)} + ${JSON.stringify(`/${relPath}`)})`;
   return run(["eval", "--impure", "--raw", "--expr", expr], timeoutMs);
 }
 
@@ -167,7 +181,14 @@ export interface LockNode {
     path?: string;
     lastModified?: number;
   };
-  original?: { type?: string; url?: string; ref?: string; owner?: string; repo?: string; path?: string };
+  original?: {
+    type?: string;
+    url?: string;
+    ref?: string;
+    owner?: string;
+    repo?: string;
+    path?: string;
+  };
   flake?: boolean;
 }
 

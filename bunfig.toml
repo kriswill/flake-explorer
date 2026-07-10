@@ -1,2 +1,5 @@
 [test]
 preload = ["./test/setup/happy-dom.ts", "./test/setup/svelte-loader.ts"]
+coverageReporter = ["text", "lcov"]
+coverageSkipTestFiles = true
+coveragePathIgnorePatterns = ["test/**"]

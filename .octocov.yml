@@ -1,0 +1,16 @@
+coverage:
+  paths:
+    - coverage/lcov.info
+  acceptable: current >= prev
+diff:
+  if: is_pull_request
+  datastores:
+    - artifact://${GITHUB_REPOSITORY}
+comment:
+  if: is_pull_request
+summary:
+  if: true
+report:
+  if: is_default_branch
+  datastores:
+    - artifact://${GITHUB_REPOSITORY}

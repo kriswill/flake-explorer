@@ -26,15 +26,21 @@ describe("webUrl", () => {
 
 describe("commitUrl", () => {
   test("github: /commit/<rev>, .git suffix stripped", () => {
-    expect(commitUrl("git+https://github.com/a/b.git", REV)).toBe(`https://github.com/a/b/commit/${REV}`);
+    expect(commitUrl("git+https://github.com/a/b.git", REV)).toBe(
+      `https://github.com/a/b/commit/${REV}`,
+    );
   });
 
   test("gitlab: /-/commit/<rev>, trailing slash stripped", () => {
-    expect(commitUrl("https://gitlab.com/a/b/", REV)).toBe(`https://gitlab.com/a/b/-/commit/${REV}`);
+    expect(commitUrl("https://gitlab.com/a/b/", REV)).toBe(
+      `https://gitlab.com/a/b/-/commit/${REV}`,
+    );
   });
 
   test("codeberg: same /commit/<rev> shape as github", () => {
-    expect(commitUrl("https://codeberg.org/a/b", REV)).toBe(`https://codeberg.org/a/b/commit/${REV}`);
+    expect(commitUrl("https://codeberg.org/a/b", REV)).toBe(
+      `https://codeberg.org/a/b/commit/${REV}`,
+    );
   });
 
   test("unknown host returns null", () => {

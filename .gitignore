@@ -3,6 +3,7 @@ result
 result-*
 flake-explorer-data/
 dist/
+coverage/
 .direnv/
 .mcp.json
 .claude/settings.local.json

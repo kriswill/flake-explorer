@@ -1,112 +1,116 @@
 <script lang="ts">
-  import Dot from "./Dot.svelte";
-  import { app, loadedConfig } from "../lib/state.svelte";
-  import { colorFor } from "../lib/color";
-  import { THEMES } from "../lib/themes";
-  import InputProvenance from "./InputProvenance.svelte";
-  import SourceView from "./SourceView.svelte";
-  import { segmentLines, type Interval } from "../lib/segments";
-  import { REL_PATH_RE, resolveKnownRef } from "../../src/pathref";
-  import { displayLabel, type FileOrigin } from "../../src/schema";
+import { REL_PATH_RE, resolveKnownRef } from "../../src/pathref";
+import { displayLabel, type FileOrigin } from "../../src/schema";
+import { colorFor } from "../lib/color";
+import { type Interval, segmentLines } from "../lib/segments";
+import { app, loadedConfig } from "../lib/state.svelte";
+import { THEMES } from "../lib/themes";
+import Dot from "./Dot.svelte";
+import InputProvenance from "./InputProvenance.svelte";
+import SourceView from "./SourceView.svelte";
 
-  const { fileId }: { fileId: string } = $props();
+const { fileId }: { fileId: string } = $props();
 
-  const gen = $derived(THEMES[app.themeIndex]!.gen);
-  const manifestEntry = $derived(app.manifest?.files.find((f) => f.id === fileId) ?? null);
+const gen = $derived(THEMES[app.themeIndex]!.gen);
+const manifestEntry = $derived(app.manifest?.files.find((f) => f.id === fileId) ?? null);
 
-  /** Config-side view of this file (any loaded config that references it). */
-  const configView = $derived.by(() => {
-    for (const [configId, s] of Object.entries(app.configs)) {
-      const slot = loadedConfig(s);
-      if (!slot) continue;
-      const meta = slot.indexes.filesById.get(fileId);
-      if (meta) return { configId, slot, meta, refs: slot.indexes.refsByFile.get(fileId)! };
-    }
-    return null;
-  });
+/** Config-side view of this file (any loaded config that references it). */
+const configView = $derived.by(() => {
+  for (const [configId, s] of Object.entries(app.configs)) {
+    const slot = loadedConfig(s);
+    if (!slot) continue;
+    const meta = slot.indexes.filesById.get(fileId);
+    if (meta) return { configId, slot, meta, refs: slot.indexes.refsByFile.get(fileId)! };
+  }
+  return null;
+});
 
-  const relPath = $derived(manifestEntry?.relPath ?? configView?.meta.relPath ?? fileId);
-  const inputName = $derived.by(() => {
-    const origin = manifestEntry?.origin ?? configView?.meta.origin;
-    return origin?.kind === "input" ? origin.input : null;
-  });
-  const inputInfo = $derived(inputName ? (app.manifest?.inputs[inputName] ?? null) : null);
-  const colorKey = $derived(inputName ?? fileId);
+const relPath = $derived(manifestEntry?.relPath ?? configView?.meta.relPath ?? fileId);
+const inputName = $derived.by(() => {
+  const origin = manifestEntry?.origin ?? configView?.meta.origin;
+  return origin?.kind === "input" ? origin.input : null;
+});
+const inputInfo = $derived(inputName ? (app.manifest?.inputs[inputName] ?? null) : null);
+const colorKey = $derived(inputName ?? fileId);
 
-  const imports = $derived([...(app.flakeIndexes?.imports.get(fileId) ?? [])]);
-  const importedBy = $derived([...(app.flakeIndexes?.importedBy.get(fileId) ?? [])]);
+const imports = $derived([...(app.flakeIndexes?.imports.get(fileId) ?? [])]);
+const importedBy = $derived([...(app.flakeIndexes?.importedBy.get(fileId) ?? [])]);
 
-  // ------------------------------------------------------------- source view
+// ------------------------------------------------------------- source view
 
-  const origin = $derived(manifestEntry?.origin ?? configView?.meta.origin ?? null);
-  const storePath = $derived(manifestEntry?.storePath ?? configView?.meta.storePath ?? null);
-  const contentSlot = $derived(app.fileContents[fileId]);
+const origin = $derived(manifestEntry?.origin ?? configView?.meta.origin ?? null);
+const storePath = $derived(manifestEntry?.storePath ?? configView?.meta.storePath ?? null);
+const contentSlot = $derived(app.fileContents[fileId]);
 
-  /** The module system reports some declarations under a relative pseudo-path
-   *  (nixpkgs declares _module.* as literally "lib/modules.nix") — there is no
-   *  store file behind those, so don't ask the server for one. */
-  const virtualPath = $derived(storePath !== null && !storePath.startsWith("/"));
+/** The module system reports some declarations under a relative pseudo-path
+ *  (nixpkgs declares _module.* as literally "lib/modules.nix") — there is no
+ *  store file behind those, so don't ask the server for one. */
+const virtualPath = $derived(storePath !== null && !storePath.startsWith("/"));
 
-  /** manifestEntry only covers self + import-tree files; configView.meta also resolves
-   *  option-only files (e.g. inside nixpkgs itself) — either way, wait for a real storePath. */
-  $effect(() => {
-    if (storePath && !virtualPath) app.loadFileContent(fileId, storePath);
-  });
+/** manifestEntry only covers self + import-tree files; configView.meta also resolves
+ *  option-only files (e.g. inside nixpkgs itself) — either way, wait for a real storePath. */
+$effect(() => {
+  if (storePath && !virtualPath) app.loadFileContent(fileId, storePath);
+});
 
-  const sameOrigin = (a: FileOrigin, b: FileOrigin): boolean => {
-    if (a.kind !== b.kind) return false;
-    if (a.kind === "input" && b.kind === "input") return a.input === b.input;
-    if (a.kind === "unknown" && b.kind === "unknown") return a.group === b.group;
-    return true;
-  };
+const sameOrigin = (a: FileOrigin, b: FileOrigin): boolean => {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "input" && b.kind === "input") return a.input === b.input;
+  if (a.kind === "unknown" && b.kind === "unknown") return a.group === b.group;
+  return true;
+};
 
-  /** relPaths this file can address with a "./"/"../" reference: files in the same origin tree. */
-  const siblingIndex = $derived.by(() => {
-    const known = new Set<string>();
-    const byRelPath = new Map<string, string>();
-    if (origin) {
-      for (const f of app.manifest?.files ?? []) {
-        if (sameOrigin(f.origin, origin)) {
-          known.add(f.relPath);
-          byRelPath.set(f.relPath, f.id);
-        }
+/** relPaths this file can address with a "./"/"../" reference: files in the same origin tree. */
+const siblingIndex = $derived.by(() => {
+  const known = new Set<string>();
+  const byRelPath = new Map<string, string>();
+  if (origin) {
+    for (const f of app.manifest?.files ?? []) {
+      if (sameOrigin(f.origin, origin)) {
+        known.add(f.relPath);
+        byRelPath.set(f.relPath, f.id);
       }
     }
-    return { known, byRelPath };
-  });
-
-  /** Resolvable "./"/"../" file references in one line — segmentLines unions
-   *  these with the highlight runs so a path literal is colored AND clickable. */
-  const refsForLine = (line: string): Interval<string | undefined>[] => {
-    const refs: Interval<string | undefined>[] = [];
-    for (const m of line.matchAll(REL_PATH_RE)) {
-      const idx = m.index ?? 0;
-      const target = resolveKnownRef(relPath, m[0], siblingIndex.known);
-      refs.push({ start: idx, end: idx + m[0].length, value: target ? siblingIndex.byRelPath.get(target) : undefined });
-    }
-    return refs;
-  };
-
-  const lines = $derived.by(() => {
-    if (!contentSlot || typeof contentSlot !== "object" || !("text" in contentSlot)) return [];
-    return segmentLines(contentSlot.text, contentSlot.tokens, refsForLine);
-  });
-
-  /** Options this file customizes, grouped per loaded config. */
-  const customizes = $derived.by(() => {
-    if (!configView) return [];
-    return configView.refs.defines.map((i) => configView.slot.data.options[i]!);
-  });
-
-  let copied = $state(false);
-  async function copyHash() {
-    if (!manifestEntry?.git) return;
-    await navigator.clipboard.writeText(manifestEntry.git.commit);
-    copied = true;
-    setTimeout(() => (copied = false), 1200);
   }
+  return { known, byRelPath };
+});
 
-  const label = displayLabel;
+/** Resolvable "./"/"../" file references in one line — segmentLines unions
+ *  these with the highlight runs so a path literal is colored AND clickable. */
+const refsForLine = (line: string): Interval<string | undefined>[] => {
+  const refs: Interval<string | undefined>[] = [];
+  for (const m of line.matchAll(REL_PATH_RE)) {
+    const idx = m.index ?? 0;
+    const target = resolveKnownRef(relPath, m[0], siblingIndex.known);
+    refs.push({
+      start: idx,
+      end: idx + m[0].length,
+      value: target ? siblingIndex.byRelPath.get(target) : undefined,
+    });
+  }
+  return refs;
+};
+
+const lines = $derived.by(() => {
+  if (!contentSlot || typeof contentSlot !== "object" || !("text" in contentSlot)) return [];
+  return segmentLines(contentSlot.text, contentSlot.tokens, refsForLine);
+});
+
+/** Options this file customizes, grouped per loaded config. */
+const customizes = $derived.by(() => {
+  if (!configView) return [];
+  return configView.refs.defines.map((i) => configView.slot.data.options[i]!);
+});
+
+let copied = $state(false);
+async function copyHash() {
+  if (!manifestEntry?.git) return;
+  await navigator.clipboard.writeText(manifestEntry.git.commit);
+  copied = true;
+  setTimeout(() => (copied = false), 1200);
+}
+
+const label = displayLabel;
 </script>
 
 <div class="file-detail">

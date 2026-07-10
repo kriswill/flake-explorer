@@ -10,14 +10,20 @@
 
 import { cpus } from "node:os";
 import {
-  PRIO,
-  SCHEMA_VERSION,
   type ConfigData,
   type ConfigKind,
   type FileOptionRefs,
   type OptionEntry,
+  PRIO,
+  SCHEMA_VERSION,
 } from "../schema";
-import { evalExtract, NixError, type OptionsEval, type RawOption, type ValueEnvelope } from "./run-nix";
+import {
+  evalExtract,
+  NixError,
+  type OptionsEval,
+  type RawOption,
+  type ValueEnvelope,
+} from "./run-nix";
 
 export interface OptionsResult {
   data: ConfigData;
@@ -93,7 +99,9 @@ export async function extractOptions(
         timeoutMs,
       );
       if (rung.note) {
-        warnings.push(`${label} options.${chunkLabel(chunk)}: ${rung.note} (eval error at full detail)`);
+        warnings.push(
+          `${label} options.${chunkLabel(chunk)}: ${rung.note} (eval error at full detail)`,
+        );
       }
       return r.options;
     } catch (e) {

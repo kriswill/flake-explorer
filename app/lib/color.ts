@@ -42,7 +42,7 @@ export function oklchToHex(L: number, C: number, H: number): string {
     Math.round(lin2srgb(v) * 255)
       .toString(16)
       .padStart(2, "0");
-  return "#" + to(r) + to(g) + to(bb);
+  return `#${to(r)}${to(g)}${to(bb)}`;
 }
 
 const cache = new Map<string, string>();

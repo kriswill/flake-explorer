@@ -1,45 +1,46 @@
 <script lang="ts">
-  import Dot from "./Dot.svelte";
-  import { app } from "../lib/state.svelte";
-  import { colorFor } from "../lib/color";
-  import { THEMES } from "../lib/themes";
-  import InputProvenance from "./InputProvenance.svelte";
-  import OptionRow from "./OptionRow.svelte";
+import { colorFor } from "../lib/color";
+import { app } from "../lib/state.svelte";
+import { THEMES } from "../lib/themes";
+import Dot from "./Dot.svelte";
+import InputProvenance from "./InputProvenance.svelte";
+import OptionRow from "./OptionRow.svelte";
 
-  interface Props {
-    configId: string;
-    moduleId: string;
-  }
-  const { configId, moduleId }: Props = $props();
+interface Props {
+  configId: string;
+  moduleId: string;
+}
+const { configId, moduleId }: Props = $props();
 
-  const gen = $derived(THEMES[app.themeIndex]!.gen);
-  const cfg = $derived(app.activeConfig);
-  const meta = $derived(cfg?.indexes.filesById.get(moduleId) ?? null);
-  const refs = $derived(cfg?.indexes.refsByFile.get(moduleId) ?? null);
+const gen = $derived(THEMES[app.themeIndex]!.gen);
+const cfg = $derived(app.activeConfig);
+const meta = $derived(cfg?.indexes.filesById.get(moduleId) ?? null);
+const refs = $derived(cfg?.indexes.refsByFile.get(moduleId) ?? null);
 
-  const inputInfo = $derived(
-    meta?.origin.kind === "input" ? (app.manifest?.inputs[meta.origin.input] ?? null) : null,
-  );
+const inputInfo = $derived(
+  meta?.origin.kind === "input" ? (app.manifest?.inputs[meta.origin.input] ?? null) : null,
+);
 
-  const colorKey = $derived(meta?.origin.kind === "input" ? meta.origin.input : moduleId);
+const colorKey = $derived(meta?.origin.kind === "input" ? meta.origin.input : moduleId);
 
-  /** Configures: customized definitions from this file (defines is customized-only). */
-  const configures = $derived.by(() => {
-    if (!cfg || !refs) return [];
-    return refs.defines.map((i) => cfg.data.options[i]!).sort(byLoc);
-  });
+/** Configures: customized definitions from this file (defines is customized-only). */
+const configures = $derived.by(() => {
+  if (!cfg || !refs) return [];
+  return refs.defines.map((i) => cfg.data.options[i]!).sort(byLoc);
+});
 
-  /** Declares: options this file declares; filter toggle hides untouched ones. */
-  const declares = $derived.by(() => {
-    if (!cfg || !refs) return [];
-    const all = refs.declares.map((i) => cfg.data.options[i]!);
-    return (app.showAll ? all : all.filter((o) => o.customized)).sort(byLoc);
-  });
+/** Declares: options this file declares; filter toggle hides untouched ones. */
+const declares = $derived.by(() => {
+  if (!cfg || !refs) return [];
+  const all = refs.declares.map((i) => cfg.data.options[i]!);
+  return (app.showAll ? all : all.filter((o) => o.customized)).sort(byLoc);
+});
 
-  const declaresTotal = $derived(refs?.declares.length ?? 0);
-  const byLoc = (a: { loc: string[] }, b: { loc: string[] }) => a.loc.join(".").localeCompare(b.loc.join("."));
+const declaresTotal = $derived(refs?.declares.length ?? 0);
+const byLoc = (a: { loc: string[] }, b: { loc: string[] }) =>
+  a.loc.join(".").localeCompare(b.loc.join("."));
 
-  const fileEntry = $derived(app.manifest?.files.find((f) => f.id === moduleId) ?? null);
+const fileEntry = $derived(app.manifest?.files.find((f) => f.id === moduleId) ?? null);
 </script>
 
 {#if !cfg}

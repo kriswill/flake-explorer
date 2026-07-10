@@ -3,8 +3,8 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 import { flushSync, mount, unmount } from "svelte";
-import ModuleDetail from "../app/components/ModuleDetail.svelte";
 import FileList from "../app/components/FileList.svelte";
+import ModuleDetail from "../app/components/ModuleDetail.svelte";
 import OutputsTree from "../app/components/OutputsTree.svelte";
 import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes";
 import { app } from "../app/lib/state.svelte";
@@ -16,7 +16,9 @@ function seed() {
   const fx = buildFlakeIndexes(manifest);
   app.manifest = manifest;
   app.flakeIndexes = fx;
-  app.configs = { "nixos/test": { data: config, indexes: buildConfigIndexes(manifest, config, fx) } };
+  app.configs = {
+    "nixos/test": { data: config, indexes: buildConfigIndexes(manifest, config, fx) },
+  };
   app.selection = null;
   app.hover = null;
   app.q = "";
@@ -88,13 +90,17 @@ describe("ModuleDetail", () => {
 
   test("declares section hides untouched options until toggled", () => {
     app.selection = { kind: "module", configId: "nixos/test", moduleId: "self:modules/sub/b.nix" };
-    withMount(ModuleDetail, { configId: "nixos/test", moduleId: "self:modules/sub/b.nix" }, (host) => {
-      expect(host.textContent).toContain("services.x.enable");
-      expect(host.textContent).not.toContain("services.x.port");
-      app.showAll = true;
-      flushSync();
-      expect(host.textContent).toContain("services.x.port");
-    });
+    withMount(
+      ModuleDetail,
+      { configId: "nixos/test", moduleId: "self:modules/sub/b.nix" },
+      (host) => {
+        expect(host.textContent).toContain("services.x.enable");
+        expect(host.textContent).not.toContain("services.x.port");
+        app.showAll = true;
+        flushSync();
+        expect(host.textContent).toContain("services.x.port");
+      },
+    );
   });
 });
 

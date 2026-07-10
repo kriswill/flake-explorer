@@ -39,7 +39,10 @@ describe("applyHash", () => {
   test("file deep link into an input parses group + path out of the id", () => {
     app.applyHash("#/f/input:sops-nix:modules%2Fsops%2Fdefault.nix");
 
-    expect(app.selection).toEqual({ kind: "file", fileId: "input:sops-nix:modules/sops/default.nix" });
+    expect(app.selection).toEqual({
+      kind: "file",
+      fileId: "input:sops-nix:modules/sops/default.nix",
+    });
     // Group key is "input:<name>", not the bare input name.
     expect(app.fileExpanded.has("fdir:input:sops-nix/modules")).toBe(true);
     expect(app.fileExpanded.has("fdir:input:sops-nix/modules/sops")).toBe(true);

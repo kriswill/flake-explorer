@@ -11,7 +11,7 @@ import { applyExtracted, extractAndPersist, reconcile } from "./extract/cache";
 import { tokenizeNix } from "./extract/highlight";
 import { buildManifest } from "./extract/manifest";
 import { checkNix, readInputFile } from "./extract/run-nix";
-import { parseFileId, type Manifest } from "./schema";
+import { type Manifest, parseFileId } from "./schema";
 
 export interface ServeFlags {
   out: string;
@@ -90,7 +90,9 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
       const narHash = manifest.flake.narHash;
       p = (async () => {
         console.log(`extracting options of ${configId} ...`);
-        const r = await extractAndPersist(outDir, flakeRef, narHash, ref, { timeoutMs: flags.timeout * 1000 });
+        const r = await extractAndPersist(outDir, flakeRef, narHash, ref, {
+          timeoutMs: flags.timeout * 1000,
+        });
         // Settle onto the ref in the CURRENT manifest — /api/refresh may have
         // replaced it while the extraction ran; mutating the stale `ref` would
         // leave the live one pending forever.
@@ -99,7 +101,9 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
           applyExtracted(cur, r);
           manifest.warnings.push(...r.warnings);
         }
-        console.log(`  ${configId}: ${r.data.options.length} options in ${(r.durationMs / 1000).toFixed(1)}s`);
+        console.log(
+          `  ${configId}: ${r.data.options.length} options in ${(r.durationMs / 1000).toFixed(1)}s`,
+        );
       })().catch((e) => {
         const msg = String(e).split("\n").slice(0, 3).join(" ");
         const cur = manifest.configurations.find((c) => c.id === configId);
@@ -179,7 +183,12 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
           const parsed = parseFileId(id);
           if (parsed?.kind !== "input") return new Response("not found", { status: 404 });
           try {
-            text = await readInputFile(flakeRef, parsed.input, parsed.relPath, flags.timeout * 1000);
+            text = await readInputFile(
+              flakeRef,
+              parsed.input,
+              parsed.relPath,
+              flags.timeout * 1000,
+            );
           } catch (e) {
             return new Response(String(e), { status: 500 });
           }

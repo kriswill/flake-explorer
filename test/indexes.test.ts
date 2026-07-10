@@ -35,9 +35,24 @@ const manifest: Manifest = {
     nixpkgs: { name: "nixpkgs", nodeKey: "nixpkgs", type: "github", storePath: NIXPKGS },
   },
   files: [
-    { id: "self:modules/a.nix", relPath: "modules/a.nix", origin: { kind: "self" }, storePath: `${SELF}/modules/a.nix` },
-    { id: "self:modules/sub/b.nix", relPath: "modules/sub/b.nix", origin: { kind: "self" }, storePath: `${SELF}/modules/sub/b.nix` },
-    { id: "self:lib/c.nix", relPath: "lib/c.nix", origin: { kind: "self" }, storePath: `${SELF}/lib/c.nix` },
+    {
+      id: "self:modules/a.nix",
+      relPath: "modules/a.nix",
+      origin: { kind: "self" },
+      storePath: `${SELF}/modules/a.nix`,
+    },
+    {
+      id: "self:modules/sub/b.nix",
+      relPath: "modules/sub/b.nix",
+      origin: { kind: "self" },
+      storePath: `${SELF}/modules/sub/b.nix`,
+    },
+    {
+      id: "self:lib/c.nix",
+      relPath: "lib/c.nix",
+      origin: { kind: "self" },
+      storePath: `${SELF}/lib/c.nix`,
+    },
   ],
   importEdges: [
     { from: "self:modules/a.nix", to: "self:lib/c.nix" },
@@ -62,7 +77,7 @@ const config: ConfigData = {
     [`${SELF}/modules/a.nix`]: { defines: [0], declares: [] },
     [`${SELF}/modules/sub/b.nix`]: { defines: [], declares: [0, 1] },
     [`${SOPS}/modules/sops/default.nix`]: { defines: [2], declares: [2] },
-    ["<unknown-file>"]: { defines: [3], declares: [] },
+    "<unknown-file>": { defines: [3], declares: [] },
   },
 };
 
@@ -85,7 +100,11 @@ describe("flake indexes", () => {
     const patched = resolveFile(`${PATCHED}/nixos/modules/x.nix`, manifest, fx);
     expect(patched.origin).toEqual({ kind: "input", input: "nixpkgs", patched: true });
     expect(patched.relPath).toBe("nixos/modules/x.nix");
-    const unknown = resolveFile("/nix/store/ee1ee1ee1ee1ee1ee1ee1ee1ee1ee1ee-blob/f.nix", manifest, fx);
+    const unknown = resolveFile(
+      "/nix/store/ee1ee1ee1ee1ee1ee1ee1ee1ee1ee1ee-blob/f.nix",
+      manifest,
+      fx,
+    );
     expect(unknown.origin.kind).toBe("unknown");
     expect((unknown.origin as { group?: string }).group).toMatch(/^blob@/);
   });

@@ -66,19 +66,32 @@ export function segmentLines(
     const tokenIntervals: Interval<string>[] = [];
     for (const t of tokens) {
       if (t.end <= lineStart || t.start >= lineEnd) continue;
-      tokenIntervals.push({ start: Math.max(t.start, lineStart) - lineStart, end: Math.min(t.end, lineEnd) - lineStart, value: t.name });
+      tokenIntervals.push({
+        start: Math.max(t.start, lineStart) - lineStart,
+        end: Math.min(t.end, lineEnd) - lineStart,
+        value: t.name,
+      });
     }
 
-    const bounds = [...new Set([0, line.length, ...refIntervals.flatMap((iv) => [iv.start, iv.end]), ...tokenIntervals.flatMap((iv) => [iv.start, iv.end])])].sort(
-      (a, b) => a - b,
-    );
+    const bounds = [
+      ...new Set([
+        0,
+        line.length,
+        ...refIntervals.flatMap((iv) => [iv.start, iv.end]),
+        ...tokenIntervals.flatMap((iv) => [iv.start, iv.end]),
+      ]),
+    ].sort((a, b) => a - b);
 
     const segs: Segment[] = [];
     for (let i = 0; i < bounds.length - 1; i++) {
       const p = bounds[i]!;
       const q = bounds[i + 1]!;
       if (p === q) continue;
-      segs.push({ text: line.slice(p, q), ref: coverAt(refIntervals, p), cls: tokenClass(coverAt(tokenIntervals, p)) });
+      segs.push({
+        text: line.slice(p, q),
+        ref: coverAt(refIntervals, p),
+        cls: tokenClass(coverAt(tokenIntervals, p)),
+      });
     }
     if (segs.length === 0) segs.push({ text: "" });
 

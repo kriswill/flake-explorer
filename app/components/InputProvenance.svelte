@@ -1,18 +1,18 @@
 <script lang="ts">
-  import Dot from "./Dot.svelte";
-  import type { InputInfo } from "../../src/schema";
-  import { app } from "../lib/state.svelte";
-  import { colorFor } from "../lib/color";
-  import { THEMES } from "../lib/themes";
-  import { webUrl, commitUrl } from "../lib/url";
+import type { InputInfo } from "../../src/schema";
+import { colorFor } from "../lib/color";
+import { app } from "../lib/state.svelte";
+import { THEMES } from "../lib/themes";
+import { commitUrl, webUrl } from "../lib/url";
+import Dot from "./Dot.svelte";
 
-  const { input }: { input: InputInfo } = $props();
-  const gen = $derived(THEMES[app.themeIndex]!.gen);
-  const date = $derived(
-    input.lastModified ? new Date(input.lastModified * 1000).toISOString().slice(0, 10) : null,
-  );
-  const link = $derived(webUrl(input.url));
-  const revLink = $derived(commitUrl(input.url, input.rev));
+const { input }: { input: InputInfo } = $props();
+const gen = $derived(THEMES[app.themeIndex]!.gen);
+const date = $derived(
+  input.lastModified ? new Date(input.lastModified * 1000).toISOString().slice(0, 10) : null,
+);
+const link = $derived(webUrl(input.url));
+const revLink = $derived(commitUrl(input.url, input.rev));
 </script>
 
 {#snippet extIcon()}

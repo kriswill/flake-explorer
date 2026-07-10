@@ -1,28 +1,28 @@
 <script lang="ts">
-  import { app } from "../lib/state.svelte";
-  import { PRIO } from "../../src/schema";
+import { PRIO } from "../../src/schema";
+import { app } from "../lib/state.svelte";
 
-  const prioLabel = (p: number | undefined) => {
-    if (p === undefined) return null;
-    if (p === PRIO.mkForce) return "mkForce";
-    if (p === PRIO.mkDefault) return "mkDefault";
-    if (p === PRIO.optionDefault) return "option default";
-    if (p === PRIO.plain) return null; // plain definition — not noteworthy
-    return `mkOverride ${p}`;
-  };
+const prioLabel = (p: number | undefined) => {
+  if (p === undefined) return null;
+  if (p === PRIO.mkForce) return "mkForce";
+  if (p === PRIO.mkDefault) return "mkDefault";
+  if (p === PRIO.optionDefault) return "option default";
+  if (p === PRIO.plain) return null; // plain definition — not noteworthy
+  return `mkOverride ${p}`;
+};
 
-  const short = (v: unknown) => {
-    const s = JSON.stringify(v);
-    return s === undefined ? "—" : s.length > 120 ? s.slice(0, 120) + "…" : s;
-  };
+const short = (v: unknown) => {
+  const s = JSON.stringify(v);
+  return s === undefined ? "—" : s.length > 120 ? `${s.slice(0, 120)}…` : s;
+};
 
-  // Clamp to the viewport so the tip never runs off-screen.
-  const pos = $derived.by(() => {
-    if (!app.tip) return { left: 0, top: 0 };
-    const w = typeof window === "undefined" ? 1200 : window.innerWidth;
-    const h = typeof window === "undefined" ? 800 : window.innerHeight;
-    return { left: Math.min(app.tip.x + 14, w - 360), top: Math.min(app.tip.y + 14, h - 180) };
-  });
+// Clamp to the viewport so the tip never runs off-screen.
+const pos = $derived.by(() => {
+  if (!app.tip) return { left: 0, top: 0 };
+  const w = typeof window === "undefined" ? 1200 : window.innerWidth;
+  const h = typeof window === "undefined" ? 800 : window.innerHeight;
+  return { left: Math.min(app.tip.x + 14, w - 360), top: Math.min(app.tip.y + 14, h - 180) };
+});
 </script>
 
 {#if app.tip}
