@@ -169,7 +169,13 @@ let
         let
           ns = attrNamesSafe (flake.outputs.${n} or null);
         in
-        if ns == null then null else { name = n; value = ns; }
+        if ns == null then
+          null
+        else
+          {
+            name = n;
+            value = ns;
+          }
       ) (builtins.attrNames (flake.outputs or { }));
     in
     builtins.listToAttrs (builtins.filter (p: p != null) pairs);
@@ -178,7 +184,8 @@ let
     self = toString flake.outPath;
     description = flake.description or null;
     inputs = inputsTree;
-    configurations = configNames "nixosConfigurations" "nixos" ++ configNames "darwinConfigurations" "darwin";
+    configurations =
+      configNames "nixosConfigurations" "nixos" ++ configNames "darwinConfigurations" "darwin";
     files = listNixFiles (toString flake.outPath);
     inherit grafts outputNames;
   };
@@ -234,12 +241,7 @@ let
             builtins.mapAttrs (_: scrub (d + 1)) v
       )
     else if builtins.isList v then
-      (
-        if builtins.length v > 64 then
-          "«list:${toString (builtins.length v)}»"
-        else
-          map (scrub (d + 1)) v
-      )
+      (if builtins.length v > 64 then "«list:${toString (builtins.length v)}»" else map (scrub (d + 1)) v)
     else if builtins.isFunction v then
       "«function»"
     else if builtins.isPath v then
@@ -327,7 +329,11 @@ let
           deepSafe o.default
         else
           { skipped = true; };
-      value = if isDefined && !unsafe then deepSafe o.value else (if isDefined then { skipped = true; } else null);
+      value =
+        if isDefined && !unsafe then
+          deepSafe o.value
+        else
+          (if isDefined then { skipped = true; } else null);
       declarations = map str (o.declarations or [ ]);
       definitions = if defsR.success then defsR.value else [ ];
     };

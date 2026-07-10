@@ -38,7 +38,9 @@
         {
           _type = "option";
           inherit loc description;
-          type = { description = type; };
+          type = {
+            description = type;
+          };
           internal = false;
           visible = true;
           readOnly = false;
@@ -76,7 +78,10 @@
           name = "mini-toplevel";
           system = "x86_64-linux";
           builder = "/bin/sh";
-          args = [ "-c" "echo ok > $out" ];
+          args = [
+            "-c"
+            "echo ok > $out"
+          ];
         };
         options = {
           inherit networking;
