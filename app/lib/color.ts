@@ -70,6 +70,15 @@ export function registerSlotKeys(keys: string[]) {
 }
 
 /**
+ * Test hook: empty the first-come registry. A page load never needs this,
+ * but tests sharing the module (loadManifest registers input names) do —
+ * slot assertions are order-dependent otherwise.
+ */
+export function resetSlotKeys() {
+  slots.clear()
+}
+
+/**
  * CSS color expression for a key: curated slot var when registered, else a
  * generated OKLCH hex. Use in `style="--c: {colorFor(key, gen)}"`.
  */

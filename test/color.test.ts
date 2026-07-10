@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { colorFor, nameColor, oklchToHex, registerSlotKeys } from "../app/lib/color"
+import { colorFor, nameColor, oklchToHex, registerSlotKeys, resetSlotKeys } from "../app/lib/color"
 
 const gen = { l: 0.55, c: 0.13 }
 
@@ -21,6 +21,7 @@ describe("color", () => {
   })
 
   test("registered keys map to curated slot vars, overflow generates", () => {
+    resetSlotKeys() // another test file's loadManifest may have registered inputs
     registerSlotKeys(Array.from({ length: 14 }, (_, i) => `input-${i}`))
     expect(colorFor("input-0", gen)).toBe("var(--s1)")
     expect(colorFor("input-11", gen)).toBe("var(--s12)")

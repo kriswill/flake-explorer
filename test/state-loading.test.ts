@@ -2,7 +2,8 @@
 // loadConfig/loadFileContent resolve through loadJson's embedded-tag mode
 // (script tags injected into happy-dom), so no network is involved.
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { resetSlotKeys } from "../app/lib/color"
 import { buildFlakeIndexes } from "../app/lib/indexes"
 import { app, loadedConfig } from "../app/lib/state.svelte"
 import { SCHEMA_VERSION } from "../src/schema"
@@ -36,6 +37,10 @@ afterEach(() => {
   for (const el of injected.values()) el.remove()
   injected.clear()
 })
+
+// loadManifest registers input names into color.ts's first-come slot
+// registry — don't leak that into other test files' slot assertions.
+afterAll(resetSlotKeys)
 
 describe("loadManifest", () => {
   test("loads, indexes, and follows a deep link decoded before it arrived", async () => {
