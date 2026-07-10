@@ -1,12 +1,12 @@
 <script lang="ts">
-import AboutModal from "./components/AboutModal.svelte";
-import FileList from "./components/FileList.svelte";
-import Header from "./components/Header.svelte";
-import OutputsTree from "./components/OutputsTree.svelte";
-import Splitter from "./components/Splitter.svelte";
-import Stage from "./components/Stage.svelte";
-import Tooltip from "./components/Tooltip.svelte";
-import { app } from "./lib/state.svelte";
+import AboutModal from "./components/AboutModal.svelte"
+import FileList from "./components/FileList.svelte"
+import Header from "./components/Header.svelte"
+import OutputsTree from "./components/OutputsTree.svelte"
+import Splitter from "./components/Splitter.svelte"
+import Stage from "./components/Stage.svelte"
+import Tooltip from "./components/Tooltip.svelte"
+import { app } from "./lib/state.svelte"
 </script>
 
 <div class="shell">

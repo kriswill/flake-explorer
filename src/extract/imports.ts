@@ -4,8 +4,8 @@
 // re-prints Nix (no JSON) so a "real" approach would still be text-munging.
 // tree-sitter-nix is the named upgrade path.
 
-import { REL_PATH_RE, resolveKnownRef } from "../pathref";
-import type { ImportEdge } from "../schema";
+import { REL_PATH_RE, resolveKnownRef } from "../pathref"
+import type { ImportEdge } from "../schema"
 
 /**
  * Build import edges between the given files (repo-relative paths).
@@ -16,25 +16,25 @@ export async function importGraph(
   read: (relPath: string) => Promise<string>,
   idOf: (relPath: string) => string,
 ): Promise<ImportEdge[]> {
-  const known = new Set(relPaths);
-  const edges: ImportEdge[] = [];
-  const seen = new Set<string>();
+  const known = new Set(relPaths)
+  const edges: ImportEdge[] = []
+  const seen = new Set<string>()
 
   for (const from of relPaths) {
-    let text: string;
+    let text: string
     try {
-      text = await read(from);
+      text = await read(from)
     } catch {
-      continue;
+      continue
     }
     for (const m of text.matchAll(REL_PATH_RE)) {
-      const to = resolveKnownRef(from, m[0], known);
-      if (!to) continue;
-      const key = `${from}\x00${to}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      edges.push({ from: idOf(from), to: idOf(to) });
+      const to = resolveKnownRef(from, m[0], known)
+      if (!to) continue
+      const key = `${from}\x00${to}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      edges.push({ from: idOf(from), to: idOf(to) })
     }
   }
-  return edges;
+  return edges
 }

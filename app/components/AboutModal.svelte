@@ -1,40 +1,40 @@
 <script lang="ts">
-import { app } from "../lib/state.svelte";
+import { app } from "../lib/state.svelte"
 
-const { onClose }: { onClose: () => void } = $props();
+const { onClose }: { onClose: () => void } = $props()
 
 // Two panes: app info and the license notices (first-party + bundled deps).
 // The modal remounts per open (App's {#if}), so it always opens on info.
-let tab: "info" | "licenses" = $state("info");
+let tab: "info" | "licenses" = $state("info")
 
-const about = $derived(app.about);
-const m = $derived(app.manifest);
+const about = $derived(app.about)
+const m = $derived(app.manifest)
 
 /** Short context for the title, okflight-style: "kriswill/dotfiles". */
 const shortRef = $derived.by(() => {
-  const ref = m?.flake.ref ?? "";
-  const parts = ref.replace(/\/+$/, "").split("/").filter(Boolean);
-  return parts.length >= 2 ? parts.slice(-2).join("/") : ref;
-});
+  const ref = m?.flake.ref ?? ""
+  const parts = ref.replace(/\/+$/, "").split("/").filter(Boolean)
+  return parts.length >= 2 ? parts.slice(-2).join("/") : ref
+})
 
 interface Row {
-  label: string;
-  count: number | string;
+  label: string
+  count: number | string
 }
 const rows = $derived.by((): Row[] => {
-  if (!m) return [];
+  if (!m) return []
   const r: Row[] = [
     { label: ".nix files in the flake", count: m.files.length },
     { label: "Flake inputs (incl. transitive)", count: Object.keys(m.inputs).length },
     { label: "Configurations", count: m.configurations.length },
-  ];
+  ]
   for (const c of m.configurations) {
     if (c.status === "ok" && c.optionCount)
-      r.push({ label: `${c.id} options`, count: c.optionCount });
+      r.push({ label: `${c.id} options`, count: c.optionCount })
   }
-  if (m.warnings.length) r.push({ label: "Extraction warnings", count: m.warnings.length });
-  return r;
-});
+  if (m.warnings.length) r.push({ label: "Extraction warnings", count: m.warnings.length })
+  return r
+})
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions --

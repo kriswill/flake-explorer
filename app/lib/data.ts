@@ -4,11 +4,11 @@
 
 export async function loadJson<T>(name: string): Promise<T> {
   if (typeof document !== "undefined") {
-    const el = document.getElementById(`data:${name}`);
-    if (el?.textContent) return JSON.parse(el.textContent) as T;
+    const el = document.getElementById(`data:${name}`)
+    if (el?.textContent) return JSON.parse(el.textContent) as T
   }
-  const res = await fetch(`data/${name}`);
+  const res = await fetch(`data/${name}`)
   if (!res.ok)
-    throw new Error(`loading ${name}: HTTP ${res.status} ${await res.text().catch(() => "")}`);
-  return (await res.json()) as T;
+    throw new Error(`loading ${name}: HTTP ${res.status} ${await res.text().catch(() => "")}`)
+  return (await res.json()) as T
 }

@@ -7,12 +7,12 @@
 // protan/deutan ΔE ≥ 15 worst pair) per surface; `gen` feeds color.ts for
 // keys beyond the curated slots.
 
-import type { GenParams } from "./color";
+import type { GenParams } from "./color"
 
 export interface ThemeDef {
-  name: string;
-  vars: Record<string, string>;
-  gen: GenParams;
+  name: string
+  vars: Record<string, string>
+  gen: GenParams
 }
 
 export const THEMES: ThemeDef[] = [
@@ -94,14 +94,14 @@ export const THEMES: ThemeDef[] = [
       "--code-json-string": "#ee7d55",
     },
   },
-];
+]
 
 /** Index the toggle rests at when the user hasn't picked a theme. */
-export const defaultThemeIndex = (dark: boolean) => (dark ? 1 : 0);
+export const defaultThemeIndex = (dark: boolean) => (dark ? 1 : 0)
 
 export function applyThemeVars(i: number) {
-  if (typeof document === "undefined") return;
-  const root = document.documentElement;
-  for (const [k, v] of Object.entries(THEMES[i]!.vars)) root.style.setProperty(k, v);
-  root.style.setProperty("color-scheme", THEMES[i]!.name);
+  if (typeof document === "undefined") return
+  const root = document.documentElement
+  for (const [k, v] of Object.entries(THEMES[i]!.vars)) root.style.setProperty(k, v)
+  root.style.setProperty("color-scheme", THEMES[i]!.name)
 }

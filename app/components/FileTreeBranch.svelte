@@ -1,45 +1,45 @@
 <script lang="ts">
-import { colorFor } from "../lib/color";
-import type { FileTreeNode } from "../lib/indexes";
-import { app } from "../lib/state.svelte";
-import { THEMES } from "../lib/themes";
-import Dot from "./Dot.svelte";
-import FileTreeBranch from "./FileTreeBranch.svelte";
+import { colorFor } from "../lib/color"
+import type { FileTreeNode } from "../lib/indexes"
+import { app } from "../lib/state.svelte"
+import { THEMES } from "../lib/themes"
+import Dot from "./Dot.svelte"
+import FileTreeBranch from "./FileTreeBranch.svelte"
 
 interface Props {
-  node: FileTreeNode;
-  depth: number;
+  node: FileTreeNode
+  depth: number
 }
-const { node, depth }: Props = $props();
+const { node, depth }: Props = $props()
 
-const gen = $derived(THEMES[app.themeIndex]!.gen);
-const q = $derived(app.q.toLowerCase());
+const gen = $derived(THEMES[app.themeIndex]!.gen)
+const q = $derived(app.q.toLowerCase())
 
 /** Filter: a file matches on its full relPath; a folder if any child does. */
 function matches(n: FileTreeNode): boolean {
-  if (q === "") return true;
-  if (n.fileId) return n.path.toLowerCase().includes(q);
-  return n.children.some(matches);
+  if (q === "") return true
+  if (n.fileId) return n.path.toLowerCase().includes(q)
+  return n.children.some(matches)
 }
 
-const kids = $derived(node.children.filter(matches));
+const kids = $derived(node.children.filter(matches))
 
 /** While filtering, matching subtrees render expanded regardless of state. */
-const isOpen = (n: FileTreeNode) => (q !== "" ? true : app.fileExpanded.has(n.id));
+const isOpen = (n: FileTreeNode) => (q !== "" ? true : app.fileExpanded.has(n.id))
 
 function toggle(n: FileTreeNode) {
-  if (app.fileExpanded.has(n.id)) app.fileExpanded.delete(n.id);
-  else app.fileExpanded.add(n.id);
+  if (app.fileExpanded.has(n.id)) app.fileExpanded.delete(n.id)
+  else app.fileExpanded.add(n.id)
 }
 
 const isModSel = (fileId: string) =>
-  app.selection?.kind === "module" && app.selection.moduleId === fileId;
+  app.selection?.kind === "module" && app.selection.moduleId === fileId
 
 /** Scroll the auto-highlighted row into view when a module gets selected. */
 function reveal(el: HTMLElement, fileId: string) {
   $effect(() => {
-    if (isModSel(fileId)) el.scrollIntoView?.({ block: "nearest" });
-  });
+    if (isModSel(fileId)) el.scrollIntoView?.({ block: "nearest" })
+  })
 }
 </script>
 

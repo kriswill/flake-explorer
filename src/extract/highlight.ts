@@ -14,30 +14,30 @@
 // (verified empirically against a multi-byte character) — directly usable
 // as JS string slice indices, no UTF-8 byte conversion needed.
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { Language, Parser, Query } from "web-tree-sitter";
-import type { TokenRun } from "../schema";
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
+import { Language, Parser, Query } from "web-tree-sitter"
+import type { TokenRun } from "../schema"
 
-const VENDOR_DIR = join(import.meta.dir, "vendor");
+const VENDOR_DIR = join(import.meta.dir, "vendor")
 
-let ready: Promise<{ parser: Parser; query: Query }> | null = null;
+let ready: Promise<{ parser: Parser; query: Query }> | null = null
 
 function init(): Promise<{ parser: Parser; query: Query }> {
   if (!ready) {
     ready = (async () => {
-      await Parser.init();
-      const language = await Language.load(join(VENDOR_DIR, "tree-sitter-nix.wasm"));
-      const parser = new Parser();
-      parser.setLanguage(language);
+      await Parser.init()
+      const language = await Language.load(join(VENDOR_DIR, "tree-sitter-nix.wasm"))
+      const parser = new Parser()
+      parser.setLanguage(language)
       const query = new Query(
         language,
         readFileSync(join(VENDOR_DIR, "nix-highlights.scm"), "utf8"),
-      );
-      return { parser, query };
-    })();
+      )
+      return { parser, query }
+    })()
   }
-  return ready;
+  return ready
 }
 
 /**
@@ -48,34 +48,34 @@ function init(): Promise<{ parser: Parser; query: Query }> {
  * patterns are listed before the generic catch-alls they'd otherwise lose to.
  */
 export async function tokenizeNix(text: string): Promise<TokenRun[]> {
-  const { parser, query } = await init();
-  const tree = parser.parse(text);
-  if (!tree) return [];
+  const { parser, query } = await init()
+  const tree = parser.parse(text)
+  if (!tree) return []
   try {
-    const captures = query.captures(tree.rootNode);
+    const captures = query.captures(tree.rootNode)
     captures.sort((a, b) => {
-      if (a.node.startIndex !== b.node.startIndex) return a.node.startIndex - b.node.startIndex;
-      const alen = a.node.endIndex - a.node.startIndex;
-      const blen = b.node.endIndex - b.node.startIndex;
-      if (alen !== blen) return blen - alen; // broader first — narrower paints over it below
-      return b.patternIndex - a.patternIndex; // same node: earlier-declared pattern paints last (wins)
-    });
+      if (a.node.startIndex !== b.node.startIndex) return a.node.startIndex - b.node.startIndex
+      const alen = a.node.endIndex - a.node.startIndex
+      const blen = b.node.endIndex - b.node.startIndex
+      if (alen !== blen) return blen - alen // broader first — narrower paints over it below
+      return b.patternIndex - a.patternIndex // same node: earlier-declared pattern paints last (wins)
+    })
 
-    const paint = new Array<string | undefined>(text.length);
+    const paint = new Array<string | undefined>(text.length)
     for (const c of captures) {
-      for (let i = c.node.startIndex; i < c.node.endIndex; i++) paint[i] = c.name;
+      for (let i = c.node.startIndex; i < c.node.endIndex; i++) paint[i] = c.name
     }
 
-    const runs: TokenRun[] = [];
-    let start = 0;
+    const runs: TokenRun[] = []
+    let start = 0
     for (let i = 1; i <= text.length; i++) {
       if (i === text.length || paint[i] !== paint[start]) {
-        if (paint[start]) runs.push({ start, end: i, name: paint[start]! });
-        start = i;
+        if (paint[start]) runs.push({ start, end: i, name: paint[start]! })
+        start = i
       }
     }
-    return runs;
+    return runs
   } finally {
-    tree.delete();
+    tree.delete()
   }
 }

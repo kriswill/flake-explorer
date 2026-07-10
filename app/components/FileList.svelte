@@ -1,46 +1,46 @@
 <script lang="ts">
-import { colorFor } from "../lib/color";
-import { buildFileTree, type FileMeta, type FileTreeNode } from "../lib/indexes";
-import { app, loadedConfig } from "../lib/state.svelte";
-import { THEMES } from "../lib/themes";
-import Dot from "./Dot.svelte";
-import FileTreeBranch from "./FileTreeBranch.svelte";
+import { colorFor } from "../lib/color"
+import { buildFileTree, type FileMeta, type FileTreeNode } from "../lib/indexes"
+import { app, loadedConfig } from "../lib/state.svelte"
+import { THEMES } from "../lib/themes"
+import Dot from "./Dot.svelte"
+import FileTreeBranch from "./FileTreeBranch.svelte"
 
-const gen = $derived(THEMES[app.themeIndex]!.gen);
+const gen = $derived(THEMES[app.themeIndex]!.gen)
 
 interface Group {
-  key: string;
-  label: string;
-  colorKey: string;
-  tree: FileTreeNode;
-  count: number;
+  key: string
+  label: string
+  colorKey: string
+  tree: FileTreeNode
+  count: number
 }
 
 const groups = $derived.by((): Group[] => {
-  if (!app.manifest) return [];
+  if (!app.manifest) return []
 
   const selfFiles = app.manifest.files.map((f) => ({
     id: f.id,
     relPath: f.relPath,
     colorKey: f.id,
-  }));
+  }))
 
   // Input files appear once a configuration referencing them is loaded.
-  const inputFiles = new Map<string, FileMeta[]>();
+  const inputFiles = new Map<string, FileMeta[]>()
   for (const s of Object.values(app.configs)) {
-    const slot = loadedConfig(s);
-    if (!slot) continue;
+    const slot = loadedConfig(s)
+    if (!slot) continue
     for (const meta of slot.indexes.filesById.values()) {
       const key =
         meta.origin.kind === "input"
           ? meta.origin.input
           : meta.origin.kind === "unknown" && meta.origin.group
             ? meta.origin.group
-            : null;
-      if (!key) continue;
-      const list = inputFiles.get(key) ?? [];
-      if (!list.some((m) => m.id === meta.id)) list.push(meta);
-      inputFiles.set(key, list);
+            : null
+      if (!key) continue
+      const list = inputFiles.get(key) ?? []
+      if (!list.some((m) => m.id === meta.id)) list.push(meta)
+      inputFiles.set(key, list)
     }
   }
 
@@ -64,17 +64,17 @@ const groups = $derived.by((): Group[] => {
         ),
         count: metas.length,
       })),
-  ];
-  return all;
-});
+  ]
+  return all
+})
 
 /** A group hides entirely when the filter matches nothing inside it. */
 function hasMatch(n: FileTreeNode, q: string): boolean {
-  if (q === "") return true;
-  if (n.fileId) return n.path.toLowerCase().includes(q);
-  return n.children.some((c) => hasMatch(c, q));
+  if (q === "") return true
+  if (n.fileId) return n.path.toLowerCase().includes(q)
+  return n.children.some((c) => hasMatch(c, q))
 }
-const visibleGroups = $derived(groups.filter((g) => hasMatch(g.tree, app.q.toLowerCase())));
+const visibleGroups = $derived(groups.filter((g) => hasMatch(g.tree, app.q.toLowerCase())))
 </script>
 
 <div class="files">

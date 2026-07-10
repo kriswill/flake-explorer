@@ -4,27 +4,27 @@
 // node:path, so the same resolution logic runs unmodified in both places.
 
 /** Relative path tokens: ./x, ../x/y.nix, ./dir — quoted or bare. */
-export const REL_PATH_RE = /\.{1,2}\/[\w@.+-]+(?:\/[\w@.+-]+)*/g;
+export const REL_PATH_RE = /\.{1,2}\/[\w@.+-]+(?:\/[\w@.+-]+)*/g
 
 function dirname(relPath: string): string {
-  const i = relPath.lastIndexOf("/");
-  return i === -1 ? "" : relPath.slice(0, i);
+  const i = relPath.lastIndexOf("/")
+  return i === -1 ? "" : relPath.slice(0, i)
 }
 
 /** Join a dir and a relative token (./x, ../x/y), collapsing . and .. segments. Null if it escapes the root. */
 export function resolveRelRef(dir: string, token: string): string | null {
-  const parts = (dir ? dir.split("/") : []).concat(token.split("/"));
-  const out: string[] = [];
+  const parts = (dir ? dir.split("/") : []).concat(token.split("/"))
+  const out: string[] = []
   for (const part of parts) {
-    if (part === "" || part === ".") continue;
+    if (part === "" || part === ".") continue
     if (part === "..") {
-      if (out.length === 0) return null;
-      out.pop();
+      if (out.length === 0) return null
+      out.pop()
     } else {
-      out.push(part);
+      out.push(part)
     }
   }
-  return out.join("/");
+  return out.join("/")
 }
 
 /**
@@ -37,9 +37,9 @@ export function resolveKnownRef(
   token: string,
   known: ReadonlySet<string>,
 ): string | null {
-  const target = resolveRelRef(dirname(from), token);
-  if (target === null || target === from) return null;
-  if (known.has(target)) return target;
-  const withDefault = `${target}/default.nix`;
-  return known.has(withDefault) ? withDefault : null;
+  const target = resolveRelRef(dirname(from), token)
+  if (target === null || target === from) return null
+  if (known.has(target)) return target
+  const withDefault = `${target}/default.nix`
+  return known.has(withDefault) ? withDefault : null
 }
