@@ -2,17 +2,27 @@
 // actual extraction pipeline (buildManifest + extractOptions, both shelling
 // out to `nix`) end to end, not synthetic fixture data like the other tests.
 // Needs `nix` on PATH — skipped otherwise (checks.test's sandbox has no nix,
-// see package.nix's tests.unit derivation).
+// see package.nix's tests.unit derivation). CI's test job installs nix and
+// sets FLAKE_EXPLORER_REQUIRE_NIX so a silent skip there is impossible.
 
 import { describe, expect, test } from "bun:test"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { buildConfigIndexes, buildFlakeIndexes, resolveFile } from "../app/lib/indexes"
+import { applyExtracted, extractAndPersist, reconcile } from "../src/extract/cache"
 import { buildManifest } from "../src/extract/manifest"
 import { extractOptions } from "../src/extract/options"
 import type { Manifest } from "../src/schema"
 
 const FIXTURE = join(import.meta.dir, "fixtures/mini-flake")
 const hasNix = !!Bun.which("nix")
+
+if (!hasNix && process.env.FLAKE_EXPLORER_REQUIRE_NIX) {
+  throw new Error(
+    "FLAKE_EXPLORER_REQUIRE_NIX is set but `nix` is not on PATH — the integration suite would silently skip",
+  )
+}
 
 describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
   test("manifest: flake, input, files, imports, configurations", async () => {
@@ -101,5 +111,35 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
   test("vendor input is listed and its files resolve (even if not option-attributed)", async () => {
     const m: Manifest = await buildManifest(FIXTURE, { timeoutMs: 60_000 })
     expect(Object.keys(m.inputs)).toEqual(["vendor"])
+  })
+
+  test("extractAndPersist writes a blob + sidecar that reconcile then accepts", async () => {
+    const outDir = await mkdtemp(join(tmpdir(), "mini-extract-"))
+    try {
+      const m = await buildManifest(FIXTURE, { timeoutMs: 60_000 })
+      const ref = m.configurations[0]!
+      const progress: string[] = []
+
+      const r = await extractAndPersist(outDir, FIXTURE, m.flake.narHash, ref, {
+        timeoutMs: 60_000,
+        onProgress: (p) => progress.push(p.current),
+      })
+      applyExtracted(ref, r)
+      expect(ref.status).toBe("ok")
+      expect(ref.optionCount).toBe(r.data.options.length)
+      expect(ref.optionCount).toBeGreaterThan(0)
+      expect(progress.length).toBeGreaterThan(0)
+
+      const blob = await Bun.file(join(outDir, ref.dataFile)).json()
+      expect(blob.id).toBe("nixos/mini")
+
+      // A fresh manifest reconciles against the persisted sidecar → no re-eval.
+      const m2 = await buildManifest(FIXTURE, { timeoutMs: 60_000 })
+      await reconcile(outDir, m2)
+      expect(m2.configurations[0]!.status).toBe("ok")
+      expect(m2.configurations[0]!.optionCount).toBe(ref.optionCount)
+    } finally {
+      await rm(outDir, { recursive: true, force: true })
+    }
   })
 })

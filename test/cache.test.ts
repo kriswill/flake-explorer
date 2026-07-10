@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { reconcile, writeSidecar } from "../src/extract/cache"
-import type { Manifest } from "../src/schema"
+import { applyExtracted, extractAndPersist, reconcile, writeSidecar } from "../src/extract/cache"
+import type { ConfigRef, Manifest } from "../src/schema"
 import { fixtureManifest } from "./fixtures/data"
 
 const NAR = "sha256-NNNN"
@@ -105,5 +105,40 @@ describe("reconcile / writeSidecar", () => {
     const m = pendingManifest(NAR)
     await reconcile(outDir, m)
     expect(m.configurations[0]!.status).toBe("pending")
+  })
+
+  test("extractAndPersist refuses a dataFile escaping the data dir", async () => {
+    // Never reaches nix: the traversal guard fires before any evaluation.
+    await expect(
+      extractAndPersist(
+        outDir,
+        "/flake",
+        NAR,
+        { kind: "nixos", name: "evil", dataFile: "../evil.json" },
+        { timeoutMs: 1_000 },
+      ),
+    ).rejects.toThrow("refusing to write outside the data dir: ../evil.json")
+  })
+})
+
+describe("applyExtracted", () => {
+  test("stamps extraction stats onto the current-manifest ref", () => {
+    const ref: ConfigRef = {
+      id: "nixos/test",
+      kind: "nixos",
+      name: "test",
+      dataFile: "config/nixos.test.json",
+      status: "pending",
+    }
+    applyExtracted(ref, {
+      data: { version: 1, id: "nixos/test", options: [], fileIndex: {} },
+      warnings: [],
+      durationMs: 1234,
+      extractedAt: "2026-07-08T12:00:00Z",
+    })
+    expect(ref.status).toBe("ok")
+    expect(ref.extractedAt).toBe("2026-07-08T12:00:00Z")
+    expect(ref.optionCount).toBe(0)
+    expect(ref.durationMs).toBe(1234)
   })
 })
