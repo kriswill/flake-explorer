@@ -3,16 +3,26 @@
 # extractor's options walk. hostFile/hostDefs are threaded in from flake.nix
 # since a relative path literal written here would resolve against this
 # file's own directory, not the caller's.
-{ mkOpt, hostFile, hostDefs }:
+{
+  mkOpt,
+  hostFile,
+  hostDefs,
+}:
 {
   hostName = mkOpt {
-    loc = [ "networking" "hostName" ];
+    loc = [
+      "networking"
+      "hostName"
+    ];
     type = "string";
     description = "The host name of this machine.";
     default = "unset";
     declarations = [ ./networking.nix ];
     definitionsWithLocations = [
-      { file = hostFile; value = hostDefs.networking.hostName; }
+      {
+        file = hostFile;
+        value = hostDefs.networking.hostName;
+      }
     ];
   };
 }
