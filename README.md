@@ -37,6 +37,12 @@ flake-explorer serving /etc/nixos at http://localhost:4321
 `serve` extracts the cheap manifest up front and evaluates each
 configuration's options **on demand** the first time you open it (cached by
 flake narHash; a full NixOS system takes a minute or two the first time).
+After editing the flake, `POST /api/refresh` re-scans it (manifest + cache
+reconcile) without restarting the server:
+
+```console
+$ curl -X POST localhost:4321/api/refresh
+```
 
 Pre-extract instead with:
 

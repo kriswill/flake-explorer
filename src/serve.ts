@@ -7,12 +7,11 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { buildApp, pageHtml } from "./build-app";
-import { reconcile, writeSidecar } from "./extract/cache";
+import { applyExtracted, extractAndPersist, reconcile } from "./extract/cache";
 import { tokenizeNix } from "./extract/highlight";
 import { buildManifest } from "./extract/manifest";
-import { extractOptions } from "./extract/options";
 import { checkNix, readInputFile } from "./extract/run-nix";
-import type { Manifest } from "./schema";
+import { parseFileId, type Manifest } from "./schema";
 
 export interface ServeFlags {
   out: string;
@@ -85,25 +84,30 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
     if (!ref || ref.status === "ok") return;
     let p = inflight.get(configId);
     if (!p) {
+      // Capture the narHash at extraction START: /api/refresh can swap the
+      // manifest mid-extraction, and stamping the new hash onto data evaluated
+      // from the old flake state would poison the sidecar cache.
+      const narHash = manifest.flake.narHash;
       p = (async () => {
         console.log(`extracting options of ${configId} ...`);
-        const r = await extractOptions(flakeRef, ref.kind, ref.name, { timeoutMs: flags.timeout * 1000 });
-        await Bun.write(join(outDir, ref.dataFile), JSON.stringify(r.data));
-        await writeSidecar(outDir, ref, {
-          narHash: manifest.flake.narHash,
-          extractedAt: new Date().toISOString(),
-          optionCount: r.data.options.length,
-          durationMs: r.durationMs,
-          warnings: r.warnings,
-        });
-        ref.status = "ok";
-        ref.optionCount = r.data.options.length;
-        manifest.warnings.push(...r.warnings);
+        const r = await extractAndPersist(outDir, flakeRef, narHash, ref, { timeoutMs: flags.timeout * 1000 });
+        // Settle onto the ref in the CURRENT manifest — /api/refresh may have
+        // replaced it while the extraction ran; mutating the stale `ref` would
+        // leave the live one pending forever.
+        const cur = manifest.configurations.find((c) => c.id === configId);
+        if (cur) {
+          applyExtracted(cur, r);
+          manifest.warnings.push(...r.warnings);
+        }
         console.log(`  ${configId}: ${r.data.options.length} options in ${(r.durationMs / 1000).toFixed(1)}s`);
       })().catch((e) => {
-        ref.status = "error";
-        ref.error = String(e).split("\n").slice(0, 3).join(" ");
-        console.error(`  ${configId} failed: ${ref.error}`);
+        const msg = String(e).split("\n").slice(0, 3).join(" ");
+        const cur = manifest.configurations.find((c) => c.id === configId);
+        if (cur) {
+          cur.status = "error";
+          cur.error = msg;
+        }
+        console.error(`  ${configId} failed: ${msg}`);
       });
       inflight.set(configId, p);
       void p.finally(() => inflight.delete(configId));
@@ -145,9 +149,12 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
         const ref = manifest.configurations.find((c) => c.dataFile === rel);
         if (ref && ref.status !== "ok") {
           await extractConfig(ref.id);
-          // extractConfig mutates ref.status; TS's narrowing doesn't know.
-          if ((ref.status as string) !== "ok") {
-            return new Response(ref.error ?? "extraction failed", { status: 500 });
+          // Re-resolve: extraction settles onto the ref in the manifest that
+          // is current at completion (see extractConfig), which /api/refresh
+          // may have swapped while we awaited.
+          const cur = manifest.configurations.find((c) => c.dataFile === rel);
+          if (cur?.status !== "ok") {
+            return new Response(cur?.error ?? "extraction failed", { status: 500 });
           }
         }
         const file = Bun.file(join(outDir, rel));
@@ -169,10 +176,10 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
           // synthetic path that was never real to begin with) — for input-origin
           // files, re-fetch straight from the flake input instead of 404ing.
           const id = decodeURIComponent(url.pathname.slice("/data/file/".length));
-          const inputMatch = id.match(/^input:([^:]+):(.+)$/);
-          if (!inputMatch) return new Response("not found", { status: 404 });
+          const parsed = parseFileId(id);
+          if (parsed?.kind !== "input") return new Response("not found", { status: 404 });
           try {
-            text = await readInputFile(flakeRef, inputMatch[1]!, inputMatch[2]!, flags.timeout * 1000);
+            text = await readInputFile(flakeRef, parsed.input, parsed.relPath, flags.timeout * 1000);
           } catch (e) {
             return new Response(String(e), { status: 500 });
           }
