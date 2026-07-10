@@ -93,7 +93,7 @@ let
     # Fixup would patch shebangs into store paths — forbidden in a fixed-output
     # derivation.
     dontFixup = true;
-    outputHash = "sha256-fgyd8OfPHXwpYxnDg2CqRz1Wbyp3k3a8E3xgc2f1tvA=";
+    outputHash = "sha256-4tAoTcFAN4f2kzNNX82LesRQWZafSyQC2nrcQVrF340=";
     outputHashAlgo = "sha256";
     outputHashMode = "recursive";
   };
