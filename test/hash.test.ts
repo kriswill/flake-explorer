@@ -11,6 +11,7 @@ describe("hash codec", () => {
       { kind: "config", configId: "nixos/nebula" },
       { kind: "module", configId: "darwin/k", moduleId: "self:modules/darwin/git.nix" },
       { kind: "file", fileId: "input:sops-nix:modules/sops/default.nix" },
+      { kind: "input", name: "home-manager/nixpkgs" },
     ];
     for (const sel of cases) {
       expect(roundTrip(sel).sel).toEqual(sel);
@@ -20,6 +21,13 @@ describe("hash codec", () => {
   test("round-trips filters", () => {
     const v = roundTrip({ kind: "config", configId: "nixos/nebula" }, "nginx & friends?", true);
     expect(v.filters).toEqual({ q: "nginx & friends?", all: true });
+  });
+
+  test("output attr names containing dots round-trip", () => {
+    // '.' separates output path segments — quoted Nix attrs may contain it
+    // (legacyPackages.x86_64-linux."python3.12").
+    const sel: Selection = { kind: "output", path: ["legacyPackages", "x86_64-linux", "python3.12"] };
+    expect(roundTrip(sel).sel).toEqual(sel);
   });
 
   test("ids containing slashes and percents survive", () => {

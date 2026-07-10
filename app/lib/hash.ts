@@ -37,7 +37,9 @@ function encodeSel(sel: Selection | null): string {
   if (!sel) return "";
   switch (sel.kind) {
     case "output":
-      return "/o/" + sel.path.map(enc).join(".");
+      // '.' is the output-path separator, so escape it per-segment (quoted Nix
+      // attrs may contain dots); other kinds keep readable dots ("flake.nix").
+      return "/o/" + sel.path.map((s) => enc(s).replace(/\./g, "%2E")).join(".");
     case "config":
       return "/c/" + enc(sel.configId);
     case "module":
