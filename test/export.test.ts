@@ -13,6 +13,7 @@ import type { ConfigData, FileSource, Manifest } from "../src/schema"
 import { fixtureConfig, fixtureManifest } from "./fixtures/data"
 
 const FIXTURE = join(import.meta.dir, "fixtures/mini-flake")
+const BROKEN = join(import.meta.dir, "fixtures/broken-flake")
 const hasNix = !!Bun.which("nix")
 
 if (!hasNix && process.env.FLAKE_EXPLORER_REQUIRE_NIX) {
@@ -86,6 +87,34 @@ describe.skipIf(!hasNix)("export (real nix)", () => {
       await expect(extractToDir(FIXTURE, { ...flags, configs: ["nixos/nope"] })).rejects.toThrow(
         "no such configuration",
       )
+    } finally {
+      await rm(outDir, { recursive: true, force: true })
+    }
+  })
+
+  test("a configuration that fails evaluation lands in status error; export keeps it", async () => {
+    const outDir = await mkdtemp(join(tmpdir(), "broken-export-"))
+    try {
+      const flags = { out: outDir, configs: "all" as const, allSystems: false, timeout: 60 }
+      const { manifest, wanted } = await extractToDir(BROKEN, flags)
+      const ref = manifest.configurations[0]!
+      expect(ref.id).toBe("nixos/broken")
+      expect(ref.status).toBe("error")
+      expect(ref.error).toContain("nix eval")
+
+      // The export embeds no blob for it but keeps the error ref, so the
+      // static UI reports "extraction failed during export: …".
+      const htmlPath = join(outDir, "flake.html")
+      const summary = await exportHtml(BROKEN, manifest, {
+        outDir,
+        htmlPath,
+        sources: "self",
+        timeoutMs: 60_000,
+        wanted,
+      })
+      const em = embedded<Manifest>(await Bun.file(htmlPath).text(), "manifest.json")!
+      expect(em.configurations[0]).toMatchObject({ id: "nixos/broken", status: "error" })
+      expect(summary.configs).toEqual([])
     } finally {
       await rm(outDir, { recursive: true, force: true })
     }
