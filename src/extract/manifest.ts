@@ -6,6 +6,7 @@ import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   EXTRACTOR_VERSION,
+  makeFileId,
   SCHEMA_VERSION,
   type FileEntry,
   type InputInfo,
@@ -50,7 +51,7 @@ export async function buildManifest(flakeRef: string, opts: ManifestOptions = {}
   const importEdges = await importGraph(
     selfFiles.map((f) => f.relPath),
     read,
-    (relPath) => `self:${relPath}`,
+    (relPath) => makeFileId({ kind: "self" }, relPath),
   );
 
   return {
@@ -60,11 +61,9 @@ export async function buildManifest(flakeRef: string, opts: ManifestOptions = {}
     flake: {
       ref: flakeRef,
       path: ev.self,
-      localCheckout: localCheckout ?? undefined,
       description: meta.description ?? ev.description ?? undefined,
       rev: meta.revision,
       narHash: meta.locked?.narHash,
-      lastModified: meta.lastModified,
     },
     outputs: showJson ? normalizeShow(showJson) : { kind: "attrset", children: {} },
     inputs,
@@ -74,22 +73,39 @@ export async function buildManifest(flakeRef: string, opts: ManifestOptions = {}
       id: `${kind}/${n}`,
       kind,
       name: n,
-      dataFile: `config/${kind}.${n}.json`,
+      dataFile: `config/${kind}.${safeName(n)}.json`,
       status: "pending" as const,
     })),
-    moduleDirs: await discoverModuleDirs(ev, localCheckout),
     grafts: ev.grafts ?? [],
     outputNames: ev.outputNames ?? {},
     warnings,
   };
 }
 
+/**
+ * Config names are arbitrary Nix attr names — quoted attrs may contain "/",
+ * enough to escape the data dir through join(outDir, dataFile). Names in the
+ * serve route's charset pass through; anything else becomes a slug plus a
+ * short collision hash (still matching /^[\w@%.+-]+$/, so it stays fetchable).
+ */
+function safeName(name: string): string {
+  if (/^[\w@+.-]+$/.test(name)) return name;
+  return `${name.replace(/[^\w@+.-]/g, "_")}-${Bun.hash(name).toString(36).slice(0, 8)}`;
+}
+
+/** Existing local directory of a path-like flakeref (`path:` prefix and ?query stripped), or null. */
+export function localFlakeDir(ref: string): string | null {
+  const bare = ref.replace(/^path:/, "").replace(/\?.*$/, "");
+  if ((bare.startsWith("/") || bare.startsWith(".")) && existsSync(bare) && statSync(bare).isDirectory()) {
+    return bare;
+  }
+  return null;
+}
+
 /** A path-like flakeref (possibly `path:`-prefixed) that exists locally. */
 function detectLocalCheckout(flakeRef: string, meta: FlakeMetadataJson): string | null {
-  const bare = flakeRef.replace(/^path:/, "").replace(/\?.*$/, "");
-  if ((bare.startsWith("/") || bare.startsWith(".")) && existsSync(bare) && statSync(bare).isDirectory()) {
-    return resolve(bare);
-  }
+  const dir = localFlakeDir(flakeRef);
+  if (dir) return resolve(dir);
   const m = meta.resolvedUrl?.match(/^(?:path:|git\+file:\/\/)([^?]+)/);
   if (m && existsSync(m[1]!)) return m[1]!;
   return null;
@@ -190,7 +206,7 @@ async function fileEntries(
   const entries: FileEntry[] = ev.files
     .filter((f) => f.startsWith(selfPrefix))
     .map((storePath) => ({
-      id: `self:${storePath.slice(selfPrefix.length)}`,
+      id: makeFileId({ kind: "self" }, storePath.slice(selfPrefix.length)),
       relPath: storePath.slice(selfPrefix.length),
       origin: { kind: "self" as const },
       storePath,
@@ -209,18 +225,6 @@ async function fileEntries(
     }
   }
   return entries;
-}
-
-/** import-tree roots referenced from flake.nix, e.g. ["modules"]. */
-async function discoverModuleDirs(ev: ManifestEval, localCheckout: string | null): Promise<string[]> {
-  try {
-    const text = await Bun.file(`${localCheckout ?? ev.self}/flake.nix`).text();
-    const dirs = [...text.matchAll(/import-tree\s+(?:\.\/)([\w./-]+)/g)].map((m) => m[1]!);
-    if (dirs.length) return [...new Set(dirs)];
-  } catch {
-    // fall through
-  }
-  return existsSync(`${localCheckout ?? ev.self}/modules`) ? ["modules"] : [];
 }
 
 // --------------------------------------------------------------- flake show

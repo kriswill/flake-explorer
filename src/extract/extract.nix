@@ -302,20 +302,11 @@ let
           value = if unsafe then { skipped = true; } else deepSafe d.value;
         }) (o.definitionsWithLocations or [ ])
       );
-      declPosR = builtins.tryEval (
-        map (p: {
-          file = str p.file;
-          line = p.line or null;
-          column = p.column or null;
-        }) (o.declarationPositions or [ ])
-      );
     in
     {
       loc = o.loc;
       type = if typeR.success then typeR.value else null;
       description = if descR.success then descR.value else null;
-      internal = o.internal or false;
-      visible = (o.visible or true) != false;
       readOnly = o.readOnly or false;
       inherit isDefined;
       highestPrio = if isDefined && prioR.success then prioR.value else null;
@@ -338,7 +329,6 @@ let
           { skipped = true; };
       value = if isDefined && !unsafe then deepSafe o.value else (if isDefined then { skipped = true; } else null);
       declarations = map str (o.declarations or [ ]);
-      declarationPositions = if declPosR.success then declPosR.value else [ ];
       definitions = if defsR.success then defsR.value else [ ];
     };
 

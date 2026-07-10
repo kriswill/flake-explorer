@@ -22,7 +22,7 @@ const MIN_NIX = [2, 19];
 export async function checkNix(): Promise<string> {
   let out: string;
   try {
-    out = await runText(["--version"], 10_000);
+    out = await run(["--version"], 10_000);
   } catch {
     throw new Error(
       "flake-explorer needs `nix` on PATH (>= 2.19 with flakes enabled) — none found.",
@@ -68,10 +68,6 @@ async function run(args: string[], timeoutMs: number): Promise<string> {
     throw new NixError(`nix ${args.slice(0, 3).join(" ")} failed (exit ${exitCode}):\n${tail}`, stderr, exitCode);
   }
   return stdout;
-}
-
-async function runText(args: string[], timeoutMs: number): Promise<string> {
-  return run(args, timeoutMs);
 }
 
 export async function runJson<T>(args: string[], timeoutMs: number): Promise<T> {
@@ -126,7 +122,7 @@ export async function readInputFile(flakeRef: string, inputName: string, relPath
 
 function readInputFileRaw(flakeRef: string, inputName: string, relPath: string, timeoutMs: number): Promise<string> {
   const expr = `builtins.readFile ((builtins.getFlake ${JSON.stringify(flakeRef)}).inputs.${JSON.stringify(inputName)} + ${JSON.stringify("/" + relPath)})`;
-  return runText(["eval", "--impure", "--raw", "--expr", expr], timeoutMs);
+  return run(["eval", "--impure", "--raw", "--expr", expr], timeoutMs);
 }
 
 export interface ExtractArgs {
@@ -150,7 +146,6 @@ export interface FlakeMetadataJson {
   resolvedUrl: string;
   url: string;
   revision?: string;
-  lastModified?: number;
   locked?: { narHash?: string; rev?: string };
   locks: {
     version: number;
@@ -203,8 +198,6 @@ export interface RawOption {
   loc: string[];
   type: string | null;
   description: string | null;
-  internal: boolean;
-  visible: boolean;
   readOnly: boolean;
   isDefined: boolean;
   highestPrio: number | null;
@@ -212,6 +205,5 @@ export interface RawOption {
   default: ValueEnvelope;
   value: ValueEnvelope;
   declarations: string[];
-  declarationPositions: { file: string; line: number | null; column: number | null }[];
   definitions: { file: string; value: ValueEnvelope }[];
 }

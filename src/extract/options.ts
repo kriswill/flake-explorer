@@ -11,6 +11,7 @@
 import { cpus } from "node:os";
 import {
   PRIO,
+  SCHEMA_VERSION,
   type ConfigData,
   type ConfigKind,
   type FileOptionRefs,
@@ -149,6 +150,7 @@ export async function extractOptions(
   }
 
   const data: ConfigData = {
+    version: SCHEMA_VERSION,
     id: `${kind}/${name}`,
     options: results.map(toEntry),
     fileIndex: {},
@@ -161,7 +163,7 @@ const chunkLabel = (c: Chunk) =>
   c.children?.length === 1 ? [...c.path, c.children[0]!].join(".") : c.path.join(".");
 
 /** Last substantive `error: <msg>` line — nix prefixes traces with bare "error:" lines. */
-const errLine = (s: string) => {
+export const errLine = (s: string) => {
   const errs = s
     .split("\n")
     .map((l) => l.trim())
@@ -170,29 +172,24 @@ const errLine = (s: string) => {
 };
 
 /** "path, via option foo.bar" -> [path, "foo.bar"]; plain paths pass through. */
-function splitVia(file: string): [string, string | undefined] {
+export function splitVia(file: string): [string, string | undefined] {
   const i = file.indexOf(", via option ");
   return i < 0 ? [file, undefined] : [file.slice(0, i), file.slice(i + ", via option ".length)];
 }
 
-function unwrap(v: ValueEnvelope): { value?: unknown; valueError?: true } {
+export function unwrap(v: ValueEnvelope): { value?: unknown; valueError?: true } {
   if (v && typeof v === "object" && "ok" in v) return { value: v.ok };
   if (v && typeof v === "object" && "err" in v) return { valueError: true };
   return {}; // null (absent) or {skipped} — no value to show
 }
 
-function toEntry(o: RawOption): OptionEntry {
+export function toEntry(o: RawOption): OptionEntry {
   const val = unwrap(o.value);
   const def = unwrap(o.default);
-  // Merge line/column info into the plain declarations list.
-  const positions = new Map(o.declarationPositions.map((p) => [p.file, p]));
-  const declFiles = new Set([...o.declarations, ...o.declarationPositions.map((p) => p.file)]);
   return {
     loc: o.loc,
     type: o.type ?? undefined,
     description: o.description ?? undefined,
-    internal: o.internal,
-    visible: o.visible,
     readOnly: o.readOnly,
     isDefined: o.isDefined,
     highestPrio: o.highestPrio ?? undefined,
@@ -201,16 +198,10 @@ function toEntry(o: RawOption): OptionEntry {
     valueError: val.valueError,
     default: def.value,
     defaultText: o.defaultText ?? undefined,
-    declarations: [...declFiles].map((file) => {
-      const p = positions.get(file);
-      return { file, line: p?.line ?? undefined, column: p?.column ?? undefined };
-    }),
+    declarations: o.declarations.map((file) => ({ file })),
     // Definition files can carry a ", via option <path>" suffix (module-system
-    // provenance annotation) — split it off into its own field.
-    definitions: o.definitions.map((d) => {
-      const [file, via] = splitVia(d.file);
-      return { file, via, ...unwrap(d.value) };
-    }),
+    // provenance annotation) — strip it so file matching works.
+    definitions: o.definitions.map((d) => ({ file: splitVia(d.file)[0], ...unwrap(d.value) })),
   };
 }
 

@@ -9,8 +9,6 @@ export const PATCHED = `/nix/store/dddddddddddddddddddddddddddddddd-${NIXPKGS.sp
 
 export const opt = (loc: string[], over: Partial<OptionEntry> = {}): OptionEntry => ({
   loc,
-  internal: false,
-  visible: true,
   readOnly: false,
   isDefined: true,
   customized: false,
@@ -79,11 +77,13 @@ export const fixtureManifest = (): Manifest => ({
   configurations: [
     { id: "nixos/test", kind: "nixos", name: "test", dataFile: "config/nixos.test.json", status: "ok" },
   ],
-  moduleDirs: ["modules"],
+  grafts: [],
+  outputNames: {},
   warnings: [],
 });
 
 export const fixtureConfig = (): ConfigData => ({
+  version: 1,
   id: "nixos/test",
   options: [
     opt(["services", "x", "enable"], {
@@ -92,7 +92,7 @@ export const fixtureConfig = (): ConfigData => ({
       type: "boolean",
       value: true,
       default: false,
-      declarations: [{ file: `${SELF}/modules/sub/b.nix`, line: 10 }],
+      declarations: [{ file: `${SELF}/modules/sub/b.nix` }],
       definitions: [{ file: `${SELF}/modules/a.nix`, value: true }],
     }),
     opt(["services", "x", "port"], {
@@ -100,7 +100,7 @@ export const fixtureConfig = (): ConfigData => ({
       value: 8080,
       default: 8080,
       highestPrio: 1500,
-      declarations: [{ file: `${SELF}/modules/sub/b.nix`, line: 14 }],
+      declarations: [{ file: `${SELF}/modules/sub/b.nix` }],
       definitions: [{ file: `${SELF}/modules/sub/b.nix`, value: 8080 }],
     }),
     opt(["sops", "secrets"], {

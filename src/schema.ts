@@ -7,7 +7,7 @@
 export const SCHEMA_VERSION = 1;
 
 /** Extractor version — part of the cache key; bump on schema/extractor changes. */
-export const EXTRACTOR_VERSION = "0.1.0";
+export const EXTRACTOR_VERSION = "0.2.0";
 
 export interface Manifest {
   version: typeof SCHEMA_VERSION;
@@ -22,8 +22,6 @@ export interface Manifest {
   /** file→file static import graph (self files only). */
   importEdges: ImportEdge[];
   configurations: ConfigRef[];
-  /** Discovered import-tree roots relative to the flake root, e.g. ["modules"]. */
-  moduleDirs: string[];
   /** Outputs that extend an input's same-named namespace (lib = nixpkgs.lib.extend …). */
   grafts: GraftInfo[];
   /** Top-level attr names per output — fills in where nix flake show says "unknown". */
@@ -53,12 +51,9 @@ export interface FlakeInfo {
   ref: string;
   /** self.outPath — the flake's own store path. */
   path: string;
-  /** Real directory when the flakeref is path-like (enables git lookups). */
-  localCheckout?: string;
   description?: string;
   rev?: string;
   narHash?: string;
-  lastModified?: number;
 }
 
 export type OutputNode =
@@ -75,7 +70,10 @@ export interface InputInfo {
    * transitive ones (deduped — a followed input appears once).
    */
   name: string;
-  /** flake.lock node key (differs from name for deduped/followed nodes). */
+  /**
+   * flake.lock node key (differs from name for deduped/followed nodes).
+   * Not rendered directly, but it is the join target `follows` points at.
+   */
   nodeKey: string;
   /** Present on inputs-of-inputs; the UI legend shows direct inputs only. */
   transitive?: true;
@@ -98,8 +96,34 @@ export type FileOrigin =
   /** group: display bucket for unattributed store roots ("source@abc1234"). */
   | { kind: "unknown"; group?: string };
 
+/**
+ * FileEntry.id codec. The format ("self:<rel>" | "input:<name>:<rel>") is a
+ * client-server protocol — serve's /data/file/<id> route re-derives input
+ * files from the id — so every construction and parse site goes through
+ * these helpers. (resolveFile's "unknown:…"/"inline" buckets are app-internal
+ * and opaque: parseFileId returns null for them.)
+ */
+export function makeFileId(origin: { kind: "self" } | { kind: "input"; input: string }, relPath: string): string {
+  return origin.kind === "self" ? `self:${relPath}` : `input:${origin.input}:${relPath}`;
+}
+
+export type ParsedFileId =
+  | { kind: "self"; relPath: string }
+  | { kind: "input"; input: string; relPath: string };
+
+export function parseFileId(id: string): ParsedFileId | null {
+  if (id.startsWith("self:")) return { kind: "self", relPath: id.slice(5) };
+  const m = id.match(/^input:([^:]+):(.+)$/);
+  return m ? { kind: "input", input: m[1]!, relPath: m[2]! } : null;
+}
+
+/** Display label for a file id: its relPath; opaque (unknown-bucket) ids as-is. */
+export function displayLabel(id: string): string {
+  return parseFileId(id)?.relPath ?? id;
+}
+
 export interface FileEntry {
-  /** Stable id: "self:modules/hosts/nebula.nix" | "input:darwin:modules/x.nix". */
+  /** Stable id — see makeFileId/parseFileId above. */
   id: string;
   /** Path relative to its origin root. */
   relPath: string;
@@ -152,6 +176,8 @@ export interface ConfigRef {
 // Per-configuration blob (data/config/<kind>.<name>.json)
 
 export interface ConfigData {
+  /** SCHEMA_VERSION at extraction time — the SPA rejects mismatched blobs. */
+  version: typeof SCHEMA_VERSION;
   id: string;
   options: OptionEntry[];
   /**
@@ -182,8 +208,6 @@ export interface OptionEntry {
   /** type.description, e.g. "boolean" or "string matching ...". */
   type?: string;
   description?: string;
-  internal: boolean;
-  visible: boolean;
   readOnly: boolean;
   isDefined: boolean;
   /** Winning definition priority; absent when !isDefined. */
@@ -196,7 +220,7 @@ export interface OptionEntry {
   valueError?: true;
   default?: unknown;
   defaultText?: string;
-  /** Declaring files, merged with declarationPositions when available. */
+  /** Declaring files. */
   declarations: DeclarationRef[];
   /** One entry per definition (options.<x>.definitionsWithLocations). */
   definitions: DefinitionRef[];
@@ -204,14 +228,10 @@ export interface OptionEntry {
 
 export interface DeclarationRef {
   file: string; // store path or "<unknown-file>"
-  line?: number;
-  column?: number;
 }
 
 export interface DefinitionRef {
   file: string; // store path or "<unknown-file>"
-  /** Module-system provenance, e.g. "configurations.nixos.nebula.module". */
-  via?: string;
   value?: unknown;
   valueError?: true;
 }

@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { buildConfigIndexes, buildFlakeIndexes, resolveFile } from "../app/lib/indexes";
+import {
+  buildConfigIndexes,
+  buildFileTree,
+  buildFlakeIndexes,
+  fileTreeAncestorIds,
+  groupKeyOf,
+  resolveFile,
+} from "../app/lib/indexes";
 import type { ConfigData, Manifest, OptionEntry } from "../src/schema";
 
 const SELF = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-source";
@@ -9,8 +16,6 @@ const PATCHED = `/nix/store/dddddddddddddddddddddddddddddddd-${NIXPKGS.split("/"
 
 const opt = (loc: string[], over: Partial<OptionEntry> = {}): OptionEntry => ({
   loc,
-  internal: false,
-  visible: true,
   readOnly: false,
   isDefined: true,
   customized: false,
@@ -39,11 +44,13 @@ const manifest: Manifest = {
     { from: "self:modules/sub/b.nix", to: "self:lib/c.nix" },
   ],
   configurations: [],
-  moduleDirs: ["modules"],
+  grafts: [],
+  outputNames: {},
   warnings: [],
 };
 
 const config: ConfigData = {
+  version: 1,
   id: "nixos/test",
   options: [
     opt(["services", "x", "enable"], { customized: true, highestPrio: 100 }),
@@ -112,5 +119,72 @@ describe("config indexes", () => {
   test("refsByFile keyed by file id", () => {
     expect(ci.refsByFile.get("self:modules/sub/b.nix")!.declares).toEqual([0, 1]);
     expect(ci.refsByFile.get("inline")!.defines).toEqual([3]);
+  });
+
+  test("patched and original store paths merge into one file id, refs deduped", () => {
+    // Same nixpkgs file seen via the original tree AND a patched copy: both
+    // resolve to "input:nixpkgs:<rel>", so their refs concatenate then dedupe.
+    const merged: ConfigData = {
+      version: 1,
+      id: "nixos/test",
+      options: [opt(["a"]), opt(["b"]), opt(["c"])],
+      fileIndex: {
+        [`${NIXPKGS}/nixos/modules/x.nix`]: { defines: [0, 1], declares: [2] },
+        [`${PATCHED}/nixos/modules/x.nix`]: { defines: [1, 2, 2], declares: [2] },
+      },
+    };
+    const mi = buildConfigIndexes(manifest, merged, fx);
+    expect(mi.refsByFile.size).toBe(1);
+    const refs = mi.refsByFile.get("input:nixpkgs:nixos/modules/x.nix")!;
+    expect(refs.defines).toEqual([0, 1, 2]);
+    expect(refs.declares).toEqual([2]);
+    expect(mi.filesById.size).toBe(1);
+  });
+});
+
+describe("file tree (right pane)", () => {
+  const files = [
+    { id: "self:zeta.nix", relPath: "zeta.nix", colorKey: "self" },
+    { id: "self:modules/sub/b.nix", relPath: "modules/sub/b.nix", colorKey: "self" },
+    { id: "self:beta.nix", relPath: "beta.nix", colorKey: "self" },
+  ];
+
+  test("buildFileTree sorts files before folders, alphabetical within each", () => {
+    const tree = buildFileTree(files, "self");
+    // Opposite of the left tree's dirs-first sort: leaves lead at every level.
+    expect(tree.children.map((c) => c.label)).toEqual(["beta.nix", "zeta.nix", "modules"]);
+  });
+
+  test("buildFileTree dir ids are fdir:<groupKey>/<dirpath>, leaves keep fileId", () => {
+    const tree = buildFileTree(files, "self");
+    expect(tree.id).toBe("fdir:self");
+    const modules = tree.children.find((c) => c.label === "modules")!;
+    expect(modules.id).toBe("fdir:self/modules");
+    expect(modules.fileId).toBeUndefined();
+    const sub = modules.children[0]!;
+    expect(sub.id).toBe("fdir:self/modules/sub");
+    expect(sub.path).toBe("modules/sub");
+    const leaf = sub.children[0]!;
+    expect(leaf).toMatchObject({
+      id: "self:modules/sub/b.nix",
+      fileId: "self:modules/sub/b.nix",
+      path: "modules/sub/b.nix",
+      label: "b.nix",
+    });
+  });
+
+  test("groupKeyOf maps origins to file-list groups", () => {
+    expect(groupKeyOf({ kind: "self" })).toBe("self");
+    expect(groupKeyOf({ kind: "input", input: "sops-nix" })).toBe("input:sops-nix");
+    expect(groupKeyOf({ kind: "unknown", group: "source@abc1234" })).toBe("input:source@abc1234");
+    expect(groupKeyOf({ kind: "unknown" })).toBeNull();
+  });
+
+  test("fileTreeAncestorIds lists folder ids down to the file, exclusive", () => {
+    expect(fileTreeAncestorIds("input:nixpkgs", "nixos/modules/x.nix")).toEqual([
+      "fdir:input:nixpkgs/nixos",
+      "fdir:input:nixpkgs/nixos/modules",
+    ]);
+    expect(fileTreeAncestorIds("self", "top.nix")).toEqual([]);
   });
 });
