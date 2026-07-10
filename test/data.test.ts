@@ -2,7 +2,7 @@
 // tag (single-file build) vs fetch from ./data/ (dev server).
 
 import { afterEach, describe, expect, test } from "bun:test"
-import { loadJson } from "../app/lib/data"
+import { hasEmbedded, isStatic, loadJson } from "../app/lib/data"
 
 const cleanup: (() => void)[] = []
 afterEach(() => {
@@ -54,5 +54,21 @@ describe("loadJson", () => {
       (async () => new Response("gone missing", { status: 404 })) as unknown as typeof fetch,
     )
     await expect(loadJson("nope.json")).rejects.toThrow("loading nope.json: HTTP 404 gone missing")
+  })
+})
+
+describe("hasEmbedded / isStatic", () => {
+  test("hasEmbedded mirrors loadJson's non-empty-tag rule", () => {
+    expect(hasEmbedded("x.json")).toBe(false)
+    injectTag("x.json", '{"a":1}')
+    expect(hasEmbedded("x.json")).toBe(true)
+    injectTag("empty.json", "")
+    expect(hasEmbedded("empty.json")).toBe(false)
+  })
+
+  test("isStatic keys off the embedded manifest tag", () => {
+    expect(isStatic()).toBe(false)
+    injectTag("manifest.json", "{}")
+    expect(isStatic()).toBe(true)
   })
 })

@@ -132,6 +132,72 @@ describe("loadFileContent", () => {
   })
 })
 
+// A static export embeds manifest.json — its presence tells the app there is
+// no server behind the page: missing documents become permanent "not
+// included" slots (no retry button) instead of doomed fetches.
+describe("static export mode", () => {
+  let fetchCalls = 0
+  const origFetch = globalThis.fetch
+
+  beforeEach(() => {
+    fetchCalls = 0
+    globalThis.fetch = (async () => {
+      fetchCalls++
+      return new Response("nope", { status: 500 })
+    }) as unknown as typeof fetch
+    const m = fixtureManifest()
+    injectData("manifest.json", m)
+    app.manifest = m
+    app.flakeIndexes = buildFlakeIndexes(m)
+  })
+
+  afterEach(() => {
+    globalThis.fetch = origFetch
+  })
+
+  test("a config without an embedded blob is permanently not-included", async () => {
+    await app.loadConfig("nixos/test")
+    expect(app.configs["nixos/test"]).toEqual({
+      error: "configuration not included in this export",
+      permanent: true,
+    })
+    expect(fetchCalls).toBe(0)
+  })
+
+  test("a config that failed during export surfaces its extraction error", async () => {
+    const m = fixtureManifest()
+    m.configurations[0]!.status = "error"
+    m.configurations[0]!.error = "boom"
+    app.manifest = m
+    await app.loadConfig("nixos/test")
+    expect(app.configs["nixos/test"]).toEqual({
+      error: "extraction failed during export: boom",
+      permanent: true,
+    })
+    expect(fetchCalls).toBe(0)
+  })
+
+  test("an embedded config still loads normally", async () => {
+    injectData("config/nixos.test.json", fixtureConfig())
+    await app.loadConfig("nixos/test")
+    expect(loadedConfig(app.configs["nixos/test"])?.data.id).toBe("nixos/test")
+    expect(fetchCalls).toBe(0)
+  })
+
+  test("file content resolves from the id-keyed embed; absent files are permanent", async () => {
+    injectData(`file/${encodeURIComponent("self:lib/c.nix")}`, { text: "x = 1;", tokens: [] })
+    await app.loadFileContent("self:lib/c.nix", "/nix/store/aaaa-source/lib/c.nix")
+    expect(app.fileContents["self:lib/c.nix"]).toMatchObject({ text: "x = 1;" })
+
+    await app.loadFileContent("self:other.nix", "/nix/store/aaaa-source/other.nix")
+    expect(app.fileContents["self:other.nix"]).toEqual({
+      error: "source not included in this export (re-export with --sources all)",
+      permanent: true,
+    })
+    expect(fetchCalls).toBe(0)
+  })
+})
+
 describe("select + URL hash", () => {
   test("selection writes the hash; a repeat select only replaces", () => {
     app.select({ kind: "input", name: "nixpkgs" })

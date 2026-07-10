@@ -54,6 +54,32 @@ $ flake-explorer extract . --configs nixos/myhost   # just one
 Flags: `--out DIR` (data dir, default `./flake-explorer-data`), `--port N`,
 `--all-systems`, `--timeout SECS`.
 
+### Static export
+
+`export` materializes the explorer into **one standalone HTML file** — no
+server, no nix, no runtime dependencies. Open it from `file://`, or host it
+anywhere static files go (a CDN, GitHub Pages):
+
+```console
+$ flake-explorer export /etc/nixos --all            # every configuration
+$ flake-explorer export . --configs nixos/myhost --html myhost.html
+```
+
+The manifest (outputs, inputs, files, import graph) is always included;
+`--configs kind/name,...` / `--all` pick which configurations' options are
+embedded (the rest show a "not included in this export" notice). The flake's
+own sources and each input's `flake.nix` are embedded by default;
+`--sources all` also embeds every file the exported configurations reference
+— beware that against nixpkgs-based systems this means thousands of module
+sources and a file that can reach tens of MB (GitHub Pages caps a single
+file at 100 MB).
+
+This repo publishes its own export on every push to `main` via
+[.github/workflows/pages.yml](.github/workflows/pages.yml) —
+[flake.html](https://kriswill.github.io/flake-explorer/flake.html). To do the
+same, copy that workflow and set the repo's Pages source to "GitHub Actions"
+(Settings → Pages).
+
 ## How it works
 
 - One `extract.nix` evaluated via `nix eval --impure --json` (uses YOUR nix,

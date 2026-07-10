@@ -54,7 +54,9 @@ const lines = $derived.by(() => {
       {:else if "error" in contentSlot}
         <p class="muted err">
           {contentSlot.error.split("\n")[0]}
-          <button class="retry" onclick={() => app.retryFileContent(fileId, `${input.storePath}/flake.nix`)}>retry</button>
+          {#if !contentSlot.permanent}
+            <button class="retry" onclick={() => app.retryFileContent(fileId, `${input.storePath}/flake.nix`)}>retry</button>
+          {/if}
         </p>
       {:else}
         <SourceView {lines} />

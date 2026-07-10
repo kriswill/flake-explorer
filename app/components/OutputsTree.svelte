@@ -156,9 +156,12 @@ const pathName = $derived.by(() => {
                       {#if app.configs[id] === "loading"}
                         <p class="note">loading options…</p>
                       {:else if configError(app.configs[id]) !== null}
+                        {@const err = configError(app.configs[id])!}
                         <p class="note err">
-                          {configError(app.configs[id])?.split("\n")[0]}
-                          <button class="retry" onclick={() => app.retryConfig(id)}>retry</button>
+                          {err.error.split("\n")[0]}
+                          {#if !err.permanent}
+                            <button class="retry" onclick={() => app.retryConfig(id)}>retry</button>
+                          {/if}
                         </p>
                       {:else if loaded}
                         {@const kids =
