@@ -128,9 +128,21 @@ describe("exportHtml (synthetic fixture)", () => {
       m.configurations[0]!.status = "ok"
       m.configurations.push(
         // ok on disk but NOT requested → downgraded to pending in the embed.
-        { id: "nixos/other", kind: "nixos", name: "other", dataFile: "config/nixos.other.json", status: "ok" },
+        {
+          id: "nixos/other",
+          kind: "nixos",
+          name: "other",
+          dataFile: "config/nixos.other.json",
+          status: "ok",
+        },
         // requested + "ok" but its blob is missing → warning + downgrade.
-        { id: "nixos/gone", kind: "nixos", name: "gone", dataFile: "config/nixos.gone.json", status: "ok" },
+        {
+          id: "nixos/gone",
+          kind: "nixos",
+          name: "gone",
+          dataFile: "config/nixos.gone.json",
+          status: "ok",
+        },
       )
       await Bun.write(join(outDir, "config/nixos.test.json"), JSON.stringify(fixtureConfig()))
 
