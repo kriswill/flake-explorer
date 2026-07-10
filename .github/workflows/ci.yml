@@ -26,6 +26,11 @@ jobs:
       # run here and count toward coverage; the fixture is builtins-only, so no
       # store downloads happen beyond the install itself.
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+        with:
+          # Plain upstream Nix: the default (Determinate Nix) wants an OIDC
+          # FlakeHub login (`id-token: write`) this repo has no use for and
+          # warns when it's absent — fork PRs could never grant it anyway.
+          determinate: false
       - run: bun install --frozen-lockfile
       - run: bun test --coverage
         env:
@@ -55,4 +60,6 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
+        with:
+          determinate: false # see the test job — no FlakeHub here
       - run: nix flake check -L
