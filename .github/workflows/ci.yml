@@ -22,8 +22,16 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      # nix is needed so the real-nix integration tests (test/mini-flake.test.ts)
+      # run here and count toward coverage; the fixture is builtins-only, so no
+      # store downloads happen beyond the install itself.
+      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
       - run: bun install --frozen-lockfile
       - run: bun test --coverage
+        env:
+          # Fail loudly if nix ever goes missing instead of silently skipping
+          # the integration suite (which would only show up as a coverage drop).
+          FLAKE_EXPLORER_REQUIRE_NIX: "1"
       - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
 
   typecheck:

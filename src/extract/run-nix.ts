@@ -46,7 +46,14 @@ export async function checkNix(): Promise<string> {
 const COMMON_OPTS = ["--option", "lazy-trees", "false"]
 
 async function run(args: string[], timeoutMs: number): Promise<string> {
-  const proc = Bun.spawn(["nix", ...COMMON_OPTS, ...args], { stdout: "pipe", stderr: "pipe" })
+  // env passed explicitly: without it Bun.spawn resolves the executable
+  // against the process's STARTUP PATH, ignoring runtime process.env.PATH
+  // changes (which the test shim relies on).
+  const proc = Bun.spawn(["nix", ...COMMON_OPTS, ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+    env: process.env,
+  })
   // Not signal: AbortSignal.timeout(timeoutMs) — some test/runtime setups
   // (e.g. this repo's happy-dom preload) replace the global AbortSignal, and
   // Bun.spawn rejects a signal instance that isn't identically its own class.
