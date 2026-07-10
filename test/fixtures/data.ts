@@ -1,11 +1,11 @@
 // Shared hand-written fixtures for unit and component tests.
 
-import type { ConfigData, Manifest, OptionEntry } from "../../src/schema";
+import type { ConfigData, Manifest, OptionEntry } from "../../src/schema"
 
-export const SELF = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-source";
-export const SOPS = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-source";
-export const NIXPKGS = "/nix/store/cccccccccccccccccccccccccccccccc-source";
-export const PATCHED = `/nix/store/dddddddddddddddddddddddddddddddd-${NIXPKGS.split("/").pop()}`;
+export const SELF = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-source"
+export const SOPS = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-source"
+export const NIXPKGS = "/nix/store/cccccccccccccccccccccccccccccccc-source"
+export const PATCHED = `/nix/store/dddddddddddddddddddddddddddddddd-${NIXPKGS.split("/").pop()}`
 
 export const opt = (loc: string[], over: Partial<OptionEntry> = {}): OptionEntry => ({
   loc,
@@ -15,7 +15,7 @@ export const opt = (loc: string[], over: Partial<OptionEntry> = {}): OptionEntry
   declarations: [],
   definitions: [],
   ...over,
-});
+})
 
 export const fixtureManifest = (): Manifest => ({
   version: 1,
@@ -95,7 +95,7 @@ export const fixtureManifest = (): Manifest => ({
   grafts: [],
   outputNames: {},
   warnings: [],
-});
+})
 
 export const fixtureConfig = (): ConfigData => ({
   version: 1,
@@ -130,4 +130,4 @@ export const fixtureConfig = (): ConfigData => ({
     [`${SELF}/modules/sub/b.nix`]: { defines: [], declares: [0, 1] },
     [`${SOPS}/modules/sops/default.nix`]: { defines: [], declares: [2] },
   },
-});
+})

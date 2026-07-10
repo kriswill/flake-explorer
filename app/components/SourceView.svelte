@@ -3,14 +3,14 @@
      lib/segments.ts; ref segments render as links only when `onref` is
      given (InputDetail passes none). -->
 <script lang="ts">
-import type { Segment } from "../lib/segments";
+import type { Segment } from "../lib/segments"
 
 interface Props {
-  lines: Segment[][];
+  lines: Segment[][]
   /** Click handler for resolvable "./"/"../" references (receives the FileEntry.id). */
-  onref?: (fileId: string) => void;
+  onref?: (fileId: string) => void
 }
-const { lines, onref }: Props = $props();
+const { lines, onref }: Props = $props()
 </script>
 
 <ol class="src">

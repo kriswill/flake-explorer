@@ -8,7 +8,7 @@
 // unsplittable leaf (or one at the depth cap) walks down the detail ladder
 // (full → no values → no values+descriptions) before being abandoned.
 
-import { cpus } from "node:os";
+import { cpus } from "node:os"
 import {
   type ConfigData,
   type ConfigKind,
@@ -16,41 +16,41 @@ import {
   type OptionEntry,
   PRIO,
   SCHEMA_VERSION,
-} from "../schema";
+} from "../schema"
 import {
   evalExtract,
   NixError,
   type OptionsEval,
   type RawOption,
   type ValueEnvelope,
-} from "./run-nix";
+} from "./run-nix"
 
 export interface OptionsResult {
-  data: ConfigData;
-  warnings: string[];
-  durationMs: number;
+  data: ConfigData
+  warnings: string[]
+  durationMs: number
 }
 
 export interface OptionsProgress {
-  done: number;
-  total: number;
-  current: string;
+  done: number
+  total: number
+  current: string
 }
 
 const LADDER: { withValues: boolean; withDescriptions: boolean; note: string }[] = [
   { withValues: true, withDescriptions: true, note: "" },
   { withValues: false, withDescriptions: true, note: "values skipped" },
   { withValues: false, withDescriptions: false, note: "values+descriptions skipped" },
-];
+]
 
 /** Below this depth a failing chunk is abandoned instead of split further. */
-const MAX_DEPTH = 4;
+const MAX_DEPTH = 4
 
 interface Chunk {
-  path: string[];
-  children?: string[];
+  path: string[]
+  children?: string[]
   /** Index into LADDER — escalates only when the chunk can't split further. */
-  rung: number;
+  rung: number
 }
 
 export async function extractOptions(
@@ -58,31 +58,31 @@ export async function extractOptions(
   kind: ConfigKind,
   name: string,
   opts: {
-    timeoutMs?: number;
-    concurrency?: number;
-    skipInvisible?: boolean;
-    onProgress?: (p: OptionsProgress) => void;
+    timeoutMs?: number
+    concurrency?: number
+    skipInvisible?: boolean
+    onProgress?: (p: OptionsProgress) => void
   } = {},
 ): Promise<OptionsResult> {
-  const t0 = performance.now();
-  const timeoutMs = opts.timeoutMs ?? 600_000;
-  const concurrency = opts.concurrency ?? Math.max(2, Math.min(8, cpus().length - 2));
-  const skipInvisible = opts.skipInvisible ?? true;
-  const warnings: string[] = [];
-  const results: RawOption[] = [];
-  const label = `${kind}/${name}`;
+  const t0 = performance.now()
+  const timeoutMs = opts.timeoutMs ?? 600_000
+  const concurrency = opts.concurrency ?? Math.max(2, Math.min(8, cpus().length - 2))
+  const skipInvisible = opts.skipInvisible ?? true
+  const warnings: string[] = []
+  const results: RawOption[] = []
+  const label = `${kind}/${name}`
 
   const namespaces = await evalExtract<string[]>(
     { flakeRef, mode: "optionNames", kind, name },
     timeoutMs,
-  );
+  )
 
-  const queue: Chunk[] = namespaces.map((n) => ({ path: [n], rung: 0 }));
-  let done = 0;
+  const queue: Chunk[] = namespaces.map((n) => ({ path: [n], rung: 0 }))
+  let done = 0
 
   const runChunk = async (chunk: Chunk): Promise<RawOption[] | null> => {
-    const rung = LADDER[chunk.rung]!;
-    let lastErr = "";
+    const rung = LADDER[chunk.rung]!
+    let lastErr = ""
     try {
       const r = await evalExtract<OptionsEval>(
         {
@@ -97,36 +97,36 @@ export async function extractOptions(
           withDescriptions: rung.withDescriptions,
         },
         timeoutMs,
-      );
+      )
       if (rung.note) {
         warnings.push(
           `${label} options.${chunkLabel(chunk)}: ${rung.note} (eval error at full detail)`,
-        );
+        )
       }
-      return r.options;
+      return r.options
     } catch (e) {
-      lastErr = e instanceof NixError ? e.message : String(e);
+      lastErr = e instanceof NixError ? e.message : String(e)
     }
 
     // Failed. Prefer splitting at the same detail level to isolate the bad
     // option; healthy siblings keep full detail.
     if (chunk.children && chunk.children.length > 1) {
-      const mid = Math.ceil(chunk.children.length / 2);
-      queue.push({ ...chunk, children: chunk.children.slice(0, mid) });
-      queue.push({ ...chunk, children: chunk.children.slice(mid) });
-      return null;
+      const mid = Math.ceil(chunk.children.length / 2)
+      queue.push({ ...chunk, children: chunk.children.slice(0, mid) })
+      queue.push({ ...chunk, children: chunk.children.slice(mid) })
+      return null
     }
     // Single child descends a level; a bare namespace splits by its children.
-    const deeper = chunk.children ? [...chunk.path, chunk.children[0]!] : chunk.path;
+    const deeper = chunk.children ? [...chunk.path, chunk.children[0]!] : chunk.path
     if (deeper.length < MAX_DEPTH) {
       try {
         const kids = await evalExtract<string[]>(
           { flakeRef, mode: "optionNames", kind, name, path: deeper },
           timeoutMs,
-        );
+        )
         if (kids.length > 0) {
-          queue.push({ path: deeper, children: kids, rung: chunk.rung });
-          return null;
+          queue.push({ path: deeper, children: kids, rung: chunk.rung })
+          return null
         }
       } catch {
         // unlistable — fall through to rung escalation
@@ -134,27 +134,27 @@ export async function extractOptions(
     }
     // Unsplittable: walk down the ladder, then give up.
     if (chunk.rung + 1 < LADDER.length) {
-      queue.push({ ...chunk, rung: chunk.rung + 1 });
-      return null;
+      queue.push({ ...chunk, rung: chunk.rung + 1 })
+      return null
     }
-    warnings.push(`${label} options.${deeper.join(".")}: extraction failed — ${errLine(lastErr)}`);
-    return null;
-  };
+    warnings.push(`${label} options.${deeper.join(".")}: extraction failed — ${errLine(lastErr)}`)
+    return null
+  }
 
   async function worker() {
     for (;;) {
-      const chunk = queue.shift();
-      if (!chunk) return;
-      const r = await runChunk(chunk);
-      if (r) results.push(...r);
-      done++;
-      opts.onProgress?.({ done, total: done + queue.length, current: chunkLabel(chunk) });
+      const chunk = queue.shift()
+      if (!chunk) return
+      const r = await runChunk(chunk)
+      if (r) results.push(...r)
+      done++
+      opts.onProgress?.({ done, total: done + queue.length, current: chunkLabel(chunk) })
     }
   }
   // Workers exit when the queue is momentarily empty even though a sibling
   // may still push splits; loop until the queue fully drains.
   while (queue.length > 0) {
-    await Promise.all(Array.from({ length: concurrency }, worker));
+    await Promise.all(Array.from({ length: concurrency }, worker))
   }
 
   const data: ConfigData = {
@@ -162,38 +162,38 @@ export async function extractOptions(
     id: `${kind}/${name}`,
     options: results.map(toEntry),
     fileIndex: {},
-  };
-  data.fileIndex = buildFileIndex(data.options);
-  return { data, warnings: [...new Set(warnings)], durationMs: Math.round(performance.now() - t0) };
+  }
+  data.fileIndex = buildFileIndex(data.options)
+  return { data, warnings: [...new Set(warnings)], durationMs: Math.round(performance.now() - t0) }
 }
 
 const chunkLabel = (c: Chunk) =>
-  c.children?.length === 1 ? [...c.path, c.children[0]!].join(".") : c.path.join(".");
+  c.children?.length === 1 ? [...c.path, c.children[0]!].join(".") : c.path.join(".")
 
 /** Last substantive `error: <msg>` line — nix prefixes traces with bare "error:" lines. */
 export const errLine = (s: string) => {
   const errs = s
     .split("\n")
     .map((l) => l.trim())
-    .filter((l) => l.startsWith("error:") && l.length > "error:".length);
-  return errs[errs.length - 1] ?? s.trim().split("\n")[0] ?? "unknown error";
-};
+    .filter((l) => l.startsWith("error:") && l.length > "error:".length)
+  return errs[errs.length - 1] ?? s.trim().split("\n")[0] ?? "unknown error"
+}
 
 /** "path, via option foo.bar" -> [path, "foo.bar"]; plain paths pass through. */
 export function splitVia(file: string): [string, string | undefined] {
-  const i = file.indexOf(", via option ");
-  return i < 0 ? [file, undefined] : [file.slice(0, i), file.slice(i + ", via option ".length)];
+  const i = file.indexOf(", via option ")
+  return i < 0 ? [file, undefined] : [file.slice(0, i), file.slice(i + ", via option ".length)]
 }
 
 export function unwrap(v: ValueEnvelope): { value?: unknown; valueError?: true } {
-  if (v && typeof v === "object" && "ok" in v) return { value: v.ok };
-  if (v && typeof v === "object" && "err" in v) return { valueError: true };
-  return {}; // null (absent) or {skipped} — no value to show
+  if (v && typeof v === "object" && "ok" in v) return { value: v.ok }
+  if (v && typeof v === "object" && "err" in v) return { valueError: true }
+  return {} // null (absent) or {skipped} — no value to show
 }
 
 export function toEntry(o: RawOption): OptionEntry {
-  const val = unwrap(o.value);
-  const def = unwrap(o.default);
+  const val = unwrap(o.value)
+  const def = unwrap(o.default)
   return {
     loc: o.loc,
     type: o.type ?? undefined,
@@ -210,7 +210,7 @@ export function toEntry(o: RawOption): OptionEntry {
     // Definition files can carry a ", via option <path>" suffix (module-system
     // provenance annotation) — strip it so file matching works.
     definitions: o.definitions.map((d) => ({ file: splitVia(d.file)[0], ...unwrap(d.value) })),
-  };
+  }
 }
 
 /**
@@ -221,25 +221,25 @@ export function toEntry(o: RawOption): OptionEntry {
  * otherwise make nixpkgs "define" everything.
  */
 export function buildFileIndex(options: OptionEntry[]): Record<string, FileOptionRefs> {
-  const index: Record<string, FileOptionRefs> = {};
-  const at = (file: string) => (index[file] ??= { defines: [], declares: [] });
+  const index: Record<string, FileOptionRefs> = {}
+  const at = (file: string) => (index[file] ??= { defines: [], declares: [] })
   options.forEach((o, i) => {
     // A file can declare/define the same option more than once (e.g. two
     // `environment.profiles` definitions in one module) — index it once.
-    const declared = new Set<string>();
+    const declared = new Set<string>()
     for (const d of o.declarations) {
-      if (declared.has(d.file)) continue;
-      declared.add(d.file);
-      at(d.file).declares.push(i);
+      if (declared.has(d.file)) continue
+      declared.add(d.file)
+      at(d.file).declares.push(i)
     }
     if (o.customized) {
-      const defined = new Set<string>();
+      const defined = new Set<string>()
       for (const d of o.definitions) {
-        if (defined.has(d.file)) continue;
-        defined.add(d.file);
-        at(d.file).defines.push(i);
+        if (defined.has(d.file)) continue
+        defined.add(d.file)
+        at(d.file).defines.push(i)
       }
     }
-  });
-  return index;
+  })
+  return index
 }

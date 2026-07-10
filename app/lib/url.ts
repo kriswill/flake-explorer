@@ -5,9 +5,9 @@
  * `git+` scheme prefix and require what's left to be http(s).
  */
 export function webUrl(url: string | undefined): string | null {
-  if (!url) return null;
-  const stripped = url.startsWith("git+") ? url.slice(4) : url;
-  return /^https?:\/\//.test(stripped) ? stripped : null;
+  if (!url) return null
+  const stripped = url.startsWith("git+") ? url.slice(4) : url
+  return /^https?:\/\//.test(stripped) ? stripped : null
 }
 
 /**
@@ -22,21 +22,21 @@ const COMMIT_PATH: Record<string, (repoPath: string, rev: string) => string> = {
   "github.com": (p, rev) => `${p}/commit/${rev}`,
   "gitlab.com": (p, rev) => `${p}/-/commit/${rev}`,
   "codeberg.org": (p, rev) => `${p}/commit/${rev}`,
-};
+}
 
 /** Permalink to a specific commit on a known git host, or null (unknown host, no rev, or unparseable url). */
 export function commitUrl(url: string | undefined, rev: string | undefined): string | null {
-  if (!rev) return null;
-  const base = webUrl(url);
-  if (!base) return null;
-  let parsed: URL;
+  if (!rev) return null
+  const base = webUrl(url)
+  if (!base) return null
+  let parsed: URL
   try {
-    parsed = new URL(base);
+    parsed = new URL(base)
   } catch {
-    return null;
+    return null
   }
-  const build = COMMIT_PATH[parsed.hostname];
-  if (!build) return null;
-  const repoPath = parsed.pathname.replace(/\.git$/, "").replace(/\/$/, "");
-  return `${parsed.origin}${build(repoPath, rev)}`;
+  const build = COMMIT_PATH[parsed.hostname]
+  if (!build) return null
+  const repoPath = parsed.pathname.replace(/\.git$/, "").replace(/\/$/, "")
+  return `${parsed.origin}${build(repoPath, rev)}`
 }

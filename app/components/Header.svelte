@@ -1,8 +1,8 @@
 <script lang="ts">
-import { app } from "../lib/state.svelte";
+import { app } from "../lib/state.svelte"
 
-const isDark = $derived(app.themeIndex === 1);
-const toggleTheme = () => app.setTheme(isDark ? 0 : 1);
+const isDark = $derived(app.themeIndex === 1)
+const toggleTheme = () => app.setTheme(isDark ? 0 : 1)
 </script>
 
 <header>

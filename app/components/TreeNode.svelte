@@ -1,15 +1,15 @@
 <script lang="ts" module>
-import { inputNameOf, type TreeNode as Node } from "../lib/indexes";
+import { inputNameOf, type TreeNode as Node } from "../lib/indexes"
 
 /** Search filter: keep subtrees containing a label match. */
 export function subtreeMatches(n: Node, q: string): boolean {
-  if (n.label.toLowerCase().includes(q)) return true;
-  return n.children.some((c) => subtreeMatches(c, q));
+  if (n.label.toLowerCase().includes(q)) return true
+  return n.children.some((c) => subtreeMatches(c, q))
 }
 
 /** Color key: input subtrees color by input name, everything else by node id. */
 export function nodeColorKey(n: Node): string {
-  return inputNameOf(n.id) ?? n.id;
+  return inputNameOf(n.id) ?? n.id
 }
 </script>
 

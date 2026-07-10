@@ -1,26 +1,26 @@
 <script lang="ts">
-import { onDestroy } from "svelte";
-import { type OptionEntry, PRIO } from "../../src/schema";
-import { app } from "../lib/state.svelte";
-import Dot from "./Dot.svelte";
+import { onDestroy } from "svelte"
+import { type OptionEntry, PRIO } from "../../src/schema"
+import { app } from "../lib/state.svelte"
+import Dot from "./Dot.svelte"
 
 interface Props {
-  entry: OptionEntry;
+  entry: OptionEntry
   /** storePath of the module being viewed — used to pick "its" definition. */
-  highlightFile: string;
+  highlightFile: string
 }
-const { entry, highlightFile }: Props = $props();
+const { entry, highlightFile }: Props = $props()
 
-let open = $state(false);
+let open = $state(false)
 
 const prioChip = $derived.by(() => {
-  if (!entry.customized || entry.highestPrio === undefined) return null;
-  if (entry.highestPrio === PRIO.mkForce) return { label: "mkForce", cls: "force" };
-  if (entry.highestPrio === PRIO.mkDefault) return { label: "mkDefault", cls: "soft" };
+  if (!entry.customized || entry.highestPrio === undefined) return null
+  if (entry.highestPrio === PRIO.mkForce) return { label: "mkForce", cls: "force" }
+  if (entry.highestPrio === PRIO.mkDefault) return { label: "mkDefault", cls: "soft" }
   if (entry.highestPrio !== PRIO.plain)
-    return { label: `mkOverride ${entry.highestPrio}`, cls: "force" };
-  return null;
-});
+    return { label: `mkOverride ${entry.highestPrio}`, cls: "force" }
+  return null
+})
 
 /**
  * Merge-type options (attrsOf/listOf) fold every file's contribution into
@@ -30,79 +30,79 @@ const prioChip = $derived.by(() => {
  * that cap, so prefer it — it's also just the more relevant number: what
  * *this* file actually sets, not the whole config's merged result.
  */
-const ownDefinition = $derived(entry.definitions.find((d) => d.file === highlightFile));
-const shownValue = $derived(ownDefinition ? ownDefinition.value : entry.value);
-const shownValueError = $derived(ownDefinition ? ownDefinition.valueError : entry.valueError);
+const ownDefinition = $derived(entry.definitions.find((d) => d.file === highlightFile))
+const shownValue = $derived(ownDefinition ? ownDefinition.value : entry.value)
+const shownValueError = $derived(ownDefinition ? ownDefinition.valueError : entry.valueError)
 
 const preview = $derived.by(() => {
-  if (shownValueError) return "⚠ value failed to evaluate";
+  if (shownValueError) return "⚠ value failed to evaluate"
   if (shownValue === undefined) {
-    return entry.customized ? "(value skipped)" : (entry.defaultText ?? "—");
+    return entry.customized ? "(value skipped)" : (entry.defaultText ?? "—")
   }
-  const s = JSON.stringify(shownValue);
-  return s === undefined ? "—" : s;
-});
+  const s = JSON.stringify(shownValue)
+  return s === undefined ? "—" : s
+})
 
 interface JsonSeg {
-  text: string;
-  cls?: string;
+  text: string
+  cls?: string
 }
 
 /** Walks a parsed JSON value and emits {text, cls} runs, matching JSON.stringify(v, null, 2)'s layout. */
 function jsonSegments(value: unknown, indent: string): JsonSeg[] {
   if (value === null || typeof value === "boolean")
-    return [{ text: JSON.stringify(value), cls: "tok-atom" }];
-  if (typeof value === "number") return [{ text: JSON.stringify(value), cls: "tok-number" }];
-  if (typeof value === "string") return [{ text: JSON.stringify(value), cls: "tok-string" }];
+    return [{ text: JSON.stringify(value), cls: "tok-atom" }]
+  if (typeof value === "number") return [{ text: JSON.stringify(value), cls: "tok-number" }]
+  if (typeof value === "string") return [{ text: JSON.stringify(value), cls: "tok-string" }]
 
-  const nextIndent = `${indent}  `;
+  const nextIndent = `${indent}  `
   if (Array.isArray(value)) {
-    if (value.length === 0) return [{ text: "[]" }];
-    const segs: JsonSeg[] = [{ text: "[\n" }];
+    if (value.length === 0) return [{ text: "[]" }]
+    const segs: JsonSeg[] = [{ text: "[\n" }]
     value.forEach((item, i) => {
-      segs.push({ text: nextIndent }, ...jsonSegments(item, nextIndent));
-      segs.push({ text: i < value.length - 1 ? ",\n" : "\n" });
-    });
-    segs.push({ text: `${indent}]` });
-    return segs;
+      segs.push({ text: nextIndent }, ...jsonSegments(item, nextIndent))
+      segs.push({ text: i < value.length - 1 ? ",\n" : "\n" })
+    })
+    segs.push({ text: `${indent}]` })
+    return segs
   }
   if (typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>);
-    if (entries.length === 0) return [{ text: "{}" }];
-    const segs: JsonSeg[] = [{ text: "{\n" }];
+    const entries = Object.entries(value as Record<string, unknown>)
+    if (entries.length === 0) return [{ text: "{}" }]
+    const segs: JsonSeg[] = [{ text: "{\n" }]
     entries.forEach(([k, v], i) => {
       segs.push(
         { text: nextIndent },
         { text: JSON.stringify(k), cls: "tok-key" },
         { text: ": " },
         ...jsonSegments(v, nextIndent),
-      );
-      segs.push({ text: i < entries.length - 1 ? ",\n" : "\n" });
-    });
-    segs.push({ text: `${indent}}` });
-    return segs;
+      )
+      segs.push({ text: i < entries.length - 1 ? ",\n" : "\n" })
+    })
+    segs.push({ text: `${indent}}` })
+    return segs
   }
-  return [{ text: String(value) }];
+  return [{ text: String(value) }]
 }
 
-const fullSegments = $derived(shownValue !== undefined ? jsonSegments(shownValue, "") : undefined);
+const fullSegments = $derived(shownValue !== undefined ? jsonSegments(shownValue, "") : undefined)
 
-let timer: ReturnType<typeof setTimeout> | undefined;
+let timer: ReturnType<typeof setTimeout> | undefined
 function enter(e: PointerEvent) {
-  const { clientX, clientY } = e;
-  timer = setTimeout(() => (app.tip = { x: clientX, y: clientY, entry }), 300);
+  const { clientX, clientY } = e
+  timer = setTimeout(() => (app.tip = { x: clientX, y: clientY, entry }), 300)
 }
 function leave() {
-  clearTimeout(timer);
-  app.tip = null;
+  clearTimeout(timer)
+  app.tip = null
 }
 // pointerleave never fires on DOM removal (selection change, filter toggle
 // while hovering) — kill the pending timer AND release the tooltip if this
 // row owns it, or it sticks anchored to a dead position.
 onDestroy(() => {
-  clearTimeout(timer);
-  if (app.tip?.entry === entry) app.tip = null;
-});
+  clearTimeout(timer)
+  if (app.tip?.entry === entry) app.tip = null
+})
 </script>
 
 <li>

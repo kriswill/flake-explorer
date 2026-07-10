@@ -1,12 +1,12 @@
 <script lang="ts">
-import { colorFor } from "../lib/color";
-import { app } from "../lib/state.svelte";
-import { THEMES } from "../lib/themes";
-import { webUrl } from "../lib/url";
-import Dot from "./Dot.svelte";
+import { colorFor } from "../lib/color"
+import { app } from "../lib/state.svelte"
+import { THEMES } from "../lib/themes"
+import { webUrl } from "../lib/url"
+import Dot from "./Dot.svelte"
 
-const gen = $derived(THEMES[app.themeIndex]!.gen);
-const inputs = $derived(Object.values(app.manifest?.inputs ?? {}).filter((i) => !i.transitive));
+const gen = $derived(THEMES[app.themeIndex]!.gen)
+const inputs = $derived(Object.values(app.manifest?.inputs ?? {}).filter((i) => !i.transitive))
 </script>
 
 <div class="legend">

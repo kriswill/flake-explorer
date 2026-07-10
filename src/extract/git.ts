@@ -3,9 +3,9 @@
 // commit. One O(history) subprocess instead of O(files) `git log -1` calls.
 
 export interface GitFileInfo {
-  commit: string;
-  date: string;
-  subject: string;
+  commit: string
+  date: string
+  subject: string
 }
 
 /**
@@ -18,9 +18,9 @@ export async function repoPrefix(dir: string): Promise<string | null> {
   const proc = Bun.spawn(["git", "-C", dir, "rev-parse", "--show-prefix"], {
     stdout: "pipe",
     stderr: "ignore",
-  });
-  const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-  return code === 0 ? out.trim() : null;
+  })
+  const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited])
+  return code === 0 ? out.trim() : null
 }
 
 /**
@@ -31,29 +31,29 @@ export async function lastCommits(
   checkout: string,
   warnings: string[],
 ): Promise<Map<string, GitFileInfo>> {
-  const result = new Map<string, GitFileInfo>();
+  const result = new Map<string, GitFileInfo>()
   const proc = Bun.spawn(
     // \x01 marks a commit header so file lines can't be confused with it.
     ["git", "-C", checkout, "log", "--format=%x01%H%x09%aI%x09%s", "--name-only", "--", "*.nix"],
     { stdout: "pipe", stderr: "pipe" },
-  );
+  )
   const [out, err, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
     proc.exited,
-  ]);
+  ])
   if (code !== 0) {
-    warnings.push(`git log failed in ${checkout}: ${err.trim().split("\n")[0] ?? "unknown error"}`);
-    return result;
+    warnings.push(`git log failed in ${checkout}: ${err.trim().split("\n")[0] ?? "unknown error"}`)
+    return result
   }
-  let current: GitFileInfo | null = null;
+  let current: GitFileInfo | null = null
   for (const line of out.split("\n")) {
     if (line.startsWith("\x01")) {
-      const [commit, date, ...subject] = line.slice(1).split("\t");
-      current = { commit: commit ?? "", date: date ?? "", subject: subject.join("\t") };
+      const [commit, date, ...subject] = line.slice(1).split("\t")
+      current = { commit: commit ?? "", date: date ?? "", subject: subject.join("\t") }
     } else if (line.trim() && current && !result.has(line.trim())) {
-      result.set(line.trim(), current);
+      result.set(line.trim(), current)
     }
   }
-  return result;
+  return result
 }
