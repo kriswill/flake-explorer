@@ -1,12 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { reconcile, writeSidecar } from "../src/extract/cache";
 import type { Manifest } from "../src/schema";
 import { fixtureManifest } from "./fixtures/data";
 
-const SCRATCH =
-  "/tmp/claude-1000/-home-k-src-flake-explorer/8b9cf510-ad58-4f78-84a7-bba3ac1e3cce/scratchpad";
 const NAR = "sha256-NNNN";
 
 // fixtureManifest with one pending configuration and a known narHash — the
@@ -29,7 +28,7 @@ const pendingManifest = (narHash?: string): Manifest => {
 describe("reconcile / writeSidecar", () => {
   let outDir: string;
   beforeEach(async () => {
-    outDir = await mkdtemp(join(SCRATCH, "cache-test-"));
+    outDir = await mkdtemp(join(tmpdir(), "cache-test-"));
   });
   afterEach(async () => {
     await rm(outDir, { recursive: true, force: true });
