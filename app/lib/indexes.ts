@@ -48,7 +48,7 @@ export function buildFlakeIndexes(manifest: Manifest): FlakeIndexes {
   const selfByStorePath = new Map(manifest.files.map((f) => [f.storePath, f]));
   const withPaths = Object.values(manifest.inputs).filter((i) => i.storePath);
   const inputPrefixes = withPaths
-    .map((i) => ({ prefix: i.storePath! + "/", input: i.name }))
+    .map((i) => ({ prefix: `${i.storePath!}/`, input: i.name }))
     .sort((a, b) => b.prefix.length - a.prefix.length);
   const inputByStoreName = new Map<string, string>();
   for (const i of withPaths) {
@@ -71,11 +71,16 @@ export function resolveFile(storePath: string, manifest: Manifest, fx: FlakeInde
   }
   const self = fx.selfByStorePath.get(storePath);
   if (self) return { ...self };
-  const selfPrefix = manifest.flake.path + "/";
+  const selfPrefix = `${manifest.flake.path}/`;
   if (storePath.startsWith(selfPrefix)) {
     // A self file outside the manifest listing (shouldn't happen, but degrade).
     const relPath = storePath.slice(selfPrefix.length);
-    return { id: makeFileId({ kind: "self" }, relPath), relPath, origin: { kind: "self" }, storePath };
+    return {
+      id: makeFileId({ kind: "self" }, relPath),
+      relPath,
+      origin: { kind: "self" },
+      storePath,
+    };
   }
   for (const { prefix, input } of fx.inputPrefixes) {
     if (storePath.startsWith(prefix)) {
@@ -97,12 +102,21 @@ export function resolveFile(storePath: string, manifest: Manifest, fx: FlakeInde
     }
     // Unattributable — bucket by store root so siblings at least cluster.
     const group = `${originalName.replace(/^[a-z0-9]{32}-/, "")}@${root!.slice(0, 7)}`;
-    return { id: `unknown:${root}:${relPath}`, relPath: relPath!, origin: { kind: "unknown", group }, storePath };
+    return {
+      id: `unknown:${root}:${relPath}`,
+      relPath: relPath!,
+      origin: { kind: "unknown", group },
+      storePath,
+    };
   }
   return { id: `unknown:${storePath}`, relPath: storePath, origin: { kind: "unknown" }, storePath };
 }
 
-export function buildConfigIndexes(manifest: Manifest, config: ConfigData, fx: FlakeIndexes): ConfigIndexes {
+export function buildConfigIndexes(
+  manifest: Manifest,
+  config: ConfigData,
+  fx: FlakeIndexes,
+): ConfigIndexes {
   const filesById = new Map<string, FileMeta>();
   const refsByFile = new Map<string, FileOptionRefs>();
 
@@ -129,7 +143,10 @@ export function buildConfigIndexes(manifest: Manifest, config: ConfigData, fx: F
   return { tree, fileToNodes, refsByFile, filesById };
 }
 
-function buildTree(filesById: Map<string, FileMeta>, refsByFile: Map<string, FileOptionRefs>): TreeNode {
+function buildTree(
+  filesById: Map<string, FileMeta>,
+  refsByFile: Map<string, FileOptionRefs>,
+): TreeNode {
   const root: TreeNode = { id: "root", label: "", children: [], customized: 0, declares: 0 };
   const dirNodes = new Map<string, TreeNode>();
 
@@ -137,7 +154,7 @@ function buildTree(filesById: Map<string, FileMeta>, refsByFile: Map<string, Fil
     let node = parent;
     let acc = idPrefix;
     for (const part of parts) {
-      acc += "/" + part;
+      acc += `/${part}`;
       let child = dirNodes.get(acc);
       if (!child) {
         child = { id: `dir:${acc}`, label: part, children: [], customized: 0, declares: 0 };
@@ -177,10 +194,18 @@ function buildTree(filesById: Map<string, FileMeta>, refsByFile: Map<string, Fil
       dirFor(root, parts.slice(0, -1), "self").children.push(leaf);
     } else if (meta.origin.kind === "input") {
       const parts = meta.relPath.split("/");
-      dirFor(inputRoot(meta.origin.input), parts.slice(0, -1), `input/${meta.origin.input}`).children.push(leaf);
+      dirFor(
+        inputRoot(meta.origin.input),
+        parts.slice(0, -1),
+        `input/${meta.origin.input}`,
+      ).children.push(leaf);
     } else if (meta.origin.group) {
       const parts = meta.relPath.split("/");
-      dirFor(inputRoot(meta.origin.group), parts.slice(0, -1), `input/${meta.origin.group}`).children.push(leaf);
+      dirFor(
+        inputRoot(meta.origin.group),
+        parts.slice(0, -1),
+        `input/${meta.origin.group}`,
+      ).children.push(leaf);
     } else {
       leaf.label = meta.relPath;
       root.children.push(leaf);
@@ -229,7 +254,13 @@ export function buildFileTree(
   files: { id: string; relPath: string; colorKey: string }[],
   groupKey: string,
 ): FileTreeNode {
-  const root: FileTreeNode = { id: `fdir:${groupKey}`, label: "", path: "", colorKey: groupKey, children: [] };
+  const root: FileTreeNode = {
+    id: `fdir:${groupKey}`,
+    label: "",
+    path: "",
+    colorKey: groupKey,
+    children: [],
+  };
   const dirs = new Map<string, FileTreeNode>([["", root]]);
   const dirFor = (parts: string[]): FileTreeNode => {
     let path = "";
@@ -238,7 +269,13 @@ export function buildFileTree(
       path = path ? `${path}/${part}` : part;
       let child = dirs.get(path);
       if (!child) {
-        child = { id: `fdir:${groupKey}/${path}`, label: part, path, colorKey: groupKey, children: [] };
+        child = {
+          id: `fdir:${groupKey}/${path}`,
+          label: part,
+          path,
+          colorKey: groupKey,
+          children: [],
+        };
         dirs.set(path, child);
         node.children.push(child);
       }
@@ -258,7 +295,9 @@ export function buildFileTree(
     });
   }
   const sortLevel = (n: FileTreeNode) => {
-    n.children.sort((a, b) => (a.fileId ? 0 : 1) - (b.fileId ? 0 : 1) || a.label.localeCompare(b.label));
+    n.children.sort(
+      (a, b) => (a.fileId ? 0 : 1) - (b.fileId ? 0 : 1) || a.label.localeCompare(b.label),
+    );
     n.children.forEach(sortLevel);
   };
   sortLevel(root);

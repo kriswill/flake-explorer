@@ -2,7 +2,8 @@
 // runtime (its virtual `bun-svelte:*.css` imports need build-time onResolve,
 // which never fires for runtime plugins) — so compile directly: client side,
 // styles injected via JS. See docs/svelt/learnings.md (2026-07-02).
-import { readFileSync } from "fs";
+
+import { readFileSync } from "node:fs";
 import { plugin } from "bun";
 import { compile, compileModule } from "svelte/compiler";
 
@@ -25,7 +26,8 @@ plugin({
       let src = await Bun.file(args.path).text();
       if (args.path.endsWith(".ts")) src = await ts.transform(src);
       return {
-        contents: compileModule(src, { generate: "client", dev: true, filename: args.path }).js.code,
+        contents: compileModule(src, { generate: "client", dev: true, filename: args.path }).js
+          .code,
         loader: "js",
       };
     });

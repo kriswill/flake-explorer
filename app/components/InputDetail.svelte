@@ -1,30 +1,30 @@
 <script lang="ts">
-  import { app } from "../lib/state.svelte";
-  import { colorFor } from "../lib/color";
-  import { THEMES } from "../lib/themes";
-  import Dot from "./Dot.svelte";
-  import InputProvenance from "./InputProvenance.svelte";
-  import SourceView from "./SourceView.svelte";
-  import { segmentLines } from "../lib/segments";
-  import { makeFileId } from "../../src/schema";
+import { makeFileId } from "../../src/schema";
+import { colorFor } from "../lib/color";
+import { segmentLines } from "../lib/segments";
+import { app } from "../lib/state.svelte";
+import { THEMES } from "../lib/themes";
+import Dot from "./Dot.svelte";
+import InputProvenance from "./InputProvenance.svelte";
+import SourceView from "./SourceView.svelte";
 
-  const { name }: { name: string } = $props();
+const { name }: { name: string } = $props();
 
-  const gen = $derived(THEMES[app.themeIndex]!.gen);
-  const input = $derived(app.manifest?.inputs[name] ?? null);
+const gen = $derived(THEMES[app.themeIndex]!.gen);
+const input = $derived(app.manifest?.inputs[name] ?? null);
 
-  /** The input's own flake.nix out of the store — same id scheme as option files. */
-  const fileId = $derived(makeFileId({ kind: "input", input: name }, "flake.nix"));
-  const contentSlot = $derived(app.fileContents[fileId]);
+/** The input's own flake.nix out of the store — same id scheme as option files. */
+const fileId = $derived(makeFileId({ kind: "input", input: name }, "flake.nix"));
+const contentSlot = $derived(app.fileContents[fileId]);
 
-  $effect(() => {
-    if (input?.storePath) app.loadFileContent(fileId, `${input.storePath}/flake.nix`);
-  });
+$effect(() => {
+  if (input?.storePath) app.loadFileContent(fileId, `${input.storePath}/flake.nix`);
+});
 
-  const lines = $derived.by(() => {
-    if (!contentSlot || typeof contentSlot !== "object" || !("text" in contentSlot)) return [];
-    return segmentLines(contentSlot.text, contentSlot.tokens);
-  });
+const lines = $derived.by(() => {
+  if (!contentSlot || typeof contentSlot !== "object" || !("text" in contentSlot)) return [];
+  return segmentLines(contentSlot.text, contentSlot.tokens);
+});
 </script>
 
 <div class="input-detail">

@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { decodeHash, encodeHash, sameSelection, type Selection, type ViewState } from "../app/lib/hash";
+import {
+  decodeHash,
+  encodeHash,
+  type Selection,
+  sameSelection,
+  type ViewState,
+} from "../app/lib/hash";
 
 const roundTrip = (sel: Selection | null, q = "", all = false): ViewState =>
-  decodeHash("#" + encodeHash({ sel, filters: { q, all } }));
+  decodeHash(`#${encodeHash({ sel, filters: { q, all } })}`);
 
 describe("hash codec", () => {
   test("round-trips every selection kind", () => {
@@ -26,7 +32,10 @@ describe("hash codec", () => {
   test("output attr names containing dots round-trip", () => {
     // '.' separates output path segments — quoted Nix attrs may contain it
     // (legacyPackages.x86_64-linux."python3.12").
-    const sel: Selection = { kind: "output", path: ["legacyPackages", "x86_64-linux", "python3.12"] };
+    const sel: Selection = {
+      kind: "output",
+      path: ["legacyPackages", "x86_64-linux", "python3.12"],
+    };
     expect(roundTrip(sel).sel).toEqual(sel);
   });
 

@@ -1,71 +1,79 @@
 <script lang="ts">
-  import type { GraftInfo, InputInfo, OutputNode } from "../../src/schema";
-  import { app, configError, loadedConfig } from "../lib/state.svelte";
-  import { colorFor } from "../lib/color";
-  import { THEMES } from "../lib/themes";
-  import Dot from "./Dot.svelte";
-  import OutputBranch from "./OutputBranch.svelte";
-  import TreeNode, { nodeColorKey, subtreeMatches } from "./TreeNode.svelte";
+import type { GraftInfo, InputInfo, OutputNode } from "../../src/schema";
+import { colorFor } from "../lib/color";
+import { app, configError, loadedConfig } from "../lib/state.svelte";
+import { THEMES } from "../lib/themes";
+import Dot from "./Dot.svelte";
+import OutputBranch from "./OutputBranch.svelte";
+import TreeNode, { nodeColorKey, subtreeMatches } from "./TreeNode.svelte";
 
-  const gen = $derived(THEMES[app.themeIndex]!.gen);
+const gen = $derived(THEMES[app.themeIndex]!.gen);
 
-  /** nixos/darwin configuration categories get the module-tree treatment. */
-  const configKind = (category: string) =>
-    category === "nixosConfigurations" ? "nixos" : category === "darwinConfigurations" ? "darwin" : null;
+/** nixos/darwin configuration categories get the module-tree treatment. */
+const configKind = (category: string) =>
+  category === "nixosConfigurations"
+    ? "nixos"
+    : category === "darwinConfigurations"
+      ? "darwin"
+      : null;
 
-  const configNames = (category: string): string[] => {
-    const kind = configKind(category);
-    return (app.manifest?.configurations ?? []).filter((c) => c.kind === kind).map((c) => c.name);
-  };
+const configNames = (category: string): string[] => {
+  const kind = configKind(category);
+  return (app.manifest?.configurations ?? []).filter((c) => c.kind === kind).map((c) => c.name);
+};
 
-  /**
-   * A leaf/unknown node is real content; "omitted" just means "other system,
-   * not evaluated here" and carries no information either way.
-   */
-  const hasContent = (node: OutputNode): boolean =>
-    node.kind === "attrset" ? Object.values(node.children).some(hasContent) : node.kind !== "omitted";
+/**
+ * A leaf/unknown node is real content; "omitted" just means "other system,
+ * not evaluated here" and carries no information either way.
+ */
+const hasContent = (node: OutputNode): boolean =>
+  node.kind === "attrset" ? Object.values(node.children).some(hasContent) : node.kind !== "omitted";
 
-  /** Categories with nothing under them (e.g. an unused `apps` or `overlays`) just clutter the tree. */
-  const isEmptyCategory = (category: string, node: OutputNode): boolean =>
-    configKind(category) ? configNames(category).length === 0 : !hasContent(node);
+/** Categories with nothing under them (e.g. an unused `apps` or `overlays`) just clutter the tree. */
+const isEmptyCategory = (category: string, node: OutputNode): boolean =>
+  configKind(category) ? configNames(category).length === 0 : !hasContent(node);
 
-  /** Optional-chained twice: manifests from older extractors have no grafts field. */
-  const graftFor = (category: string): GraftInfo | null =>
-    app.manifest?.grafts?.find((g) => g.output === category) ?? null;
+/** Optional-chained twice: manifests from older extractors have no grafts field. */
+const graftFor = (category: string): GraftInfo | null =>
+  app.manifest?.grafts?.find((g) => g.output === category) ?? null;
 
-  /** Grafted outputs stay visible even when nix flake show omitted/emptied them. */
-  const outputs = $derived.by(() => {
-    const base: Record<string, OutputNode> =
-      app.manifest?.outputs.kind === "attrset" ? { ...app.manifest.outputs.children } : {};
-    for (const g of app.manifest?.grafts ?? []) {
-      if (!(g.output in base)) base[g.output] = { kind: "unknown" };
-    }
-    return Object.entries(base).filter(([category, node]) => graftFor(category) || !isEmptyCategory(category, node));
-  });
-
-  /** Direct (root flake.lock) inputs only — what actually flows into modules. */
-  const directInputs = $derived(Object.values(app.manifest?.inputs ?? {}).filter((i) => !i.transitive));
-
-  const shortPin = (i: InputInfo) => i.rev?.slice(0, 7) ?? i.ref ?? i.type;
-
-  function toggle(id: string) {
-    if (app.expanded.has(id)) app.expanded.delete(id);
-    else app.expanded.add(id);
+/** Grafted outputs stay visible even when nix flake show omitted/emptied them. */
+const outputs = $derived.by(() => {
+  const base: Record<string, OutputNode> =
+    app.manifest?.outputs.kind === "attrset" ? { ...app.manifest.outputs.children } : {};
+  for (const g of app.manifest?.grafts ?? []) {
+    if (!(g.output in base)) base[g.output] = { kind: "unknown" };
   }
+  return Object.entries(base).filter(
+    ([category, node]) => graftFor(category) || !isEmptyCategory(category, node),
+  );
+});
 
-  function clickConfig(kind: string, name: string) {
-    const id = `${kind}/${name}`;
-    app.select({ kind: "config", configId: id });
-    app.expanded.add(`cfg:${id}`);
-  }
+/** Direct (root flake.lock) inputs only — what actually flows into modules. */
+const directInputs = $derived(
+  Object.values(app.manifest?.inputs ?? {}).filter((i) => !i.transitive),
+);
 
-  const slotOf = (id: string) => loadedConfig(app.configs[id]);
+const shortPin = (i: InputInfo) => i.rev?.slice(0, 7) ?? i.ref ?? i.type;
 
-  /** Last path segment of the flake ref, e.g. "/home/k/src/nixos-config" -> "nixos-config". */
-  const pathName = $derived.by(() => {
-    const ref = app.manifest?.flake.ref.replace(/\/+$/, "") ?? "";
-    return ref.slice(ref.lastIndexOf("/") + 1);
-  });
+function toggle(id: string) {
+  if (app.expanded.has(id)) app.expanded.delete(id);
+  else app.expanded.add(id);
+}
+
+function clickConfig(kind: string, name: string) {
+  const id = `${kind}/${name}`;
+  app.select({ kind: "config", configId: id });
+  app.expanded.add(`cfg:${id}`);
+}
+
+const slotOf = (id: string) => loadedConfig(app.configs[id]);
+
+/** Last path segment of the flake ref, e.g. "/home/k/src/nixos-config" -> "nixos-config". */
+const pathName = $derived.by(() => {
+  const ref = app.manifest?.flake.ref.replace(/\/+$/, "") ?? "";
+  return ref.slice(ref.lastIndexOf("/") + 1);
+});
 </script>
 
 <div class="panel">

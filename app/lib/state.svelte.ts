@@ -7,24 +7,29 @@ import { SvelteSet } from "svelte/reactivity";
 import type { AboutData } from "../../src/licenses";
 import type { ConfigData, FileSource, Manifest, OptionEntry } from "../../src/schema";
 import { parseFileId, SCHEMA_VERSION } from "../../src/schema";
+import { registerSlotKeys } from "./color";
 import { loadJson } from "./data";
-import { decodeHash, encodeHash, sameSelection, type Filters, type Selection } from "./hash";
+import { decodeHash, encodeHash, type Filters, type Selection, sameSelection } from "./hash";
 import {
   buildConfigIndexes,
   buildFlakeIndexes,
-  fileTreeAncestorIds,
-  groupKeyOf,
   type ConfigIndexes,
   type FileMeta,
   type FlakeIndexes,
+  fileTreeAncestorIds,
+  groupKeyOf,
 } from "./indexes";
-import { registerSlotKeys } from "./color";
 import { applyThemeVars, defaultThemeIndex, THEMES } from "./themes";
 
-export type ConfigSlot = "loading" | { error: string } | { data: ConfigData; indexes: ConfigIndexes };
+export type ConfigSlot =
+  | "loading"
+  | { error: string }
+  | { data: ConfigData; indexes: ConfigIndexes };
 
 /** Narrow a ConfigSlot to its loaded shape; null while loading/errored/absent. */
-export function loadedConfig(slot: ConfigSlot | undefined): Extract<ConfigSlot, { data: ConfigData }> | null {
+export function loadedConfig(
+  slot: ConfigSlot | undefined,
+): Extract<ConfigSlot, { data: ConfigData }> | null {
   return slot && typeof slot === "object" && "data" in slot ? slot : null;
 }
 
@@ -83,7 +88,9 @@ class AppState {
 
   /** Config whose module tree/details are active (from selection). */
   activeConfigId = $derived(
-    this.selection?.kind === "config" || this.selection?.kind === "module" ? this.selection.configId : null,
+    this.selection?.kind === "config" || this.selection?.kind === "module"
+      ? this.selection.configId
+      : null,
   );
 
   activeConfig = $derived.by(() => {
@@ -101,14 +108,18 @@ class AppState {
   highlightedFiles = $derived.by(() => {
     if (this.selection?.kind !== "file" || !this.flakeIndexes) return new Set<string>();
     const id = this.selection.fileId;
-    return new Set([...(this.flakeIndexes.imports.get(id) ?? []), ...(this.flakeIndexes.importedBy.get(id) ?? [])]);
+    return new Set([
+      ...(this.flakeIndexes.imports.get(id) ?? []),
+      ...(this.flakeIndexes.importedBy.get(id) ?? []),
+    ]);
   });
 
   async loadManifest() {
     this.manifestError = null;
     try {
       const m = await loadJson<Manifest>("manifest.json");
-      if (m.version !== SCHEMA_VERSION) throw new Error(incompatibleData("manifest.json", m.version));
+      if (m.version !== SCHEMA_VERSION)
+        throw new Error(incompatibleData("manifest.json", m.version));
       this.manifest = m;
       this.flakeIndexes = buildFlakeIndexes(m);
       registerSlotKeys(
@@ -131,7 +142,8 @@ class AppState {
     this.configs = { ...this.configs, [configId]: "loading" };
     try {
       const data = await loadJson<ConfigData>(ref.dataFile);
-      if (data.version !== SCHEMA_VERSION) throw new Error(incompatibleData(ref.dataFile, data.version));
+      if (data.version !== SCHEMA_VERSION)
+        throw new Error(incompatibleData(ref.dataFile, data.version));
       const indexes = buildConfigIndexes(this.manifest, data, this.flakeIndexes!);
       this.configs = { ...this.configs, [configId]: { data, indexes } };
     } catch (e) {
@@ -156,7 +168,9 @@ class AppState {
     if (this.fileContents[fileId]) return;
     this.fileContents = { ...this.fileContents, [fileId]: "loading" };
     try {
-      const source = await loadJson<FileSource>(`file/${encodeURIComponent(fileId)}?storePath=${encodeURIComponent(storePath)}`);
+      const source = await loadJson<FileSource>(
+        `file/${encodeURIComponent(fileId)}?storePath=${encodeURIComponent(storePath)}`,
+      );
       this.fileContents = { ...this.fileContents, [fileId]: source };
     } catch (e) {
       this.fileContents = { ...this.fileContents, [fileId]: { error: String(e) } };
@@ -211,7 +225,8 @@ class AppState {
         meta = {
           id: fileId,
           relPath: parsed.relPath,
-          origin: parsed.kind === "self" ? { kind: "self" } : { kind: "input", input: parsed.input },
+          origin:
+            parsed.kind === "self" ? { kind: "self" } : { kind: "input", input: parsed.input },
           storePath: "",
         };
       }
@@ -230,7 +245,7 @@ class AppState {
 
   #writeHash(replace: boolean) {
     if (this.#applyingHash || typeof window === "undefined") return;
-    const hash = "#" + encodeHash({ sel: this.selection, filters: { q: this.q, all: this.showAll } });
+    const hash = `#${encodeHash({ sel: this.selection, filters: { q: this.q, all: this.showAll } })}`;
     if (window.location.hash === hash) return;
     if (replace) window.history.replaceState(null, "", hash);
     else window.history.pushState(null, "", hash);
@@ -261,7 +276,9 @@ class AppState {
   initTheme(prefersDark: boolean) {
     const saved = typeof localStorage === "undefined" ? null : localStorage.getItem(THEME_KEY);
     const i = saved === null ? Number.NaN : Number(saved);
-    this.setTheme(Number.isInteger(i) && i >= 0 && i < THEMES.length ? i : defaultThemeIndex(prefersDark));
+    this.setTheme(
+      Number.isInteger(i) && i >= 0 && i < THEMES.length ? i : defaultThemeIndex(prefersDark),
+    );
   }
 
   /** Single write path for the theme: state + persisted choice + CSS vars stay in sync. */
@@ -281,8 +298,10 @@ class AppState {
   }
 
   setFontScale(scale: number) {
-    this.fontScale = Math.round(Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, scale)) * 100) / 100;
-    if (typeof localStorage !== "undefined") localStorage.setItem(FONT_SCALE_KEY, String(this.fontScale));
+    this.fontScale =
+      Math.round(Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, scale)) * 100) / 100;
+    if (typeof localStorage !== "undefined")
+      localStorage.setItem(FONT_SCALE_KEY, String(this.fontScale));
     if (typeof document !== "undefined") {
       document.documentElement.style.fontSize = `${FONT_BASE_PX * this.fontScale}px`;
     }
@@ -300,7 +319,10 @@ class AppState {
   initPanes() {
     if (typeof localStorage === "undefined") return;
     try {
-      const saved = JSON.parse(localStorage.getItem(PANE_KEY) ?? "{}") as { left?: number; right?: number };
+      const saved = JSON.parse(localStorage.getItem(PANE_KEY) ?? "{}") as {
+        left?: number;
+        right?: number;
+      };
       if (Number.isFinite(saved.left)) this.setPane("left", saved.left!);
       if (Number.isFinite(saved.right)) this.setPane("right", saved.right!);
     } catch {

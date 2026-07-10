@@ -3,7 +3,7 @@
 // to the blobs (config/<kind>.<name>.meta.json).
 
 import { join, resolve, sep } from "node:path";
-import { EXTRACTOR_VERSION, type ConfigRef, type Manifest } from "../schema";
+import { type ConfigRef, EXTRACTOR_VERSION, type Manifest } from "../schema";
 import { extractOptions, type OptionsProgress, type OptionsResult } from "./options";
 
 interface SidecarMeta {
@@ -23,7 +23,10 @@ export async function writeSidecar(
   ref: Pick<ConfigRef, "dataFile">,
   meta: Omit<SidecarMeta, "extractor">,
 ): Promise<void> {
-  await Bun.write(sidecarPath(outDir, ref), JSON.stringify({ ...meta, extractor: EXTRACTOR_VERSION }));
+  await Bun.write(
+    sidecarPath(outDir, ref),
+    JSON.stringify({ ...meta, extractor: EXTRACTOR_VERSION }),
+  );
 }
 
 /**

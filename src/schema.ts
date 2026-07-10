@@ -103,7 +103,10 @@ export type FileOrigin =
  * these helpers. (resolveFile's "unknown:…"/"inline" buckets are app-internal
  * and opaque: parseFileId returns null for them.)
  */
-export function makeFileId(origin: { kind: "self" } | { kind: "input"; input: string }, relPath: string): string {
+export function makeFileId(
+  origin: { kind: "self" } | { kind: "input"; input: string },
+  relPath: string,
+): string {
   return origin.kind === "self" ? `self:${relPath}` : `input:${origin.input}:${relPath}`;
 }
 

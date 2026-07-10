@@ -6,20 +6,20 @@ import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   EXTRACTOR_VERSION,
-  makeFileId,
-  SCHEMA_VERSION,
   type FileEntry,
   type InputInfo,
   type Manifest,
+  makeFileId,
   type OutputNode,
+  SCHEMA_VERSION,
 } from "../schema";
 import { lastCommits, repoPrefix } from "./git";
 import { importGraph } from "./imports";
 import {
   evalExtract,
+  type FlakeMetadataJson,
   flakeMetadata,
   flakeShow,
-  type FlakeMetadataJson,
   type InputsTreeNode,
   type ManifestEval,
 } from "./run-nix";
@@ -29,7 +29,10 @@ export interface ManifestOptions {
   timeoutMs?: number;
 }
 
-export async function buildManifest(flakeRef: string, opts: ManifestOptions = {}): Promise<Manifest> {
+export async function buildManifest(
+  flakeRef: string,
+  opts: ManifestOptions = {},
+): Promise<Manifest> {
   const warnings: string[] = [];
   const timeoutMs = opts.timeoutMs ?? 300_000;
 
@@ -96,7 +99,11 @@ function safeName(name: string): string {
 /** Existing local directory of a path-like flakeref (`path:` prefix and ?query stripped), or null. */
 export function localFlakeDir(ref: string): string | null {
   const bare = ref.replace(/^path:/, "").replace(/\?.*$/, "");
-  if ((bare.startsWith("/") || bare.startsWith(".")) && existsSync(bare) && statSync(bare).isDirectory()) {
+  if (
+    (bare.startsWith("/") || bare.startsWith(".")) &&
+    existsSync(bare) &&
+    statSync(bare).isDirectory()
+  ) {
     return bare;
   }
   return null;
@@ -117,7 +124,11 @@ function detectLocalCheckout(flakeRef: string, meta: FlakeMetadataJson): string 
  * claim plain names; a transitive input gets "parent/child" unless its lock
  * node was already covered (follows dedup).
  */
-function inputInfos(meta: FlakeMetadataJson, ev: ManifestEval, warnings: string[]): Record<string, InputInfo> {
+function inputInfos(
+  meta: FlakeMetadataJson,
+  ev: ManifestEval,
+  warnings: string[],
+): Record<string, InputInfo> {
   const out: Record<string, InputInfo> = {};
   const seenNodes = new Set<string>();
   interface Item {
@@ -173,9 +184,15 @@ function inputInfos(meta: FlakeMetadataJson, ev: ManifestEval, warnings: string[
   return out;
 }
 
-function urlFromLocked(locked?: { type: string; owner?: string; repo?: string; path?: string }): string | undefined {
+function urlFromLocked(locked?: {
+  type: string;
+  owner?: string;
+  repo?: string;
+  path?: string;
+}): string | undefined {
   if (!locked) return undefined;
-  if (locked.type === "github" && locked.owner) return `https://github.com/${locked.owner}/${locked.repo}`;
+  if (locked.type === "github" && locked.owner)
+    return `https://github.com/${locked.owner}/${locked.repo}`;
   if (locked.type === "path") return locked.path;
   return undefined;
 }
@@ -239,7 +256,9 @@ export function normalizeShow(json: unknown): OutputNode {
   const j = json as Record<string, unknown>;
   if (j && typeof j === "object" && "inventory" in j) {
     const children: Record<string, OutputNode> = {};
-    for (const [name, entry] of Object.entries(j.inventory as Record<string, Record<string, unknown>>)) {
+    for (const [name, entry] of Object.entries(
+      j.inventory as Record<string, Record<string, unknown>>,
+    )) {
       const output = entry?.output as Record<string, unknown> | undefined;
       children[name] = output ? inventoryNode(output) : { kind: "unknown" };
     }
@@ -252,7 +271,9 @@ function inventoryNode(node: Record<string, unknown>): OutputNode {
   if (node.filtered === true) return { kind: "omitted" };
   if (node.children && typeof node.children === "object") {
     const children: Record<string, OutputNode> = {};
-    for (const [name, child] of Object.entries(node.children as Record<string, Record<string, unknown>>)) {
+    for (const [name, child] of Object.entries(
+      node.children as Record<string, Record<string, unknown>>,
+    )) {
       children[name] = inventoryNode(child);
     }
     return { kind: "attrset", children };
@@ -263,7 +284,10 @@ function inventoryNode(node: Record<string, unknown>): OutputNode {
       kind: "leaf",
       type: node.what,
       name: drv?.name,
-      description: typeof node.shortDescription === "string" && node.shortDescription ? node.shortDescription : undefined,
+      description:
+        typeof node.shortDescription === "string" && node.shortDescription
+          ? node.shortDescription
+          : undefined,
     };
   }
   return { kind: "unknown" };

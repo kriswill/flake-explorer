@@ -60,7 +60,11 @@ export const fixtureManifest = (): Manifest => ({
       relPath: "modules/a.nix",
       origin: { kind: "self" },
       storePath: `${SELF}/modules/a.nix`,
-      git: { commit: "1234567890abcdef", date: "2026-07-01T10:00:00-07:00", subject: "add module a" },
+      git: {
+        commit: "1234567890abcdef",
+        date: "2026-07-01T10:00:00-07:00",
+        subject: "add module a",
+      },
     },
     {
       id: "self:modules/sub/b.nix",
@@ -68,14 +72,25 @@ export const fixtureManifest = (): Manifest => ({
       origin: { kind: "self" },
       storePath: `${SELF}/modules/sub/b.nix`,
     },
-    { id: "self:lib/c.nix", relPath: "lib/c.nix", origin: { kind: "self" }, storePath: `${SELF}/lib/c.nix` },
+    {
+      id: "self:lib/c.nix",
+      relPath: "lib/c.nix",
+      origin: { kind: "self" },
+      storePath: `${SELF}/lib/c.nix`,
+    },
   ],
   importEdges: [
     { from: "self:modules/a.nix", to: "self:lib/c.nix" },
     { from: "self:modules/sub/b.nix", to: "self:lib/c.nix" },
   ],
   configurations: [
-    { id: "nixos/test", kind: "nixos", name: "test", dataFile: "config/nixos.test.json", status: "ok" },
+    {
+      id: "nixos/test",
+      kind: "nixos",
+      name: "test",
+      dataFile: "config/nixos.test.json",
+      status: "ok",
+    },
   ],
   grafts: [],
   outputNames: {},

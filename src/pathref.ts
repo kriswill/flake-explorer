@@ -32,7 +32,11 @@ export function resolveRelRef(dir: string, token: string): string | null {
  * relPaths (a single origin tree: the flake's own files, or one input's).
  * Falls back to `<target>/default.nix` the way Nix resolves directory imports.
  */
-export function resolveKnownRef(from: string, token: string, known: ReadonlySet<string>): string | null {
+export function resolveKnownRef(
+  from: string,
+  token: string,
+  known: ReadonlySet<string>,
+): string | null {
   const target = resolveRelRef(dirname(from), token);
   if (target === null || target === from) return null;
   if (known.has(target)) return target;

@@ -9,7 +9,9 @@ const graph = (files: Record<string, string>) =>
     Object.keys(files),
     (p) => {
       const text = files[p];
-      return text === undefined ? Promise.reject(new Error(`no such file: ${p}`)) : Promise.resolve(text);
+      return text === undefined
+        ? Promise.reject(new Error(`no such file: ${p}`))
+        : Promise.resolve(text);
     },
     (p) => `id:${p}`,
   );
@@ -17,7 +19,7 @@ const graph = (files: Record<string, string>) =>
 describe("importGraph", () => {
   test("dedupes repeated imports of the same target", async () => {
     const edges = await graph({
-      "a.nix": 'import ./lib/c.nix // { extra = import ./lib/c.nix; }',
+      "a.nix": "import ./lib/c.nix // { extra = import ./lib/c.nix; }",
       "lib/c.nix": "{ }",
     });
     expect(edges).toEqual([{ from: "id:a.nix", to: "id:lib/c.nix" }]);
@@ -39,7 +41,10 @@ describe("importGraph", () => {
     };
     const edges = await importGraph(
       Object.keys(files),
-      (p) => (p === "broken.nix" ? Promise.reject(new Error("boom")) : Promise.resolve(files[p as keyof typeof files])),
+      (p) =>
+        p === "broken.nix"
+          ? Promise.reject(new Error("boom"))
+          : Promise.resolve(files[p as keyof typeof files]),
       (p) => `id:${p}`,
     );
     expect(edges).toEqual([{ from: "id:fine.nix", to: "id:ok.nix" }]);

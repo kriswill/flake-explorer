@@ -1,19 +1,19 @@
 <script lang="ts">
-  import { app } from "../lib/state.svelte";
-  import ModuleDetail from "./ModuleDetail.svelte";
-  import FileDetail from "./FileDetail.svelte";
-  import InputDetail from "./InputDetail.svelte";
-  import Legend from "./Legend.svelte";
+import { app } from "../lib/state.svelte";
+import FileDetail from "./FileDetail.svelte";
+import InputDetail from "./InputDetail.svelte";
+import Legend from "./Legend.svelte";
+import ModuleDetail from "./ModuleDetail.svelte";
 
-  const outputLeaf = $derived.by(() => {
-    if (app.selection?.kind !== "output" || !app.manifest) return null;
-    let node = app.manifest.outputs;
-    for (const seg of app.selection.path) {
-      if (node.kind !== "attrset" || !(seg in node.children)) return null;
-      node = node.children[seg]!;
-    }
-    return node;
-  });
+const outputLeaf = $derived.by(() => {
+  if (app.selection?.kind !== "output" || !app.manifest) return null;
+  let node = app.manifest.outputs;
+  for (const seg of app.selection.path) {
+    if (node.kind !== "attrset" || !(seg in node.children)) return null;
+    node = node.children[seg]!;
+  }
+  return node;
+});
 </script>
 
 <div class="stage">

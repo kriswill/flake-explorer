@@ -1,13 +1,13 @@
 <script lang="ts">
-  // The one true dot. Color comes from the inherited --c custom property.
-  // dir: embeds a disclosure triangle (right = collapsed, down = open).
-  // hollow: tinted fill + ring, for nodes with nothing customized.
-  interface Props {
-    dir?: boolean;
-    open?: boolean;
-    hollow?: boolean;
-  }
-  const { dir = false, open = false, hollow = false }: Props = $props();
+// The one true dot. Color comes from the inherited --c custom property.
+// dir: embeds a disclosure triangle (right = collapsed, down = open).
+// hollow: tinted fill + ring, for nodes with nothing customized.
+interface Props {
+  dir?: boolean;
+  open?: boolean;
+  hollow?: boolean;
+}
+const { dir = false, open = false, hollow = false }: Props = $props();
 </script>
 
 <span class="dot" class:dir class:open class:hollow></span>

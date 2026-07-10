@@ -30,7 +30,10 @@ function init(): Promise<{ parser: Parser; query: Query }> {
       const language = await Language.load(join(VENDOR_DIR, "tree-sitter-nix.wasm"));
       const parser = new Parser();
       parser.setLanguage(language);
-      const query = new Query(language, readFileSync(join(VENDOR_DIR, "nix-highlights.scm"), "utf8"));
+      const query = new Query(
+        language,
+        readFileSync(join(VENDOR_DIR, "nix-highlights.scm"), "utf8"),
+      );
       return { parser, query };
     })();
   }

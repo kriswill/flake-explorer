@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { buildFileIndex, errLine, splitVia, toEntry, unwrap } from "../src/extract/options";
-import { PRIO, type OptionEntry } from "../src/schema";
 import type { RawOption } from "../src/extract/run-nix";
+import { type OptionEntry, PRIO } from "../src/schema";
 
 const entry = (over: Partial<OptionEntry>): OptionEntry => ({
   loc: ["x"],

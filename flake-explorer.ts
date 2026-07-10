@@ -21,7 +21,14 @@ interface Flags {
 }
 
 function parseFlags(argv: string[]): Flags {
-  const f: Flags = { out: "./flake-explorer-data", configs: null, allSystems: false, timeout: 600, dev: false, positional: [] };
+  const f: Flags = {
+    out: "./flake-explorer-data",
+    configs: null,
+    allSystems: false,
+    timeout: 600,
+    dev: false,
+    positional: [],
+  };
   // A missing value (end of argv, or the next flag consumed as the value)
   // must be an error, not a silent default/NaN — a NaN timeout kills every
   // nix call instantly ("timed out after NaNs"), far from the actual typo.
@@ -78,7 +85,10 @@ async function cmdExtract(flags: Flags) {
   mkdirSync(join(flags.out, "config"), { recursive: true });
 
   console.log(`extracting manifest of ${flakeRef} ...`);
-  const manifest = await buildManifest(flakeRef, { allSystems: flags.allSystems, timeoutMs: flags.timeout * 1000 });
+  const manifest = await buildManifest(flakeRef, {
+    allSystems: flags.allSystems,
+    timeoutMs: flags.timeout * 1000,
+  });
   console.log(
     `  ${manifest.files.length} files, ${Object.keys(manifest.inputs).length} inputs, ` +
       `${manifest.configurations.length} configurations`,
@@ -89,10 +99,13 @@ async function cmdExtract(flags: Flags) {
   const wanted =
     flags.configs === "all"
       ? manifest.configurations.map((c) => c.id)
-      : (flags.configs ?? []).map((c) => (c.includes("/") ? c : die(`--configs takes kind/name ids, got: ${c}`)));
+      : (flags.configs ?? []).map((c) =>
+          c.includes("/") ? c : die(`--configs takes kind/name ids, got: ${c}`),
+        );
 
   for (const id of wanted) {
-    const ref = manifest.configurations.find((c) => c.id === id) ?? die(`no such configuration: ${id}`);
+    const ref =
+      manifest.configurations.find((c) => c.id === id) ?? die(`no such configuration: ${id}`);
     if (ref.status === "ok") {
       console.log(`options of ${id} cached (narHash + extractor match), skipping`);
       continue;
@@ -101,13 +114,16 @@ async function cmdExtract(flags: Flags) {
     try {
       const r = await extractAndPersist(flags.out, flakeRef, manifest.flake.narHash, ref, {
         timeoutMs: flags.timeout * 1000,
-        onProgress: (p) => process.stdout.write(`\r  ${p.done}/${p.total} ${p.current.padEnd(40).slice(0, 40)}`),
+        onProgress: (p) =>
+          process.stdout.write(`\r  ${p.done}/${p.total} ${p.current.padEnd(40).slice(0, 40)}`),
       });
       process.stdout.write("\n");
       applyExtracted(ref, r);
       manifest.warnings.push(...r.warnings);
       const customized = r.data.options.filter((o) => o.customized).length;
-      console.log(`  ${r.data.options.length} options (${customized} customized) in ${(r.durationMs / 1000).toFixed(1)}s`);
+      console.log(
+        `  ${r.data.options.length} options (${customized} customized) in ${(r.durationMs / 1000).toFixed(1)}s`,
+      );
       for (const w of r.warnings) console.warn(`  warn: ${w}`);
     } catch (e) {
       process.stdout.write("\n");
@@ -130,7 +146,12 @@ switch (cmd) {
     break;
   case "serve": {
     const { serve } = await import("./src/serve");
-    await serve(canonicalRef(flags.positional[0] ?? die("usage: serve <flakeref> [--port N] [--out DIR] [--dev]")), flags);
+    await serve(
+      canonicalRef(
+        flags.positional[0] ?? die("usage: serve <flakeref> [--port N] [--out DIR] [--dev]"),
+      ),
+      flags,
+    );
     break;
   }
   default:

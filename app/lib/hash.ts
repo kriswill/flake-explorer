@@ -39,15 +39,15 @@ function encodeSel(sel: Selection | null): string {
     case "output":
       // '.' is the output-path separator, so escape it per-segment (quoted Nix
       // attrs may contain dots); other kinds keep readable dots ("flake.nix").
-      return "/o/" + sel.path.map((s) => enc(s).replace(/\./g, "%2E")).join(".");
+      return `/o/${sel.path.map((s) => enc(s).replace(/\./g, "%2E")).join(".")}`;
     case "config":
-      return "/c/" + enc(sel.configId);
+      return `/c/${enc(sel.configId)}`;
     case "module":
-      return "/c/" + enc(sel.configId) + "/m/" + enc(sel.moduleId);
+      return `/c/${enc(sel.configId)}/m/${enc(sel.moduleId)}`;
     case "file":
-      return "/f/" + enc(sel.fileId);
+      return `/f/${enc(sel.fileId)}`;
     case "input":
-      return "/i/" + enc(sel.name);
+      return `/i/${enc(sel.name)}`;
   }
 }
 
@@ -56,7 +56,7 @@ export function encodeHash(view: ViewState): string {
   if (view.filters.q) p.set("q", view.filters.q);
   if (view.filters.all) p.set("all", "1");
   const qs = p.toString();
-  return encodeSel(view.sel) + (qs ? "?" + qs : "");
+  return encodeSel(view.sel) + (qs ? `?${qs}` : "");
 }
 
 export function decodeHash(raw: string): ViewState {
@@ -83,7 +83,8 @@ function decodeSel(path: string): Selection | null {
   if (parts.length === 0) return null;
   const [tag, a, tag2, b] = parts;
   if (tag === "o" && a) return { kind: "output", path: a.split(".").map(seg).filter(Boolean) };
-  if (tag === "c" && a && tag2 === "m" && b) return { kind: "module", configId: seg(a), moduleId: seg(b) };
+  if (tag === "c" && a && tag2 === "m" && b)
+    return { kind: "module", configId: seg(a), moduleId: seg(b) };
   if (tag === "c" && a) return { kind: "config", configId: seg(a) };
   if (tag === "f" && a) return { kind: "file", fileId: seg(a) };
   if (tag === "i" && a) return { kind: "input", name: seg(a) };

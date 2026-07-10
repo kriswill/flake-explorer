@@ -1,26 +1,26 @@
 <script lang="ts">
-  import type { OutputNode } from "../../src/schema";
-  import { app } from "../lib/state.svelte";
-  import Dot from "./Dot.svelte";
-  import OutputBranch from "./OutputBranch.svelte";
+import type { OutputNode } from "../../src/schema";
+import { app } from "../lib/state.svelte";
+import Dot from "./Dot.svelte";
+import OutputBranch from "./OutputBranch.svelte";
 
-  interface Props {
-    node: OutputNode & { kind: "attrset" };
-    path: string[];
-    depth: number;
-  }
-  const { node, path, depth }: Props = $props();
+interface Props {
+  node: OutputNode & { kind: "attrset" };
+  path: string[];
+  depth: number;
+}
+const { node, path, depth }: Props = $props();
 
-  const idOf = (name: string) => "out:" + [...path, name].join(".");
+const idOf = (name: string) => `out:${[...path, name].join(".")}`;
 
-  function toggle(name: string) {
-    const id = idOf(name);
-    if (app.expanded.has(id)) app.expanded.delete(id);
-    else app.expanded.add(id);
-  }
+function toggle(name: string) {
+  const id = idOf(name);
+  if (app.expanded.has(id)) app.expanded.delete(id);
+  else app.expanded.add(id);
+}
 
-  const isSel = (name: string) =>
-    app.selection?.kind === "output" && app.selection.path.join(".") === [...path, name].join(".");
+const isSel = (name: string) =>
+  app.selection?.kind === "output" && app.selection.path.join(".") === [...path, name].join(".");
 </script>
 
 <ul class="tree">

@@ -8,6 +8,7 @@ export async function loadJson<T>(name: string): Promise<T> {
     if (el?.textContent) return JSON.parse(el.textContent) as T;
   }
   const res = await fetch(`data/${name}`);
-  if (!res.ok) throw new Error(`loading ${name}: HTTP ${res.status} ${await res.text().catch(() => "")}`);
+  if (!res.ok)
+    throw new Error(`loading ${name}: HTTP ${res.status} ${await res.text().catch(() => "")}`);
   return (await res.json()) as T;
 }
