@@ -10,6 +10,7 @@ import { join } from "node:path"
 import { exportHtml } from "../src/export"
 import { extractToDir } from "../src/extract/drive"
 import type { ConfigData, FileSource, Manifest } from "../src/schema"
+import { fixtureConfig, fixtureManifest } from "./fixtures/data"
 
 const FIXTURE = join(import.meta.dir, "fixtures/mini-flake")
 const hasNix = !!Bun.which("nix")
@@ -70,6 +71,26 @@ describe.skipIf(!hasNix)("export (real nix)", () => {
     }
   })
 
+  test("extractToDir: a second run hits the cache; bad --configs ids throw", async () => {
+    const outDir = await mkdtemp(join(tmpdir(), "mini-export-"))
+    try {
+      const flags = { out: outDir, configs: "all" as const, allSystems: false, timeout: 60 }
+      await extractToDir(FIXTURE, flags)
+      // Fresh manifest + reconcile against the persisted sidecar → skip path.
+      const { manifest } = await extractToDir(FIXTURE, flags)
+      expect(manifest.configurations[0]!.status).toBe("ok")
+
+      await expect(extractToDir(FIXTURE, { ...flags, configs: ["bad-format"] })).rejects.toThrow(
+        "--configs takes kind/name ids",
+      )
+      await expect(extractToDir(FIXTURE, { ...flags, configs: ["nixos/nope"] })).rejects.toThrow(
+        "no such configuration",
+      )
+    } finally {
+      await rm(outDir, { recursive: true, force: true })
+    }
+  })
+
   test("default export (no --configs): ref stays pending, self sources still embed", async () => {
     const outDir = await mkdtemp(join(tmpdir(), "mini-export-"))
     try {
@@ -90,6 +111,56 @@ describe.skipIf(!hasNix)("export (real nix)", () => {
       expect(embedded(html, "config/nixos.mini.json")).toBeNull()
       expect(embedded(html, `file/${encodeURIComponent("self:flake.nix")}`)).not.toBeNull()
       expect(summary.configs).toEqual([])
+    } finally {
+      await rm(outDir, { recursive: true, force: true })
+    }
+  })
+})
+
+// Synthetic manifest whose store paths don't exist on disk: exercises the
+// degradation paths (blob-missing downgrade, ok-but-unwanted downgrade,
+// input re-fetch failure, self-file skip) without needing nix.
+describe("exportHtml (synthetic fixture)", () => {
+  test("missing blobs and sources degrade to warnings + pending refs", async () => {
+    const outDir = await mkdtemp(join(tmpdir(), "syn-export-"))
+    try {
+      const m = fixtureManifest()
+      m.configurations[0]!.status = "ok"
+      m.configurations.push(
+        // ok on disk but NOT requested → downgraded to pending in the embed.
+        { id: "nixos/other", kind: "nixos", name: "other", dataFile: "config/nixos.other.json", status: "ok" },
+        // requested + "ok" but its blob is missing → warning + downgrade.
+        { id: "nixos/gone", kind: "nixos", name: "gone", dataFile: "config/nixos.gone.json", status: "ok" },
+      )
+      await Bun.write(join(outDir, "config/nixos.test.json"), JSON.stringify(fixtureConfig()))
+
+      const htmlPath = join(outDir, "flake.html")
+      const summary = await exportHtml("./no-such-flake", m, {
+        outDir,
+        htmlPath,
+        sources: "all",
+        timeoutMs: 10_000,
+        wanted: ["nixos/test", "nixos/gone"],
+      })
+      const html = await Bun.file(htmlPath).text()
+
+      expect(embedded<ConfigData>(html, "config/nixos.test.json")?.id).toBe("nixos/test")
+      const em = embedded<Manifest>(html, "manifest.json")!
+      expect(em.configurations.find((c) => c.id === "nixos/test")?.status).toBe("ok")
+      expect(em.configurations.find((c) => c.id === "nixos/other")?.status).toBe("pending")
+      expect(em.configurations.find((c) => c.id === "nixos/gone")?.status).toBe("pending")
+      expect(summary.warnings.some((w) => w.includes("nixos/gone"))).toBe(true)
+
+      // No fixture store path exists: self files skip with a warning; the
+      // config-referenced sops file resolves to an input id, and its nix
+      // re-fetch fails (bogus flakeref / no nix) — warned, not embedded.
+      expect(summary.files).toEqual([])
+      expect(summary.warnings.some((w) => w.includes("self:modules/a.nix"))).toBe(true)
+      expect(
+        summary.warnings.some((w) => w.includes("input:sops-nix:modules/sops/default.nix")),
+      ).toBe(true)
+      // Export warnings surface in the embedded manifest for the UI.
+      expect(em.warnings.length).toBeGreaterThanOrEqual(summary.warnings.length)
     } finally {
       await rm(outDir, { recursive: true, force: true })
     }
