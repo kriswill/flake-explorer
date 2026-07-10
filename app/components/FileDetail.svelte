@@ -168,7 +168,9 @@ const label = displayLabel
     {:else if "error" in contentSlot}
       <p class="muted err">
         {contentSlot.error.split("\n")[0]}
-        <button class="retry" onclick={() => app.retryFileContent(fileId, storePath!)}>retry</button>
+        {#if !contentSlot.permanent}
+          <button class="retry" onclick={() => app.retryFileContent(fileId, storePath!)}>retry</button>
+        {/if}
       </p>
     {:else}
       <SourceView {lines} onref={(id) => app.select({ kind: "file", fileId: id })} />

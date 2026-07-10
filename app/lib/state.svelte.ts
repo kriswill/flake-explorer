@@ -8,7 +8,7 @@ import type { AboutData } from "../../src/licenses"
 import type { ConfigData, FileSource, Manifest, OptionEntry } from "../../src/schema"
 import { parseFileId, SCHEMA_VERSION } from "../../src/schema"
 import { registerSlotKeys } from "./color"
-import { loadJson } from "./data"
+import { hasEmbedded, isStatic, loadJson } from "./data"
 import { decodeHash, encodeHash, type Filters, type Selection, sameSelection } from "./hash"
 import {
   buildConfigIndexes,
@@ -21,10 +21,11 @@ import {
 } from "./indexes"
 import { applyThemeVars, defaultThemeIndex, THEMES } from "./themes"
 
-export type ConfigSlot =
-  | "loading"
-  | { error: string }
-  | { data: ConfigData; indexes: ConfigIndexes }
+/** permanent: the document is simply absent from a static export — a retry
+ *  cannot succeed, so components hide the retry button. */
+export type SlotError = { error: string; permanent?: true }
+
+export type ConfigSlot = "loading" | SlotError | { data: ConfigData; indexes: ConfigIndexes }
 
 /** Narrow a ConfigSlot to its loaded shape; null while loading/errored/absent. */
 export function loadedConfig(
@@ -33,12 +34,12 @@ export function loadedConfig(
   return slot && typeof slot === "object" && "data" in slot ? slot : null
 }
 
-/** Error text of a failed ConfigSlot; null otherwise. */
-export function configError(slot: ConfigSlot | undefined): string | null {
-  return slot && typeof slot === "object" && "error" in slot ? slot.error : null
+/** Error slot of a failed ConfigSlot; null otherwise. */
+export function configError(slot: ConfigSlot | undefined): SlotError | null {
+  return slot && typeof slot === "object" && "error" in slot ? slot : null
 }
 
-export type FileContentSlot = "loading" | { error: string } | FileSource
+export type FileContentSlot = "loading" | SlotError | FileSource
 
 export type Hover = { kind: "file"; fileId: string } | { kind: "module"; fileId: string } | null
 
@@ -139,6 +140,16 @@ class AppState {
     if (!this.manifest || this.configs[configId]) return
     const ref = this.manifest.configurations.find((c) => c.id === configId)
     if (!ref) return
+    // Static export without this config's blob: there is no server to
+    // extract it on demand, so report that instead of a doomed fetch.
+    if (isStatic() && !hasEmbedded(ref.dataFile)) {
+      const error =
+        ref.status === "error" && ref.error
+          ? `extraction failed during export: ${ref.error}`
+          : "configuration not included in this export"
+      this.configs = { ...this.configs, [configId]: { error, permanent: true } }
+      return
+    }
     this.configs = { ...this.configs, [configId]: "loading" }
     try {
       const data = await loadJson<ConfigData>(ref.dataFile)
@@ -166,10 +177,24 @@ class AppState {
    */
   async loadFileContent(fileId: string, storePath: string) {
     if (this.fileContents[fileId]) return
+    // A static export embeds file sources under the id alone — the store
+    // paths it resolved from are meaningless in a browser. Only the dynamic
+    // server needs the storePath (as a query param) to read the file.
+    const key = `file/${encodeURIComponent(fileId)}`
+    if (isStatic() && !hasEmbedded(key)) {
+      this.fileContents = {
+        ...this.fileContents,
+        [fileId]: {
+          error: "source not included in this export (re-export with --sources all)",
+          permanent: true,
+        },
+      }
+      return
+    }
     this.fileContents = { ...this.fileContents, [fileId]: "loading" }
     try {
       const source = await loadJson<FileSource>(
-        `file/${encodeURIComponent(fileId)}?storePath=${encodeURIComponent(storePath)}`,
+        hasEmbedded(key) ? key : `${key}?storePath=${encodeURIComponent(storePath)}`,
       )
       this.fileContents = { ...this.fileContents, [fileId]: source }
     } catch (e) {

@@ -1,5 +1,5 @@
 <script lang="ts">
-import { app } from "../lib/state.svelte"
+import { app, configError } from "../lib/state.svelte"
 import FileDetail from "./FileDetail.svelte"
 import InputDetail from "./InputDetail.svelte"
 import Legend from "./Legend.svelte"
@@ -47,6 +47,8 @@ const outputLeaf = $derived.by(() => {
       <p class="muted">Expand the configuration on the left and select a module to inspect its options.</p>
     {:else if app.configs[configId] === "loading"}
       <p class="muted">Extracting / loading options… (first run can take a minute or two)</p>
+    {:else if configError(app.configs[configId])}
+      <p class="err">{configError(app.configs[configId])?.error}</p>
     {:else if ref?.status === "error"}
       <p class="err">{ref.error}</p>
     {/if}

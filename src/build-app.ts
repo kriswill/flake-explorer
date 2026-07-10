@@ -43,13 +43,33 @@ function themeCss(): string {
 @media (prefers-color-scheme: dark){:root{color-scheme:dark;${vars(1)}}}`
 }
 
-export function pageHtml(bundle: AppBundle, title: string, opts: { dev?: boolean } = {}): string {
+/**
+ * An embedded-data tag loadJson resolves before fetching. Every "<" is
+ * JSON-unicode-escaped, so "</script" can never occur in the body no matter
+ * what the value contains (file sources include arbitrary Nix text).
+ */
+function jsonTag(name: string, value: unknown): string {
+  const json = JSON.stringify(value).replace(/</g, "\\u003c")
+  return `<script type="application/json" id="data:${name}">${json}</script>`
+}
+
+export function pageHtml(
+  bundle: AppBundle,
+  title: string,
+  opts: { dev?: boolean; embeds?: Record<string, unknown> } = {},
+): string {
   const esc = (s: string) => s.replace(/<\/script/gi, "<\\/script")
-  // App identity + bundled-dependency license notices, embedded so the
-  // About modal works identically in serve mode and a future single-file
-  // build (loadJson checks embedded <script> tags before fetching).
+  // App identity + bundled-dependency license notices, embedded so the About
+  // modal works identically in serve mode and a single-file export (loadJson
+  // checks embedded <script> tags before fetching). The exporter adds
+  // manifest/config/file documents through the same mechanism; serve must
+  // never pass a manifest.json embed — its presence is the client's
+  // static-mode signal (see app/lib/data.ts isStatic).
   const about: AboutData = collectAbout(join(import.meta.dir, ".."))
-  const aboutJson = JSON.stringify(about).replace(/</g, "\\u003c")
+  const dataTags = [
+    jsonTag("about.json", about),
+    ...Object.entries(opts.embeds ?? {}).map(([name, value]) => jsonTag(name, value)),
+  ].join("\n")
   // Dev auto-reload client: an SSE "reload" means the UI bundle was rebuilt;
   // a dropped-then-reestablished connection means the server itself
   // restarted (bun --watch) — reload in both cases.
@@ -81,7 +101,7 @@ ${bundle.css.replace(/<\/style/gi, "<\\/style")}
 </head>
 <body>
 <div id="app"></div>
-<script type="application/json" id="data:about.json">${aboutJson}</script>
+${dataTags}
 <script type="module">${esc(bundle.js)}</script>
 ${devScript}
 </body>

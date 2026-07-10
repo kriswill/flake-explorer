@@ -1,12 +1,9 @@
 // flake-explorer CLI: extract flake structure/options to JSON, serve the SPA.
 // A wrapper may set FLAKE_EXPLORER_PROG so usage shows the invoked name.
 
-import { mkdirSync, realpathSync } from "node:fs"
-import { join } from "node:path"
-import { applyExtracted, extractAndPersist, reconcile } from "./src/extract/cache"
-import { buildManifest, localFlakeDir } from "./src/extract/manifest"
-import { checkNix } from "./src/extract/run-nix"
-import type { Manifest } from "./src/schema"
+import { realpathSync } from "node:fs"
+import { extractToDir } from "./src/extract/drive"
+import { localFlakeDir } from "./src/extract/manifest"
 
 const prog = process.env.FLAKE_EXPLORER_PROG ?? "bun flake-explorer.ts"
 
@@ -15,6 +12,8 @@ interface Flags {
   configs: string[] | "all" | null
   allSystems: boolean
   timeout: number
+  html: string
+  sources: "self" | "all"
   port?: number
   dev: boolean
   positional: string[]
@@ -26,6 +25,8 @@ function parseFlags(argv: string[]): Flags {
     configs: null,
     allSystems: false,
     timeout: 600,
+    html: "./flake.html",
+    sources: "self",
     dev: false,
     positional: [],
   }
@@ -49,7 +50,12 @@ function parseFlags(argv: string[]): Flags {
     else if (a === "--all") f.configs = "all"
     else if (a === "--all-systems") f.allSystems = true
     else if (a === "--timeout") f.timeout = num(a, argv[++i])
-    else if (a === "--port") f.port = num(a, argv[++i])
+    else if (a === "--html") f.html = arg(a, argv[++i])
+    else if (a === "--sources") {
+      const v = arg(a, argv[++i])
+      if (v !== "self" && v !== "all") die(`--sources expects self or all, got: ${v}`)
+      f.sources = v
+    } else if (a === "--port") f.port = num(a, argv[++i])
     else if (a === "--dev") f.dev = true
     else if (a.startsWith("--")) die(`unknown flag: ${a}`)
     else f.positional.push(a)
@@ -73,68 +79,27 @@ function canonicalRef(ref: string): string {
   return realpathSync(dir) + (ref.match(/\?.*$/)?.[0] ?? "")
 }
 
-async function writeJson(path: string, value: unknown) {
-  await Bun.write(path, JSON.stringify(value))
-}
-
 async function cmdExtract(flags: Flags) {
   const flakeRef = canonicalRef(
     flags.positional[0] ?? die("usage: extract <flakeref> [--out DIR] [--configs a,b | --all]"),
   )
-  await checkNix()
-  mkdirSync(join(flags.out, "config"), { recursive: true })
+  await extractToDir(flakeRef, flags)
+}
 
-  console.log(`extracting manifest of ${flakeRef} ...`)
-  const manifest = await buildManifest(flakeRef, {
-    allSystems: flags.allSystems,
-    timeoutMs: flags.timeout * 1000,
-  })
-  console.log(
-    `  ${manifest.files.length} files, ${Object.keys(manifest.inputs).length} inputs, ` +
-      `${manifest.configurations.length} configurations`,
+async function cmdExport(flags: Flags) {
+  const flakeRef = canonicalRef(
+    flags.positional[0] ??
+      die("usage: export <flakeref> [--html FILE] [--configs a,b | --all] [--sources self|all]"),
   )
-  for (const w of manifest.warnings) console.warn(`  warn: ${w}`)
-  await reconcile(flags.out, manifest)
-
-  const wanted =
-    flags.configs === "all"
-      ? manifest.configurations.map((c) => c.id)
-      : (flags.configs ?? []).map((c) =>
-          c.includes("/") ? c : die(`--configs takes kind/name ids, got: ${c}`),
-        )
-
-  for (const id of wanted) {
-    const ref =
-      manifest.configurations.find((c) => c.id === id) ?? die(`no such configuration: ${id}`)
-    if (ref.status === "ok") {
-      console.log(`options of ${id} cached (narHash + extractor match), skipping`)
-      continue
-    }
-    console.log(`extracting options of ${id} ...`)
-    try {
-      const r = await extractAndPersist(flags.out, flakeRef, manifest.flake.narHash, ref, {
-        timeoutMs: flags.timeout * 1000,
-        onProgress: (p) =>
-          process.stdout.write(`\r  ${p.done}/${p.total} ${p.current.padEnd(40).slice(0, 40)}`),
-      })
-      process.stdout.write("\n")
-      applyExtracted(ref, r)
-      manifest.warnings.push(...r.warnings)
-      const customized = r.data.options.filter((o) => o.customized).length
-      console.log(
-        `  ${r.data.options.length} options (${customized} customized) in ${(r.durationMs / 1000).toFixed(1)}s`,
-      )
-      for (const w of r.warnings) console.warn(`  warn: ${w}`)
-    } catch (e) {
-      process.stdout.write("\n")
-      ref.status = "error"
-      ref.error = String(e).split("\n")[0]
-      console.error(`  error: ${ref.error}`)
-    }
-  }
-
-  await writeJson(join(flags.out, "manifest.json"), manifest satisfies Manifest)
-  console.log(`wrote ${join(flags.out, "manifest.json")}`)
+  const { manifest, wanted } = await extractToDir(flakeRef, flags)
+  const { exportHtml } = await import("./src/export")
+  await exportHtml(flakeRef, manifest, {
+    outDir: flags.out,
+    htmlPath: flags.html,
+    sources: flags.sources,
+    timeoutMs: flags.timeout * 1000,
+    wanted,
+  })
 }
 
 const [cmd, ...rest] = process.argv.slice(2)
@@ -143,6 +108,9 @@ const flags = parseFlags(rest)
 switch (cmd) {
   case "extract":
     await cmdExtract(flags)
+    break
+  case "export":
+    await cmdExport(flags)
     break
   case "serve": {
     const { serve } = await import("./src/serve")
@@ -160,6 +128,11 @@ switch (cmd) {
 commands:
   extract <flakeref> [--out DIR] [--configs kind/name,... | --all] [--all-systems] [--timeout SECS]
       Extract manifest (+ selected configurations) to the data dir.
+  export <flakeref> [--html FILE] [--out DIR] [--configs kind/name,... | --all] [--all-systems] [--sources self|all] [--timeout SECS]
+      Extract, then write ONE standalone HTML file (default ./flake.html)
+      that works without a server — file://, any CDN, GitHub Pages.
+      --sources all also embeds every file the exported configurations
+      reference (can be large against nixpkgs).
   serve <flakeref> [--port N] [--out DIR] [--dev]
       Extract manifest, then serve the explorer UI with on-demand
       per-configuration extraction. --dev watches app/ and live-reloads
