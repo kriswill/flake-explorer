@@ -1,5 +1,5 @@
 // The release script edits files unattended in CI — pin its pure logic and
-// drive the CLI end-to-end against a fixture dir (FLAKE_EXPLORER_RELEASE_ROOT).
+// drive the CLI in-process against a fixture root dir.
 
 import { describe, expect, spyOn, test } from "bun:test"
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
