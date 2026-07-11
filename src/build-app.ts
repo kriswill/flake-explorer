@@ -34,7 +34,7 @@ export async function buildApp(development = false): Promise<AppBundle> {
 }
 
 /** The default :root blocks are generated from THEMES so they cannot drift. */
-function themeCss(): string {
+export function themeCss(): string {
   const vars = (i: number) =>
     Object.entries(THEMES[i]!.vars)
       .map(([k, v]) => `${k}:${v};`)

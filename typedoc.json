@@ -1,0 +1,11 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/schema.ts"],
+  "plugin": ["typedoc-plugin-markdown"],
+  "out": ".docs-api",
+  "outputFileStrategy": "modules",
+  "readme": "none",
+  "excludePrivate": true,
+  "hideBreadcrumbs": true,
+  "tsconfig": "tsconfig.json"
+}

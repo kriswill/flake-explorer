@@ -109,6 +109,8 @@ const rows = $derived.by((): Row[] => {
         >{about?.version ? ` v${about.version}` : ""}{about?.license ? ` · ${about.license} license` : ""}{about?.copyright
           ? ` · ${about.copyright}`
           : ""}
+        ·
+        <a href="https://kris.net/flake-explorer/docs/" target="_blank" rel="noopener">Documentation</a>
       </p>
     {:else}
       <p class="lic-note">

@@ -46,6 +46,9 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
+      # Smoke-check the docs site build (no nix needed) so a broken docs
+      # pipeline surfaces on the PR, not on the Pages deploy.
+      - run: bun run docs
 
   lint:
     runs-on: ubuntu-latest
