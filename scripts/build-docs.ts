@@ -9,10 +9,11 @@
 // produces the equivalent standalone HTML for the Pages site. Mermaid is
 // bundled locally (no CDN) and included only on pages that need it.
 
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs"
+import { copyFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs"
 import { join, normalize } from "node:path"
 import { Marked } from "marked"
 import { themeCss } from "../src/build-app"
+import { type DepLicense, packageDir, readDepLicense } from "../src/licenses"
 
 const REPO_URL = "https://github.com/kriswill/flake-explorer"
 const DOCS_DIR = join(import.meta.dir, "..", "docs")
@@ -129,6 +130,51 @@ blockquote{margin:0;padding:0.1rem 1rem;border-left:3px solid var(--baseline);co
 footer.site{max-width:52rem;margin:0 auto 2rem;padding:0 1.5rem;font-size:0.8rem;color:var(--ink-muted)}
 `
 
+/**
+ * License records for the mermaid bundle's full runtime dependency closure.
+ * assets/mermaid.js is minified (headers stripped), so the notices must ship
+ * alongside it — same rule the app page follows via collectAbout. The closure
+ * over-approximates what Bun actually inlined; over-inclusion is harmless,
+ * under-inclusion is a license violation. @types/* packages contribute no
+ * runtime code and are skipped.
+ */
+function mermaidLicenses(): DepLicense[] {
+  const root = join(import.meta.dir, "..")
+  const seen = new Set<string>()
+  const out: DepLicense[] = []
+  const visit = (name: string, from: string) => {
+    if (seen.has(name) || name.startsWith("@types/")) return
+    seen.add(name)
+    out.push(readDepLicense(name, from))
+    const dir = packageDir(name, from)
+    const meta = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+      dependencies?: Record<string, string>
+    }
+    for (const dep of Object.keys(meta.dependencies ?? {})) visit(dep, dir)
+  }
+  visit("mermaid", root)
+  return out.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function licensesHtml(deps: DepLicense[]): string {
+  const items = deps
+    .map(
+      (d) => `<details>
+<summary><code>${escapeHtml(d.name)}</code> ${escapeHtml(d.version)}${d.license ? ` · ${escapeHtml(d.license)}` : ""}</summary>
+<pre>${escapeHtml(d.text)}</pre>
+</details>`,
+    )
+    .join("\n")
+  return `<h1>Bundled library licenses</h1>
+<p>Diagram pages on this site load <code>assets/mermaid.js</code>, a minified
+bundle of <a href="https://mermaid.js.org/" target="_blank" rel="noopener">mermaid</a>
+and its dependencies. Minification strips the libraries' copyright headers, so
+their license notices accompany the bundle here instead (${deps.length}
+packages — the bundle's full dependency closure). DOMPurify is dual-licensed
+(MPL-2.0 OR Apache-2.0) and is distributed here under Apache-2.0.</p>
+${items}`
+}
+
 interface PageMeta {
   title: string
   /** Prefix from the page's directory back to the docs root ("" or "../"). */
@@ -175,7 +221,11 @@ ${pageNav.join("\n")}
 <main>
 ${body}
 </main>
-<footer class="site">Generated from <a href="${REPO_URL}/tree/main/docs">docs/</a> at ${commit}.</footer>${mermaid}
+<footer class="site">Generated from <a href="${REPO_URL}/tree/main/docs">docs/</a> at ${commit}.${
+    mermaid
+      ? ` Diagrams by mermaid — <a href="${root}licenses.html">bundled library licenses</a>.`
+      : ""
+  }</footer>${mermaid}
 </body>
 </html>
 `
@@ -230,6 +280,15 @@ async function main() {
       throw new Error(`mermaid bundle failed:\n${build.logs.map(String).join("\n")}`)
     }
     await Bun.write(join(outDir, "assets", "mermaid.js"), await build.outputs[0]!.text())
+    // The bundle's license notices ship next to it (see mermaidLicenses).
+    await Bun.write(
+      join(outDir, "licenses.html"),
+      pageShell(licensesHtml(mermaidLicenses()), {
+        title: "Bundled library licenses",
+        root: "",
+        commit,
+      }),
+    )
   }
 
   console.log(`docs built at ${outDir} (${PAGES.length} pages${opts.api ? " + api" : ""})`)
