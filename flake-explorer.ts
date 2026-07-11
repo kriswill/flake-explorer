@@ -102,7 +102,43 @@ async function cmdExport(flags: Flags) {
   })
 }
 
+function usage(): string {
+  return `usage: ${prog} <command> [args]
+
+commands:
+  extract <flakeref> [--out DIR] [--configs kind/name,... | --all] [--all-systems] [--timeout SECS]
+      Extract manifest (+ selected configurations) to the data dir.
+  export <flakeref> [--html FILE] [--out DIR] [--configs kind/name,... | --all] [--all-systems] [--sources self|all] [--timeout SECS]
+      Extract, then write ONE standalone HTML file (default ./flake.html)
+      that works without a server — file://, any CDN, GitHub Pages.
+      --sources all also embeds every file the exported configurations
+      reference (can be large against nixpkgs).
+  serve <flakeref> [--port N] [--out DIR] [--dev]
+      Extract manifest, then serve the explorer UI with on-demand
+      per-configuration extraction. --dev watches app/ and live-reloads
+      the browser (run under \`bun --watch\` to cover server files too).
+
+  --help, -h  Show this help.
+
+docs: https://kris.net/flake-explorer/docs/ (or docs/ in the repo)`
+}
+
 const [cmd, ...rest] = process.argv.slice(2)
+
+// Help is handled before parseFlags so `serve --help` works without
+// teaching the flag parser about it.
+if (
+  cmd === undefined ||
+  cmd === "help" ||
+  cmd === "--help" ||
+  cmd === "-h" ||
+  rest.includes("--help") ||
+  rest.includes("-h")
+) {
+  console.log(usage())
+  process.exit(0)
+}
+
 const flags = parseFlags(rest)
 
 switch (cmd) {
@@ -123,19 +159,6 @@ switch (cmd) {
     break
   }
   default:
-    console.log(`usage: ${prog} <command> [args]
-
-commands:
-  extract <flakeref> [--out DIR] [--configs kind/name,... | --all] [--all-systems] [--timeout SECS]
-      Extract manifest (+ selected configurations) to the data dir.
-  export <flakeref> [--html FILE] [--out DIR] [--configs kind/name,... | --all] [--all-systems] [--sources self|all] [--timeout SECS]
-      Extract, then write ONE standalone HTML file (default ./flake.html)
-      that works without a server — file://, any CDN, GitHub Pages.
-      --sources all also embeds every file the exported configurations
-      reference (can be large against nixpkgs).
-  serve <flakeref> [--port N] [--out DIR] [--dev]
-      Extract manifest, then serve the explorer UI with on-demand
-      per-configuration extraction. --dev watches app/ and live-reloads
-      the browser (run under \`bun --watch\` to cover server files too).`)
-    process.exit(cmd ? 1 : 0)
+    console.error(`${prog}: unknown command: ${cmd}\n\n${usage()}`)
+    process.exit(1)
 }
