@@ -27,6 +27,15 @@ Three panes:
 Selections are deep-linkable (URL hash); light/dark theme; colors are stable
 per file/input (curated CVD-safe slots + OKLCH hash colors).
 
+## Documentation
+
+Deeper docs live in [`docs/`](docs/README.md) — architecture, the extractor
+pipeline, the data contract, the SPA, testing — rendered at
+[kris.net/flake-explorer/docs](https://kris.net/flake-explorer/docs/) with a
+generated [API reference](https://kris.net/flake-explorer/docs/api/) alongside
+the [live demo](https://kris.net/flake-explorer/) (the explorer browsing its
+own flake). Release notes: [CHANGELOG.md](CHANGELOG.md).
+
 ## Usage
 
 ```console
@@ -76,7 +85,7 @@ file at 100 MB).
 
 This repo publishes its own export on every push to `main` via
 [.github/workflows/pages.yml](.github/workflows/pages.yml) —
-[flake.html](https://kriswill.github.io/flake-explorer/flake.html). To do the
+[flake.html](https://kris.net/flake-explorer/flake.html). To do the
 same, copy that workflow and set the repo's Pages source to "GitHub Actions"
 (Settings → Pages).
 
@@ -105,6 +114,7 @@ $ bun flake-explorer.ts serve /etc/nixos
 $ bun test             # unit tests (happy-dom)
 $ bunx svelte-check --tsconfig ./tsconfig.json
 $ nix build            # package + offline test derivation
+$ bun run docs         # build the docs site into _site/docs
 ```
 
 Svelte 5 (runes) bundled by `Bun.build` + `bun-plugin-svelte` — no Vite.
