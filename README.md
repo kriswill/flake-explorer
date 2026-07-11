@@ -1,5 +1,9 @@
 # flake-explorer
 
+[![CI](https://github.com/kriswill/flake-explorer/actions/workflows/ci.yml/badge.svg)](https://github.com/kriswill/flake-explorer/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/kriswill/flake-explorer)](https://github.com/kriswill/flake-explorer/releases)
+[![Documentation](https://img.shields.io/badge/docs-kris.net-4478bc)](https://kris.net/flake-explorer/docs/)
+
 Interactive visualizer for Nix flakes — built for dendritic
 ([flake-parts](https://flake.parts) + [import-tree](https://github.com/vic/import-tree))
 configurations, works on any flake.

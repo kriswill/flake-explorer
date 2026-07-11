@@ -1,0 +1,62 @@
+# Cut a release: bump package.json (package.nix reads its version at eval
+# time, the About modal at runtime), roll CHANGELOG's [Unreleased] into the
+# new version section, commit, tag vX.Y.Z, and publish a GitHub release with
+# that section as the notes. The node_modules outputHash in package.nix is
+# unaffected by version bumps (it only depends on package.json deps +
+# bun.lock contents).
+#
+# Pushes made with GITHUB_TOKEN never trigger on:push workflows, so CI and
+# Pages are dispatched explicitly for the release commit.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        required: true
+        type: choice
+        options: [patch, minor, major]
+
+permissions:
+  contents: write
+  actions: write # dispatch CI + Pages for the release commit
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - id: bump
+        run: echo "version=$(bun scripts/release.ts bump ${{ inputs.bump }})" >> "$GITHUB_OUTPUT"
+
+      - run: bun scripts/release.ts notes "$VERSION" > "$RUNNER_TEMP/notes.md"
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "release: v$VERSION"
+          git tag "v$VERSION"
+          git push --follow-tags
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+
+      - run: gh release create "v$VERSION" --title "v$VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
+
+      - run: |
+          gh workflow run CI --ref main
+          gh workflow run Pages --ref main
+        env:
+          GH_TOKEN: ${{ github.token }}

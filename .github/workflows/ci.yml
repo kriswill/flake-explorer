@@ -4,6 +4,9 @@ on:
   pull_request:
   push:
     branches: [main]
+  # The Release workflow dispatches CI for its bot-pushed release commit
+  # (GITHUB_TOKEN pushes never trigger on:push).
+  workflow_dispatch:
 
 permissions:
   contents: read

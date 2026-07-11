@@ -100,7 +100,9 @@ let
 in
 stdenvNoCC.mkDerivation {
   pname = "flake-explorer";
-  version = "0.1.0";
+  # package.json is the single version source; the release workflow bumps it
+  # there and this (plus the About modal at runtime) follows.
+  version = (builtins.fromJSON (builtins.readFile ./package.json)).version;
   inherit src;
 
   nativeBuildInputs = [ makeBinaryWrapper ];
