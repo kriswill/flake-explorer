@@ -1,12 +1,20 @@
 # Cut a release: bump package.json (package.nix reads its version at eval
 # time, the About modal at runtime), roll CHANGELOG's [Unreleased] into the
-# new version section, commit, tag vX.Y.Z, and publish a GitHub release with
-# that section as the notes. The node_modules outputHash in package.nix is
-# unaffected by version bumps (it only depends on package.json deps +
-# bun.lock contents).
+# new version section, commit, tag vX.Y.Z, publish a GitHub release with
+# that section as the notes, and publish to npm. The node_modules outputHash
+# in package.nix is unaffected by version bumps (it only depends on
+# package.json deps + bun.lock contents).
 #
-# Pushes made with GITHUB_TOKEN never trigger on:push workflows, so CI and
-# Pages are dispatched explicitly for the release commit.
+# npm publish uses OIDC trusted publishing (okflight pattern) — no token
+# anywhere. The npmjs.com settings for @kriswill/flake-explorer bind
+# kriswill/flake-explorer + THIS EXACT FILENAME (release.yml) as the trusted
+# publisher; npm exchanges the runner's id-token for a one-shot publish
+# credential and attaches provenance automatically. Renaming this file
+# breaks the binding until the package settings are updated to match.
+#
+# Pushes made with GITHUB_TOKEN never trigger on:push (or tag) workflows, so
+# the npm publish lives HERE rather than in a tag-triggered workflow, and CI
+# and Pages are dispatched explicitly for the release commit.
 
 name: Release
 
@@ -22,6 +30,7 @@ on:
 permissions:
   contents: write
   actions: write # dispatch CI + Pages for the release commit
+  id-token: write # the OIDC token npm exchanges for the tokenless publish
 
 concurrency:
   group: release
@@ -34,12 +43,21 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+      # Trusted publishing needs npm >= 11.5.1; don't trust the bundled one.
+      - run: npm install -g npm@latest
+
       - id: bump
         run: echo "version=$(bun scripts/release.ts bump ${{ inputs.bump }})" >> "$GITHUB_OUTPUT"
 
       - run: bun scripts/release.ts notes "$VERSION" > "$RUNNER_TEMP/notes.md"
         env:
           VERSION: ${{ steps.bump.outputs.version }}
+
+      # Packaging must be sound before anything is pushed anywhere.
+      - run: npm pack --dry-run
 
       - run: |
           git config user.name "github-actions[bot]"
@@ -54,6 +72,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.bump.outputs.version }}
+
+      - run: npm publish
 
       - run: |
           gh workflow run CI --ref main

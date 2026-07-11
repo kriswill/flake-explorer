@@ -47,6 +47,14 @@ $ nix run github:kriswill/flake-explorer -- serve /etc/nixos
 flake-explorer serving /etc/nixos at http://localhost:4321
 ```
 
+Or from npm ([@kriswill/flake-explorer](https://www.npmjs.com/package/@kriswill/flake-explorer)) —
+`nix` must be on PATH either way:
+
+```console
+$ bunx @kriswill/flake-explorer serve /etc/nixos
+$ npx @kriswill/flake-explorer serve /etc/nixos   # installs bun on demand
+```
+
 `serve` extracts the cheap manifest up front and evaluates each
 configuration's options **on demand** the first time you open it (cached by
 flake narHash; a full NixOS system takes a minute or two the first time).
