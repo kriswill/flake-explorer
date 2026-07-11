@@ -42,9 +42,14 @@ let
   };
 
   # Full tree including the tests — only checks.test builds from this.
+  # scripts/release.ts rides along because test/release.test.ts imports it;
+  # it stays out of `sources` so the shipped package doesn't carry it.
   testSrc = lib.fileset.toSource {
     root = ./.;
-    fileset = sources;
+    fileset = lib.fileset.unions [
+      sources
+      ./scripts/release.ts
+    ];
   };
 
   # The lock is pure JS — no os/cpu-conditional packages, no install scripts —

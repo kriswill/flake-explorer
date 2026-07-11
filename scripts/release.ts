@@ -9,7 +9,6 @@
 import { join } from "node:path"
 
 const REPO_URL = "https://github.com/kriswill/flake-explorer"
-const ROOT = join(import.meta.dir, "..")
 
 export type Bump = "major" | "minor" | "patch"
 
@@ -60,10 +59,12 @@ export function extractNotes(md: string, version: string): string {
   return (end === -1 ? rest : rest.slice(0, end)).trim()
 }
 
-async function main() {
-  const [cmd, arg] = process.argv.slice(2)
-  const changelogPath = join(ROOT, "CHANGELOG.md")
-  const pkgPath = join(ROOT, "package.json")
+/** CLI body; exported so tests drive it in-process against a fixture root. */
+export async function main(args: string[], root?: string): Promise<number> {
+  const [cmd, arg] = args
+  const dir = root ?? join(import.meta.dir, "..")
+  const changelogPath = join(dir, "CHANGELOG.md")
+  const pkgPath = join(dir, "package.json")
 
   if (cmd === "bump" && (arg === "major" || arg === "minor" || arg === "patch")) {
     const pkgText = await Bun.file(pkgPath).text()
@@ -74,14 +75,14 @@ async function main() {
     await Bun.write(pkgPath, pkgText.replace(`"version": "${prev}"`, `"version": "${next}"`))
     await Bun.write(changelogPath, changelog)
     console.log(next)
-    return
+    return 0
   }
   if (cmd === "notes" && arg) {
     console.log(extractNotes(await Bun.file(changelogPath).text(), arg))
-    return
+    return 0
   }
   console.error("usage: bun scripts/release.ts bump <major|minor|patch> | notes <version>")
-  process.exit(1)
+  return 1
 }
 
-if (import.meta.main) await main()
+if (import.meta.main) process.exit(await main(process.argv.slice(2)))
