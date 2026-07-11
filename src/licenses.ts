@@ -33,7 +33,7 @@ export const BUILD_ONLY = new Set(["bun-plugin-svelte"])
 
 /** Walk the node_modules chain up from `from` (nested in a checkout / nix
  *  package, flat for npm installs; symlink stores resolve via existsSync). */
-function packageDir(name: string, from: string): string {
+export function packageDir(name: string, from: string): string {
   let dir = from
   for (;;) {
     const cand = join(dir, "node_modules", name)
@@ -45,6 +45,31 @@ function packageDir(name: string, from: string): string {
       )
     }
     dir = parent
+  }
+}
+
+/** One package's license record, located from `from`. A bundled dep with no
+ *  findable license file fails the build — its notice must ship with the copy. */
+export function readDepLicense(name: string, from: string): DepLicense {
+  const pkgDir = packageDir(name, from)
+  const meta = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")) as {
+    version?: string
+    license?: string | { type?: string }
+  }
+  // LICENSE / LICENSE.md / LICENCE / license.txt, any case; shortest wins.
+  const file = readdirSync(pkgDir)
+    .filter((f) => /^licen[cs]e([.-]|$)/i.test(f))
+    .sort((a, b) => a.length - b.length || a.localeCompare(b))[0]
+  if (!file) {
+    throw new Error(
+      `no license file in node_modules/${name} — its notice must ship with the bundled copy`,
+    )
+  }
+  return {
+    name,
+    version: meta.version ?? "",
+    license: (typeof meta.license === "string" ? meta.license : meta.license?.type) ?? "",
+    text: readFileSync(join(pkgDir, file), "utf8").trim(),
   }
 }
 
@@ -64,28 +89,7 @@ export function collectAbout(dir: string): AboutData {
   const deps = Object.keys(pkg.dependencies ?? {})
     .filter((name) => !BUILD_ONLY.has(name))
     .sort()
-    .map((name): DepLicense => {
-      const pkgDir = packageDir(name, dir)
-      const meta = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")) as {
-        version?: string
-        license?: string | { type?: string }
-      }
-      // LICENSE / LICENSE.md / LICENCE / license.txt, any case; shortest wins.
-      const file = readdirSync(pkgDir)
-        .filter((f) => /^licen[cs]e([.-]|$)/i.test(f))
-        .sort((a, b) => a.length - b.length || a.localeCompare(b))[0]
-      if (!file) {
-        throw new Error(
-          `no license file in node_modules/${name} — its notice must ship with the bundled copy`,
-        )
-      }
-      return {
-        name,
-        version: meta.version ?? "",
-        license: (typeof meta.license === "string" ? meta.license : meta.license?.type) ?? "",
-        text: readFileSync(join(pkgDir, file), "utf8").trim(),
-      }
-    })
+    .map((name) => readDepLicense(name, dir))
 
   return {
     name: "Flake Explorer",

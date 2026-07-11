@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`src/schema.ts`).
 - `--help` / `-h` flag (and `help` command): usage on stdout, exit 0.
   Unknown commands now report to stderr with exit 1.
+- Docs site: license notices for the bundled mermaid asset — the full
+  dependency closure ships as `docs/licenses.html`, linked from every page
+  that loads the bundle.
 - This changelog.
 
 ## [0.1.0] — 2026-07-10
