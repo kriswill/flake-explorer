@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- npm installs (`bunx`, `npx`, `npm install`) failed on every nix-touching
+  command: the `nix eval` expression embedded the extract.nix path as a bare
+  Nix path literal, which cannot contain the `@` that scoped-package install
+  paths (`node_modules/@kriswill/…`) always carry — nor spaces. The path is
+  now passed as a quoted Nix string.
+
 ## [0.1.1] — 2026-07-12
 
 ### Added
