@@ -1,0 +1,46 @@
+# Publish a tagged release to FlakeHub (flakehub.com/flake/kriswill/flake-explorer).
+# The OIDC id-token is the only credential — FlakeHub accepts releases
+# exclusively from CI identities.
+#
+# The push:tags trigger covers human-pushed tags, but this repo's release
+# tags are created by the Release workflow with GITHUB_TOKEN — and
+# GITHUB_TOKEN-created events never trigger workflows. So release.yml also
+# dispatches this workflow explicitly on the fresh tag, the same pattern it
+# uses for CI and Pages. Either way the ref must be a v* tag.
+#
+# The build re-runs before the push (a cache hit after ci.yml has run) so
+# include-output-paths records real, cached store paths with the release.
+name: flakehub-publish
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch: # release.yml: gh workflow run flakehub-publish --ref vX.Y.Z
+
+permissions:
+  contents: read
+  id-token: write # the FlakeHub credential (release push + cache)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Refuse non-tag refs
+        if: github.ref_type != 'tag'
+        run: |
+          echo "::error::flakehub-publish must run on a v* tag ref (got ${{ github.ref }})"
+          exit 1
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+
+      - uses: DeterminateSystems/flakehub-cache-action@8ceb5534cc3f9ba4f1083af0ab4ce21b6c19217f # main 2026-07
+
+      - run: nix build .#default -L
+
+      - uses: DeterminateSystems/flakehub-push@0e801cf490b3b3dcb099131a69146bc59d610d0f # main 2026-07
+        with:
+          visibility: public
+          include-output-paths: true
