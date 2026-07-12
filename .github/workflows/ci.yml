@@ -30,9 +30,10 @@ jobs:
       # store downloads happen beyond the install itself.
       - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
         with:
-          # Plain upstream Nix: the default (Determinate Nix) wants an OIDC
-          # FlakeHub login (`id-token: write`) this repo has no use for and
-          # warns when it's absent — fork PRs could never grant it anyway.
+          # Plain upstream Nix: this job only evals (builtins-only fixture,
+          # no builds), so the FlakeHub cache buys nothing here and skipping
+          # the OIDC login keeps fork PRs warning-free. The `nix` job below
+          # is the one that builds — it uses Determinate Nix + the cache.
           determinate: false
       - run: bun install --frozen-lockfile
       - run: bun test --coverage
@@ -63,9 +64,14 @@ jobs:
 
   nix:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The OIDC JWT is the FlakeHub Cache credential (account-scoped, no
+      # secret). Fork PRs get no id-token: the build still runs, the cache
+      # push is skipped with a warning.
+      id-token: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-        with:
-          determinate: false # see the test job — no FlakeHub here
+      - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
+      - uses: DeterminateSystems/flakehub-cache-action@8ceb5534cc3f9ba4f1083af0ab4ce21b6c19217f # main 2026-07
       - run: nix flake check -L
