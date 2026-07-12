@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-07-12
+
 ### Added
 
 - Curated documentation under [`docs/`](docs/README.md), published to the
@@ -69,5 +71,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI guardrails: tests with a coverage ratchet (78% → 97% line coverage),
   typecheck, Biome lint, `nix flake check`, Dependabot.
 
-[Unreleased]: https://github.com/kriswill/flake-explorer/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/kriswill/flake-explorer/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/kriswill/flake-explorer/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/kriswill/flake-explorer/releases/tag/v0.1.0
