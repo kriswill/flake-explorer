@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The file map no longer picks up `.nix` files from nested repositories and
+  git worktrees (e.g. an untracked `.claude/worktrees/*` inside the flake
+  dir). Under lazy-trees (Determinate Nix) the flake "source" is the working
+  directory itself, so the extractor's walk saw untracked clutter; any
+  non-root directory carrying its own `.git` is now skipped wholesale.
+
 ## [0.1.2] — 2026-07-12
 
 ### Fixed
