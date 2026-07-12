@@ -75,3 +75,6 @@ jobs:
       - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
       - uses: DeterminateSystems/flakehub-cache-action@8ceb5534cc3f9ba4f1083af0ab4ce21b6c19217f # main 2026-07
       - run: nix flake check -L
+      # flake check builds only checks.* ("build skipped" for packages), so
+      # the app itself never reached the cache — build it explicitly.
+      - run: nix build .#default -L
