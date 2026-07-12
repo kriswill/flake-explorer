@@ -10,7 +10,9 @@
 #     dispatched explicitly on the release branch (same check contexts —
 #     test/typecheck/lint/nix — so the ruleset accepts them).
 #   - Pushes/merges made with GITHUB_TOKEN trigger no on:push workflows, so
-#     CI and Pages are dispatched explicitly for main after the merge.
+#     CI and Pages are dispatched explicitly for main after the merge —
+#     and the tag push triggers nothing either, so flakehub-publish is
+#     dispatched explicitly on the fresh v* tag.
 #
 # If a required check fails, auto-merge never fires: the wait step times out
 # and the run fails with the release PR left open for inspection — no tag,
@@ -118,7 +120,9 @@ jobs:
           VERSION: ${{ steps.bump.outputs.version }}
 
       - run: |
+          gh workflow run flakehub-publish --ref "v$VERSION"
           gh workflow run CI --ref main
           gh workflow run Pages --ref main
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
