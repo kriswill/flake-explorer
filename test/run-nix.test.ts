@@ -23,6 +23,7 @@ case "$NIX_SHIM" in
   version-old) echo "nix (Nix) 2.18.1" ;;
   version-odd) echo "nix, experimental build" ;;
   echo-args) echo "\\"$*\\"" ;;
+  args-to-file) printf '%s' "$*" > "$NIX_SHIM_OUT"; printf '{"ok":true}' ;;
   json) printf '{"ok":true}' ;;
   fail) echo "error: something exploded" >&2; exit 3 ;;
   hang) exec sleep 30 ;;
@@ -122,6 +123,20 @@ describe("command construction", () => {
     shim("json")
     const result = await evalExtract<{ ok: boolean }>({ flakeRef: "/f", mode: "manifest" }, 5_000)
     expect(result).toEqual({ ok: true })
+  })
+
+  test("evalExtract quotes the extract.nix path (npm installs live under node_modules/@scope)", async () => {
+    shim("args-to-file")
+    const out = join(shimDir, "argv.txt")
+    process.env.NIX_SHIM_OUT = out
+    try {
+      await evalExtract({ flakeRef: "/f", mode: "manifest" }, 5_000)
+    } finally {
+      delete process.env.NIX_SHIM_OUT
+    }
+    const argv = await Bun.file(out).text()
+    const extractNix = join(import.meta.dir, "../src/extract/extract.nix")
+    expect(argv).toContain(`import ${JSON.stringify(extractNix)} `)
   })
 })
 

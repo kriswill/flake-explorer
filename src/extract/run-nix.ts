@@ -101,11 +101,13 @@ export function flakeShow(ref: string, allSystems: boolean, timeoutMs = 300_000)
  * Evaluate extract.nix with the given args. The args object is passed through
  * JSON twice: a JSON string literal is a valid Nix string literal, so
  * JSON.stringify(JSON.stringify(args)) drops straight into the expression
- * with no Nix escaping of our own.
+ * with no Nix escaping of our own. The extract.nix path must be a quoted
+ * string too: a bare Nix path literal cannot contain `@` or spaces, and npm
+ * installs always put us under `node_modules/@kriswill/`.
  */
 export function evalExtract<T>(args: ExtractArgs, timeoutMs: number): Promise<T> {
   const extractNix = join(import.meta.dir, "extract.nix")
-  const expr = `import ${extractNix} (builtins.fromJSON ${JSON.stringify(JSON.stringify(args))})`
+  const expr = `import ${JSON.stringify(extractNix)} (builtins.fromJSON ${JSON.stringify(JSON.stringify(args))})`
   return runJson<T>(["eval", "--impure", "--json", "--expr", expr], timeoutMs)
 }
 
