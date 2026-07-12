@@ -48,26 +48,39 @@ let
   # `nix eval --json` think the result depends on a derivation.
   str = v: builtins.unsafeDiscardStringContext (toString v);
 
-  # All .nix files under a directory (as path strings), skipping VCS dirs.
+  # All .nix files under a directory (as path strings), skipping VCS dirs and
+  # nested repositories/worktrees — a non-root directory carrying its own
+  # `.git` (a file for worktrees, a dir for clones) is a different project.
+  # Under lazy-trees (Determinate Nix) the flake's "source" is the working
+  # directory itself, so without this an untracked `.claude/worktrees/*` or a
+  # nested checkout leaks its .nix files into the file map. The root is
+  # exempt: under lazy-trees it legitimately carries the repo's own `.git`.
   listNixFiles =
-    dir:
     let
-      entries = builtins.readDir dir;
-    in
-    builtins.concatLists (
-      map (
-        n:
+      go =
+        isRoot: dir:
         let
-          t = entries.${n};
+          entries = builtins.readDir dir;
         in
-        if t == "directory" then
-          (if n == ".git" || n == ".jj" then [ ] else listNixFiles "${dir}/${n}")
-        else if (t == "regular" || t == "symlink") && hasSuffix ".nix" n then
-          [ "${dir}/${n}" ]
-        else
+        if !isRoot && entries ? ".git" then
           [ ]
-      ) (builtins.attrNames entries)
-    );
+        else
+          builtins.concatLists (
+            map (
+              n:
+              let
+                t = entries.${n};
+              in
+              if t == "directory" then
+                (if n == ".git" || n == ".jj" then [ ] else go false "${dir}/${n}")
+              else if (t == "regular" || t == "symlink") && hasSuffix ".nix" n then
+                [ "${dir}/${n}" ]
+              else
+                [ ]
+            ) (builtins.attrNames entries)
+          );
+    in
+    go true;
 
   # ---------------------------------------------------------------- manifest
   tryString =

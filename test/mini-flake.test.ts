@@ -6,7 +6,7 @@
 // sets FLAKE_EXPLORER_REQUIRE_NIX so a silent skip there is impossible.
 
 import { describe, expect, test } from "bun:test"
-import { mkdtemp, rm } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { buildConfigIndexes, buildFlakeIndexes, resolveFile } from "../app/lib/indexes"
@@ -106,6 +106,27 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
     // The module tree groups both declaring files under a "modules" dir node.
     const modulesDir = indexes.tree.children.find((n) => n.label === "modules")
     expect(modulesDir?.children.map((c) => c.label).sort()).toEqual(["networking.nix", "nginx.nix"])
+  })
+
+  test("nested repos/worktrees inside the flake dir stay out of the file map", async () => {
+    // Under lazy-trees the flake "source" is the working directory, so an
+    // untracked git worktree (e.g. .claude/worktrees/*) is visible to the
+    // walk. A worktree carries a `.git` FILE, a nested clone a `.git` dir —
+    // either marks a different project whose .nix files must not leak in.
+    const dir = await mkdtemp(join(tmpdir(), "mini-nested-"))
+    try {
+      await cp(FIXTURE, dir, { recursive: true })
+      await mkdir(join(dir, ".claude/worktrees/scratch"), { recursive: true })
+      await Bun.write(join(dir, ".claude/worktrees/scratch/.git"), "gitdir: /elsewhere/.git\n")
+      await Bun.write(join(dir, ".claude/worktrees/scratch/junk.nix"), "{ }\n")
+
+      const m = await buildManifest(dir, { timeoutMs: 60_000 })
+      const relPaths = m.files.map((f) => f.relPath)
+      expect(relPaths).toContain("flake.nix")
+      expect(relPaths.filter((p) => p.includes("worktrees"))).toEqual([])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   test("vendor input is listed and its files resolve (even if not option-attributed)", async () => {
