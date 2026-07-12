@@ -1,9 +1,20 @@
 # Cut a release: bump package.json (package.nix reads its version at eval
 # time, the About modal at runtime), roll CHANGELOG's [Unreleased] into the
-# new version section, commit, tag vX.Y.Z, publish a GitHub release with
-# that section as the notes, and publish to npm. The node_modules outputHash
-# in package.nix is unaffected by version bumps (it only depends on
-# package.json deps + bun.lock contents).
+# new version section, land the bump on main THROUGH A PULL REQUEST (main's
+# ruleset requires PRs + the four CI checks; the Actions app cannot bypass
+# rulesets on user-owned repos), then tag the merge commit, publish a GitHub
+# release with the changelog section as notes, and publish to npm.
+#
+# GITHUB_TOKEN quirks this flow works around:
+#   - PRs created with GITHUB_TOKEN emit no pull_request events, so CI is
+#     dispatched explicitly on the release branch (same check contexts —
+#     test/typecheck/lint/nix — so the ruleset accepts them).
+#   - Pushes/merges made with GITHUB_TOKEN trigger no on:push workflows, so
+#     CI and Pages are dispatched explicitly for main after the merge.
+#
+# If a required check fails, auto-merge never fires: the wait step times out
+# and the run fails with the release PR left open for inspection — no tag,
+# no GitHub release, no npm publish. Close or fix the PR, then re-dispatch.
 #
 # npm publish uses OIDC trusted publishing (okflight pattern) — no token
 # anywhere. The npmjs.com settings for @kriswill/flake-explorer bind
@@ -12,9 +23,8 @@
 # credential and attaches provenance automatically. Renaming this file
 # breaks the binding until the package settings are updated to match.
 #
-# Pushes made with GITHUB_TOKEN never trigger on:push (or tag) workflows, so
-# the npm publish lives HERE rather than in a tag-triggered workflow, and CI
-# and Pages are dispatched explicitly for the release commit.
+# The node_modules outputHash in package.nix is unaffected by version bumps
+# (it only depends on package.json deps + bun.lock contents).
 
 name: Release
 
@@ -29,7 +39,8 @@ on:
 
 permissions:
   contents: write
-  actions: write # dispatch CI + Pages for the release commit
+  pull-requests: write # create + auto-merge the release PR
+  actions: write # dispatch CI on the release branch, CI + Pages on main
   id-token: write # the OIDC token npm exchanges for the tokenless publish
 
 concurrency:
@@ -42,7 +53,6 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 24
@@ -59,21 +69,53 @@ jobs:
       # Packaging must be sound before anything is pushed anywhere.
       - run: npm pack --dry-run
 
-      - run: |
+      - name: Open the release PR and arm auto-merge
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "release/v$VERSION"
           git commit -am "release: v$VERSION"
-          git tag "v$VERSION"
-          git push --follow-tags
-        env:
-          VERSION: ${{ steps.bump.outputs.version }}
-
-      - run: gh release create "v$VERSION" --title "v$VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+          git push -u origin "release/v$VERSION"
+          gh pr create --base main --head "release/v$VERSION" \
+            --title "release: v$VERSION" \
+            --body "Automated release PR (Release workflow, ${{ inputs.bump }} bump). Merges the version bump + changelog roll; the workflow tags the merge commit and publishes once the required checks pass."
+          gh workflow run CI --ref "release/v$VERSION"
+          gh pr merge "release/v$VERSION" --auto --merge --delete-branch
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.bump.outputs.version }}
 
-      - run: npm publish
+      - name: Wait for the release PR to merge
+        id: merged
+        run: |
+          for _ in $(seq 60); do
+            state="$(gh pr view "release/v$VERSION" --json state -q .state)"
+            [ "$state" = "MERGED" ] && break
+            [ "$state" = "CLOSED" ] && { echo "::error::release PR was closed without merging"; exit 1; }
+            sleep 10
+          done
+          [ "$state" = "MERGED" ] || { echo "::error::release PR did not merge in time (checks failed or stuck?)"; exit 1; }
+          echo "sha=$(gh pr view "release/v$VERSION" --json mergeCommit -q .mergeCommit.oid)" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
+
+      # The ruleset only guards the default branch; tag pushes are free.
+      - name: Tag the merge commit and publish the GitHub release
+        run: |
+          git fetch origin main
+          git tag "v$VERSION" "$MERGE_SHA"
+          git push origin "v$VERSION"
+          gh release create "v$VERSION" --title "v$VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          MERGE_SHA: ${{ steps.merged.outputs.sha }}
+
+      # Publish the exact released tree.
+      - run: git checkout "v$VERSION" && npm publish
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
 
       - run: |
           gh workflow run CI --ref main
