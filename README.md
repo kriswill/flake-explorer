@@ -1,5 +1,9 @@
 # flake-explorer
 
+[![CI](https://github.com/kriswill/flake-explorer/actions/workflows/ci.yml/badge.svg)](https://github.com/kriswill/flake-explorer/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/kriswill/flake-explorer)](https://github.com/kriswill/flake-explorer/releases)
+[![Documentation](https://img.shields.io/badge/docs-kris.net-4478bc)](https://kris.net/flake-explorer/docs/)
+
 Interactive visualizer for Nix flakes — built for dendritic
 ([flake-parts](https://flake.parts) + [import-tree](https://github.com/vic/import-tree))
 configurations, works on any flake.
@@ -41,6 +45,14 @@ own flake). Release notes: [CHANGELOG.md](CHANGELOG.md).
 ```console
 $ nix run github:kriswill/flake-explorer -- serve /etc/nixos
 flake-explorer serving /etc/nixos at http://localhost:4321
+```
+
+Or from npm ([@kriswill/flake-explorer](https://www.npmjs.com/package/@kriswill/flake-explorer)) —
+`nix` must be on PATH either way:
+
+```console
+$ bunx @kriswill/flake-explorer serve /etc/nixos
+$ npx @kriswill/flake-explorer serve /etc/nixos   # installs bun on demand
 ```
 
 `serve` extracts the cheap manifest up front and evaluates each

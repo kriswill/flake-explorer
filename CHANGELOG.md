@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docs site: license notices for the bundled mermaid asset — the full
   dependency closure ships as `docs/licenses.html`, linked from every page
   that loads the bundle.
+- Release workflow (`Release`, manually dispatched with major/minor/patch):
+  bumps `package.json` (the single version source — `package.nix` reads it at
+  eval time), rolls this changelog, tags `vX.Y.Z`, and publishes a GitHub
+  release with the section as notes.
+- README badges: CI status, latest release, documentation.
+- npm publishing: the release workflow publishes
+  [`@kriswill/flake-explorer`](https://www.npmjs.com/package/@kriswill/flake-explorer)
+  via OIDC trusted publishing, so `bunx @kriswill/flake-explorer serve .`
+  works without cloning.
 - This changelog.
 
 ## [0.1.0] — 2026-07-10
