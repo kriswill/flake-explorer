@@ -121,6 +121,12 @@ describe("config indexes", () => {
   const fx = buildFlakeIndexes(manifest)
   const ci = buildConfigIndexes(manifest, config, fx)
 
+  test("optionsByLoc maps dotted locs to option indices", () => {
+    expect(ci.optionsByLoc.get("services.x.enable")).toBe(0)
+    expect(ci.optionsByLoc.get("sops.secrets")).toBe(2)
+    expect(ci.optionsByLoc.get("no.such.option")).toBeUndefined()
+  })
+
   test("module tree mounts self files under directory structure", () => {
     const modules = ci.tree.children.find((n) => n.label === "modules")!
     expect(modules).toBeDefined()

@@ -262,7 +262,7 @@ const label = displayLabel
               <li>
                 <button
                   class="link mono"
-                  onclick={() => app.select({ kind: "module", configId: configView.configId, moduleId: fileId })}
+                  onclick={() => app.select({ kind: "option", configId: configView.configId, loc: o.loc })}
                 >{o.loc.join(".")}</button>
               </li>
             {/each}
