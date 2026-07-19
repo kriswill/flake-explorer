@@ -36,8 +36,14 @@ case "$*" in
   *"flake metadata"*) log metadata; cat "$NIX_SHIM_DIR/metadata.json" ;;
   *"flake show"*) log show; cat "$NIX_SHIM_DIR/show.json" ;;
   *'mode\\":\\"manifest'*) log manifest; cat "$NIX_SHIM_DIR/manifest-eval.json" ;;
-  *'mode\\":\\"optionNames'*) log optionNames; cat "$NIX_SHIM_DIR/option-names.json" ;;
+  *'mode\\":\\"optionNames'*)
+    log optionNames
+    if [ -e "$NIX_SHIM_DIR/fail-optionNames" ]; then echo "error: shim optionNames refused" >&2; exit 1; fi
+    cat "$NIX_SHIM_DIR/option-names.json" ;;
   *'mode\\":\\"options'*) log options; sleep 0.3; cat "$NIX_SHIM_DIR/options-eval.json" ;;
+  *"builtins.readFile"*)
+    log readFile
+    if [ -e "$NIX_SHIM_DIR/input-file.nix" ]; then cat "$NIX_SHIM_DIR/input-file.nix"; else echo "error: shim input file gone" >&2; exit 1; fi ;;
   *) echo "nix shim: unexpected argv: $*" >&2; exit 9 ;;
 esac
 `
@@ -321,8 +327,127 @@ describe("serve routing + on-demand extraction (shimmed nix)", () => {
     expect(await res.text()).toBe("storePath required")
   })
 
+  test("GET /data/file/<id> serves an existing storePath with tokens", async () => {
+    // The route trusts any absolute path (option declarations point into
+    // nixpkgs, not just this flake) — a plain temp file keeps this hermetic.
+    // String + comment guarantee tokenizeNix emits at least one run.
+    const src = join(dataParent, "on-disk.nix")
+    await Bun.write(src, '{ demo = "yes"; } # a comment\n')
+    const res = await httpFetch(
+      `${base}/data/file/${encodeURIComponent("self:on-disk.nix")}?storePath=${encodeURIComponent(src)}`,
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { text: string; tokens: unknown[] }
+    expect(body.text).toContain('demo = "yes"')
+    expect(body.tokens.length).toBeGreaterThan(0)
+  })
+
+  test("stale storePath on a self file is a 404 (nothing to re-fetch from)", async () => {
+    const res = await httpFetch(
+      `${base}/data/file/${encodeURIComponent("self:gone.nix")}?storePath=/nix/store/nope-source/gone.nix`,
+    )
+    expect(res.status).toBe(404)
+  })
+
+  test("stale storePath on an input file re-fetches through the flake input", async () => {
+    await Bun.write(join(shimDir, "input-file.nix"), "{ fromInput = 1; }\n")
+    await resetShimLog()
+    const res = await httpFetch(
+      `${base}/data/file/${encodeURIComponent("input:nixpkgs:lib/mod.nix")}?storePath=/nix/store/nope-source/mod.nix`,
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { text: string }
+    expect(body.text).toContain("fromInput")
+    expect(await shimCounts()).toEqual({ readFile: 1 })
+  })
+
+  test("input re-fetch failure surfaces as a 500 with the nix error", async () => {
+    await unlink(join(shimDir, "input-file.nix"))
+    const res = await httpFetch(
+      `${base}/data/file/${encodeURIComponent("input:nixpkgs:lib/other.nix")}?storePath=/nix/store/nope-source/other.nix`,
+    )
+    expect(res.status).toBe(500)
+    expect(await res.text()).toContain("shim input file gone")
+  })
+
+  test("a failing extraction marks the config error and the held request 500s", async () => {
+    // Back to pending (drop blob + sidecar, refresh), then poison the
+    // optionNames eval — the first thing extractOptions runs, so the whole
+    // extraction rejects rather than degrading down the ladder.
+    await unlink(blobPath())
+    await unlink(sidecarPath())
+    await httpFetch(`${base}/api/refresh`, { method: "POST" })
+    expect((await getManifest()).configurations[0]!.status).toBe("pending")
+
+    await Bun.write(join(shimDir, "fail-optionNames"), "")
+    try {
+      const res = await httpFetch(`${base}/data/config/nixos.test.json`)
+      expect(res.status).toBe(500)
+      expect(await res.text()).toContain("optionNames refused")
+      const cfg = (await getManifest()).configurations[0]!
+      expect(cfg.status).toBe("error")
+      expect(cfg.error).toContain("optionNames refused")
+    } finally {
+      await unlink(join(shimDir, "fail-optionNames"))
+    }
+  }, 15_000)
+
+  test("the next request retries an errored config and recovers", async () => {
+    await resetShimLog()
+    const res = await httpFetch(`${base}/data/config/nixos.test.json`)
+    expect(res.status).toBe(200)
+    expect((await getManifest()).configurations[0]!.status).toBe("ok")
+    expect(await shimCounts()).toEqual({ optionNames: 1, options: 1 })
+  }, 15_000)
+
   test("GET /dev/events 404s when the dev flag is off", async () => {
     const res = await httpFetch(`${base}/dev/events`)
     expect(res.status).toBe(404)
+  })
+})
+
+// The dev server's startup performs this suite's one dev-mode bundle — a
+// SECOND Bun.build in the process. buildApp caches per mode, so the process
+// stays at two builds total, but two is exactly the count that breaks Bun's
+// bundler inside nix's sandboxed test derivation (see build-app.ts). Skip
+// there only — detected as NIX_BUILD_TOP with no real nix on PATH (a `nix
+// develop` shell sets the var too, but has nix; evaluated at load time,
+// before beforeAll prepends the shim dir).
+const inNixSandbox = !!process.env.NIX_BUILD_TOP && !Bun.which("nix")
+
+describe.skipIf(inNixSandbox)("serve dev mode (shimmed nix)", () => {
+  let devServer: Awaited<ReturnType<typeof serve>>
+  let devBase: string
+
+  beforeAll(async () => {
+    devServer = await serve(FLAKE_REF, {
+      out: dataDir,
+      allSystems: false,
+      timeout: 60,
+      positional: [],
+      port: 0,
+      dev: true,
+    })
+    devBase = `http://localhost:${devServer.port}`
+  }, 30_000)
+
+  afterAll(() => {
+    devServer?.stop(true)
+  })
+
+  test("GET / serves the dev page with the auto-reload client", async () => {
+    const res = await httpFetch(`${devBase}/`)
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain("/dev/events")
+  })
+
+  test("GET /dev/events streams SSE; disconnect unregisters the client", async () => {
+    const res = await httpFetch(`${devBase}/dev/events`)
+    expect(res.status).toBe(200)
+    expect(res.headers.get("content-type")).toContain("text/event-stream")
+    const reader = res.body!.getReader()
+    const { value } = await reader.read()
+    expect(new TextDecoder().decode(value)).toContain(": connected")
+    await reader.cancel()
   })
 })
