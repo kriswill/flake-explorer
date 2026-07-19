@@ -1,13 +1,16 @@
 <script lang="ts">
 import type { GraftInfo, InputInfo, OutputNode } from "../../src/schema"
 import { colorFor } from "../lib/color"
-import { app, configError, loadedConfig } from "../lib/state.svelte"
+import { inputLabel } from "../lib/indexes"
+import { prefs } from "../lib/prefs.svelte"
+import { app, loadedConfig } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
+import AsyncSlot from "./AsyncSlot.svelte"
 import Dot from "./Dot.svelte"
 import OutputBranch from "./OutputBranch.svelte"
 import TreeNode, { nodeColorKey, subtreeMatches } from "./TreeNode.svelte"
 
-const gen = $derived(THEMES[app.themeIndex]!.gen)
+const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 
 /** nixos/darwin configuration categories get the module-tree treatment. */
 const configKind = (category: string) =>
@@ -104,7 +107,7 @@ const pathName = $derived.by(() => {
             onclick={() => app.select({ kind: "input", name: inp.name })}
           >
             <Dot />
-            <span class="label">{inp.name}</span>
+            <span class="label">{inputLabel(inp)}</span>
             <span class="badge mono">{shortPin(inp)}</span>
           </button>
         </li>
@@ -152,33 +155,25 @@ const pathName = $derived.by(() => {
                         <span class="badge">{loaded.data.options.filter((o) => o.customized).length}</span>
                       {/if}
                     </button>
-                    {#if app.expanded.has(`cfg:${id}`)}
-                      {#if app.configs[id] === "loading"}
-                        <p class="note">loading options…</p>
-                      {:else if configError(app.configs[id]) !== null}
-                        {@const err = configError(app.configs[id])!}
-                        <p class="note err">
-                          {err.error.split("\n")[0]}
-                          {#if !err.permanent}
-                            <button class="retry" onclick={() => app.retryConfig(id)}>retry</button>
-                          {/if}
-                        </p>
-                      {:else if loaded}
-                        {@const kids =
-                          app.q === ""
-                            ? loaded.indexes.tree.children
-                            : loaded.indexes.tree.children.filter((c) => subtreeMatches(c, app.q.toLowerCase()))}
-                        <ul class="tree">
-                          {#each kids as child, i (child.id)}
-                            <TreeNode
-                              node={child}
-                              configId={id}
-                              depth={0}
-                              rail={i < kids.length - 1 ? colorFor(nodeColorKey(kids[i + 1]!), gen) : null}
-                            />
-                          {/each}
-                        </ul>
-                      {/if}
+                    {#if app.expanded.has(`cfg:${id}`) && app.configs[id]}
+                      <AsyncSlot value={app.configs[id]} loadingText="loading options…" retry={() => app.retryConfig(id)}>
+                        {#snippet children(cfg)}
+                          {@const kids =
+                            app.q === ""
+                              ? cfg.indexes.tree.children
+                              : cfg.indexes.tree.children.filter((c) => subtreeMatches(c, app.q.toLowerCase()))}
+                          <ul class="tree">
+                            {#each kids as child, i (child.id)}
+                              <TreeNode
+                                node={child}
+                                configId={id}
+                                depth={0}
+                                rail={i < kids.length - 1 ? colorFor(nodeColorKey(kids[i + 1]!), gen) : null}
+                              />
+                            {/each}
+                          </ul>
+                        {/snippet}
+                      </AsyncSlot>
                     {/if}
                   </li>
                 {/each}
@@ -346,16 +341,9 @@ const pathName = $derived.by(() => {
     font-size: 0.75rem;
     margin: 2px 0 2px 24px;
   }
-  .note.err {
-    color: var(--err);
-  }
-  .retry {
-    background: none;
-    border: 1px solid var(--grid);
-    border-radius: 4px;
-    color: var(--ink-2);
-    font-size: 0.6875rem;
-    cursor: pointer;
-    margin-left: 6px;
+  /* AsyncSlot's notes render inside a config <li> — give them the same
+     indent as this tree's own .note rows (the component default is flat). */
+  li > :global(.slot-note) {
+    margin-left: 24px;
   }
 </style>

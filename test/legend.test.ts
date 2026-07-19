@@ -34,6 +34,20 @@ describe("Legend", () => {
     })
   })
 
+  test("an aliased input renders one chip labeled 'alias → name'", () => {
+    app.manifest = {
+      ...fixtureManifest(),
+      inputs: {
+        nixpkgs: { name: "nixpkgs", nodeKey: "nixpkgs", type: "github", aliases: ["stable"] },
+      },
+    }
+    withMount(Legend, {}, (host) => {
+      const chips = host.querySelectorAll(".chip")
+      expect(chips.length).toBe(1)
+      expect(chips[0]!.textContent?.trim()).toBe("stable → nixpkgs")
+    })
+  })
+
   test("a web-linkable input renders an <a> chip pointing at its url", () => {
     app.manifest = {
       ...fixtureManifest(),

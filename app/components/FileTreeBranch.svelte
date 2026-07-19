@@ -1,6 +1,7 @@
 <script lang="ts">
 import { colorFor } from "../lib/color"
-import type { FileTreeNode } from "../lib/indexes"
+import { type FileTreeNode, fileTreeMatches } from "../lib/indexes"
+import { prefs } from "../lib/prefs.svelte"
 import { app } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
 import Dot from "./Dot.svelte"
@@ -12,17 +13,10 @@ interface Props {
 }
 const { node, depth }: Props = $props()
 
-const gen = $derived(THEMES[app.themeIndex]!.gen)
+const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 const q = $derived(app.q.toLowerCase())
 
-/** Filter: a file matches on its full relPath; a folder if any child does. */
-function matches(n: FileTreeNode): boolean {
-  if (q === "") return true
-  if (n.fileId) return n.path.toLowerCase().includes(q)
-  return n.children.some(matches)
-}
-
-const kids = $derived(node.children.filter(matches))
+const kids = $derived(node.children.filter((c) => fileTreeMatches(c, q)))
 
 /** While filtering, matching subtrees render expanded regardless of state. */
 const isOpen = (n: FileTreeNode) => (q !== "" ? true : app.fileExpanded.has(n.id))

@@ -199,15 +199,13 @@ describe.skipIf(!hasNix)("export (real nix)", () => {
 // degradation paths (blob-missing downgrade, ok-but-unwanted downgrade,
 // input re-fetch failure, self-file skip) without needing nix.
 describe("exportHtml (synthetic fixture)", () => {
-  // Configs and packages share one exportHtml() call (and so one buildApp()
-  // bundle build) rather than a test each: bundling the real SPA is the
-  // expensive part of this call, and a nix-sandboxed build has much lower
-  // resource limits than an interactive shell — enough that one extra
-  // `exportHtml` call in this file reproducibly broke Bun's bundler
-  // ("Unexpected reading file: .../svelte/.../disclose-version.js") under
-  // `nix flake check`'s sandboxed test derivation, deterministic across
-  // rebuilds. Not a logic bug in either path — folding them back into one
-  // call is the fix.
+  // Configs and packages share one exportHtml() call rather than a test
+  // each: bundling the real SPA is the expensive part, and Bun's bundler
+  // deterministically broke on the SECOND in-process build under nix's
+  // sandboxed test derivation ("Unexpected"/EISDIR reading
+  // svelte/.../disclose-version.js). buildApp now caches the bundle per mode
+  // for exactly that reason, so the whole suite performs one production
+  // build no matter how many exportHtml/serve calls run.
   test("missing blobs and sources degrade to warnings + pending refs (configs and packages)", async () => {
     const outDir = await mkdtemp(join(tmpdir(), "syn-export-"))
     try {

@@ -53,6 +53,19 @@ describe("InputProvenance", () => {
     })
   })
 
+  test("root-level aliases render as an 'alias → name' row", () => {
+    const aliased: InputInfo = {
+      name: "nixpkgs",
+      nodeKey: "nixpkgs",
+      type: "github",
+      aliases: ["pinned", "stable"],
+    }
+    withMount(InputProvenance, { input: aliased }, (host) => {
+      expect(host.textContent).toContain("aliases")
+      expect(host.textContent).toContain("pinned, stable → nixpkgs")
+    })
+  })
+
   test("minimal input (follows-only node) renders just name and type", () => {
     const min: InputInfo = { name: "flake-utils", nodeKey: "flake-utils", type: "github" }
     withMount(InputProvenance, { input: min }, (host) => {

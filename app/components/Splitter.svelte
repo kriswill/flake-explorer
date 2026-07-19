@@ -1,5 +1,5 @@
 <script lang="ts">
-import { app } from "../lib/state.svelte"
+import { prefs } from "../lib/prefs.svelte"
 
 const { side }: { side: "left" | "right" } = $props()
 
@@ -8,7 +8,7 @@ let dragging = $state(false)
 function down(e: PointerEvent) {
   const el = e.currentTarget as HTMLElement
   const startX = e.clientX
-  const start = side === "left" ? app.paneLeft : app.paneRight
+  const start = side === "left" ? prefs.paneLeft : prefs.paneRight
   dragging = true
   try {
     el.setPointerCapture(e.pointerId)
@@ -17,11 +17,11 @@ function down(e: PointerEvent) {
   }
   const move = (ev: PointerEvent) => {
     const dx = ev.clientX - startX
-    app.setPane(side, side === "left" ? start + dx : start - dx)
+    prefs.setPane(side, side === "left" ? start + dx : start - dx)
   }
   const up = () => {
     dragging = false
-    app.savePanes()
+    prefs.savePanes()
     el.removeEventListener("pointermove", move)
   }
   el.addEventListener("pointermove", move)
@@ -34,13 +34,13 @@ function key(e: KeyboardEvent) {
   const step = e.shiftKey ? 64 : 16
   const dir = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0
   if (!dir) return
-  const current = side === "left" ? app.paneLeft : app.paneRight
-  app.setPane(side, current + dir * (side === "left" ? step : -step))
-  app.savePanes()
+  const current = side === "left" ? prefs.paneLeft : prefs.paneRight
+  prefs.setPane(side, current + dir * (side === "left" ? step : -step))
+  prefs.savePanes()
   e.preventDefault()
 }
 
-const width = $derived(side === "left" ? app.paneLeft : app.paneRight)
+const width = $derived(side === "left" ? prefs.paneLeft : prefs.paneRight)
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions
@@ -55,7 +55,7 @@ const width = $derived(side === "left" ? app.paneLeft : app.paneRight)
   tabindex="0"
   title="Drag to resize · double-click to reset"
   onpointerdown={down}
-  ondblclick={() => app.resetPanes()}
+  ondblclick={() => prefs.resetPanes()}
   onkeydown={key}
 ></div>
 

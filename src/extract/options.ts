@@ -79,6 +79,10 @@ export async function extractOptions(
 
   const queue: Chunk[] = namespaces.map((n) => ({ path: [n], rung: 0 }))
   let done = 0
+  /** Chunks taken off the queue by sibling workers but not yet finished —
+   * without them `total` dips while chunks are in flight and a callback can
+   * claim done === total while siblings may still push splits. */
+  let inFlight = 0
 
   const runChunk = async (chunk: Chunk): Promise<RawOption[] | null> => {
     const rung = LADDER[chunk.rung]!
@@ -145,10 +149,15 @@ export async function extractOptions(
     for (;;) {
       const chunk = queue.shift()
       if (!chunk) return
-      const r = await runChunk(chunk)
-      if (r) results.push(...r)
+      inFlight++
+      try {
+        const r = await runChunk(chunk)
+        if (r) results.push(...r)
+      } finally {
+        inFlight--
+      }
       done++
-      opts.onProgress?.({ done, total: done + queue.length, current: chunkLabel(chunk) })
+      opts.onProgress?.({ done, total: done + queue.length + inFlight, current: chunkLabel(chunk) })
     }
   }
   // Workers exit when the queue is momentarily empty even though a sibling

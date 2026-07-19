@@ -13,6 +13,7 @@ import { buildConfigIndexes, buildFlakeIndexes, resolveFile } from "../app/lib/i
 import {
   applyExtracted,
   applyExtractedPackage,
+  cacheKeyOf,
   extractAndPersist,
   extractAndPersistPackage,
   reconcile,
@@ -163,17 +164,28 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
     try {
       const m = await buildManifest(FIXTURE, { timeoutMs: 60_000 })
       const ref = m.configurations[0]!
-      const progress: string[] = []
+      const progress: { done: number; total: number; current: string }[] = []
 
-      const r = await extractAndPersist(outDir, FIXTURE, m.flake.narHash, ref, {
+      const r = await extractAndPersist(outDir, FIXTURE, cacheKeyOf(m), ref, {
         timeoutMs: 60_000,
-        onProgress: (p) => progress.push(p.current),
+        onProgress: (p) => progress.push({ ...p }),
       })
       applyExtracted(ref, r)
       expect(ref.status).toBe("ok")
       expect(ref.optionCount).toBe(r.data.options.length)
       expect(ref.optionCount).toBeGreaterThan(0)
       expect(progress.length).toBeGreaterThan(0)
+
+      // Progress totals must account for chunks held by in-flight sibling
+      // workers, not just the queue: done === total may only be reported by
+      // the final callback (queue drained AND nothing in flight — a sibling
+      // still running could yet push splits, growing the total).
+      progress.forEach((p, i) => {
+        expect(p.done).toBe(i + 1) // one callback per finished chunk, in order
+        if (i < progress.length - 1) expect(p.total).toBeGreaterThan(p.done)
+      })
+      const last = progress[progress.length - 1]!
+      expect(last.total).toBe(last.done)
 
       const blob = await Bun.file(join(outDir, ref.dataFile)).json()
       expect(blob.id).toBe("nixos/mini")
@@ -194,7 +206,7 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
       const m = await buildManifest(FIXTURE, { timeoutMs: 60_000 })
       const ref = m.packages.find((p) => p.id === "packages/x86_64-linux/mini")!
 
-      const r = await extractAndPersistPackage(outDir, FIXTURE, m.flake.narHash, ref, {
+      const r = await extractAndPersistPackage(outDir, FIXTURE, cacheKeyOf(m), ref, {
         timeoutMs: 60_000,
       })
       applyExtractedPackage(ref, r)
@@ -234,7 +246,7 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
         "formatter/x86_64-linux",
       ]) {
         const ref = m.packages.find((p) => p.id === id)!
-        const r = await extractAndPersistPackage(outDir, FIXTURE, m.flake.narHash, ref, {
+        const r = await extractAndPersistPackage(outDir, FIXTURE, cacheKeyOf(m), ref, {
           timeoutMs: 60_000,
         })
         expect(r.data.builder).toBe("unknown")
@@ -250,7 +262,7 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
     try {
       const m = await buildManifest(FIXTURE, { timeoutMs: 60_000 })
       const ref = m.packages.find((p) => p.id === "packages/x86_64-linux/mini-broken-meta")!
-      const r = await extractAndPersistPackage(outDir, FIXTURE, m.flake.narHash, ref, {
+      const r = await extractAndPersistPackage(outDir, FIXTURE, cacheKeyOf(m), ref, {
         timeoutMs: 60_000,
       })
       applyExtractedPackage(ref, r)

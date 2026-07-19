@@ -28,4 +28,25 @@ describe("color", () => {
     expect(colorFor("input-12", gen)).toMatch(/^#[0-9a-f]{6}$/)
     expect(colorFor("never-registered", gen)).toMatch(/^#[0-9a-f]{6}$/)
   })
+
+  test("re-registering is idempotent: keys keep their slot and don't recount", () => {
+    // The runtime path for this is a manifest reload (App.svelte's Retry
+    // button re-runs loadManifest → registerSlotKeys with the same names).
+    resetSlotKeys()
+    registerSlotKeys(["a", "b"])
+    expect(colorFor("b", gen)).toBe("var(--s2)")
+    registerSlotKeys(["b", "c"])
+    expect(colorFor("a", gen)).toBe("var(--s1)")
+    expect(colorFor("b", gen)).toBe("var(--s2)") // kept, not reassigned
+    expect(colorFor("c", gen)).toBe("var(--s3)") // only the new key advances
+  })
+
+  test("the 12-slot cap counts distinct keys, not registration calls", () => {
+    resetSlotKeys()
+    const first = Array.from({ length: 11 }, (_, i) => `k${i}`)
+    registerSlotKeys(first)
+    registerSlotKeys([...first, "twelfth", "overflow"])
+    expect(colorFor("twelfth", gen)).toBe("var(--s12)")
+    expect(colorFor("overflow", gen)).toMatch(/^#[0-9a-f]{6}$/)
+  })
 })

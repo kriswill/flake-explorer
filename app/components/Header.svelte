@@ -1,8 +1,9 @@
 <script lang="ts">
+import { prefs } from "../lib/prefs.svelte"
 import { app } from "../lib/state.svelte"
 
-const isDark = $derived(app.themeIndex === 1)
-const toggleTheme = () => app.setTheme(isDark ? 0 : 1)
+const isDark = $derived(prefs.themeIndex === 1)
+const toggleTheme = () => prefs.setTheme(isDark ? 0 : 1)
 </script>
 
 <header>
@@ -22,15 +23,15 @@ const toggleTheme = () => app.setTheme(isDark ? 0 : 1)
   />
   <div class="controls">
     <span class="fontctl" role="group" aria-label="Text size">
-      <button type="button" title="Smaller text" aria-label="Smaller text" onclick={() => app.adjustFontScale(-0.1)}>A−</button>
+      <button type="button" title="Smaller text" aria-label="Smaller text" onclick={() => prefs.adjustFontScale(-0.1)}>A−</button>
       <button
         type="button"
         class="pct"
         title="Reset text size"
         aria-label="Reset text size to 100%"
-        onclick={() => app.setFontScale(1)}
-      >{Math.round(app.fontScale * 100)}%</button>
-      <button type="button" title="Larger text" aria-label="Larger text" onclick={() => app.adjustFontScale(0.1)}>A+</button>
+        onclick={() => prefs.setFontScale(1)}
+      >{Math.round(prefs.fontScale * 100)}%</button>
+      <button type="button" title="Larger text" aria-label="Larger text" onclick={() => prefs.adjustFontScale(0.1)}>A+</button>
     </span>
     <button
       class="round theme"

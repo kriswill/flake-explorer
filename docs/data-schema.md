@@ -5,7 +5,7 @@ The JSON contract between the extraction CLI and the SPA lives in a single file,
 | Document | File | Cost | Lifecycle |
 | --- | --- | --- | --- |
 | `Manifest` | `manifest.json` | Cheap | Always regenerated on every run (see [Extraction pipeline](extraction-pipeline.md)) |
-| `ConfigData` | `config/<kind>.<name>.json` | Expensive (full options eval) | Extracted on demand, cached by narHash + extractor version |
+| `ConfigData` | `config/<kind>.<name>.json` | Expensive (full options eval) | Extracted on demand, cached by extractor fingerprint + flake identity + lock hash |
 
 `storePath` is the universal join key: `FileEntry.storePath` matches the file strings in each option's declarations and definitions.
 
@@ -14,9 +14,8 @@ The JSON contract between the extraction CLI and the SPA lives in a single file,
 | Constant | Value | Gates |
 | --- | --- | --- |
 | `SCHEMA_VERSION` | `1` | Stamped into both documents; the SPA rejects a `ConfigData` blob whose `version` mismatches (per its JSDoc in [`src/schema.ts`](../src/schema.ts)) |
-| `EXTRACTOR_VERSION` | `"0.2.0"` | Part of the cache key: `reconcile` in [`src/extract/cache.ts`](../src/extract/cache.ts) only accepts a cached blob whose sidecar records the same extractor version and the same flake `narHash` |
 
-Bump `EXTRACTOR_VERSION` on any schema or extractor change — every cached blob becomes stale at once.
+There is no manually-bumped extractor version: the cache key's code half is a content hash of the extraction sources ([`src/extract/fingerprint.ts`](../src/extract/fingerprint.ts)), so any change under `src/extract/` or to `src/schema.ts` makes every cached blob stale at once. `reconcile` in [`src/extract/cache.ts`](../src/extract/cache.ts) additionally requires the sidecar's flake identity (`narHash`, or the self store path when absent) and resolved-input `lockHash` to match — see [Extraction pipeline](extraction-pipeline.md).
 
 ## Type overview
 

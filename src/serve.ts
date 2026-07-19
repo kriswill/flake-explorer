@@ -10,6 +10,7 @@ import { buildApp, pageHtml } from "./build-app"
 import {
   applyExtracted,
   applyExtractedPackage,
+  cacheKeyOf,
   extractAndPersist,
   extractAndPersistPackage,
   reconcile,
@@ -29,7 +30,10 @@ export interface ServeFlags {
   dev?: boolean
 }
 
-export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> {
+export async function serve(
+  flakeRef: string,
+  flags: ServeFlags,
+): Promise<ReturnType<typeof Bun.serve>> {
   await checkNix()
   const outDir = flags.out
   mkdirSync(join(outDir, "config"), { recursive: true })
@@ -65,7 +69,7 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
       timer = setTimeout(async () => {
         try {
           const t0 = Date.now()
-          page = pageHtml(await buildApp(true), title, { dev: true })
+          page = pageHtml(await buildApp(true, { fresh: true }), title, { dev: true })
           console.log(`dev: UI rebuilt in ${Date.now() - t0}ms — reloading clients`)
           devNotify()
         } catch (e) {
@@ -91,13 +95,13 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
     if (!ref || ref.status === "ok") return
     let p = inflight.get(configId)
     if (!p) {
-      // Capture the narHash at extraction START: /api/refresh can swap the
-      // manifest mid-extraction, and stamping the new hash onto data evaluated
+      // Capture the cache key at extraction START: /api/refresh can swap the
+      // manifest mid-extraction, and stamping the new key onto data evaluated
       // from the old flake state would poison the sidecar cache.
-      const narHash = manifest.flake.narHash
+      const key = cacheKeyOf(manifest)
       p = (async () => {
         console.log(`extracting options of ${configId} ...`)
-        const r = await extractAndPersist(outDir, flakeRef, narHash, ref, {
+        const r = await extractAndPersist(outDir, flakeRef, key, ref, {
           timeoutMs: flags.timeout * 1000,
         })
         // Settle onto the ref in the CURRENT manifest — /api/refresh may have
@@ -134,10 +138,10 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
     const key = `pkg:${packageId}`
     let p = inflight.get(key)
     if (!p) {
-      const narHash = manifest.flake.narHash
+      const cacheKey = cacheKeyOf(manifest)
       p = (async () => {
         console.log(`extracting package ${packageId} ...`)
-        const r = await extractAndPersistPackage(outDir, flakeRef, narHash, ref, {
+        const r = await extractAndPersistPackage(outDir, flakeRef, cacheKey, ref, {
           timeoutMs: flags.timeout * 1000,
         })
         // Settle onto the ref in the CURRENT manifest — see extractConfig's
@@ -202,7 +206,13 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
             ? manifest.packages.find((p) => p.dataFile === rel)
             : manifest.configurations.find((c) => c.dataFile === rel)
         const ref = findRef()
-        if (ref && ref.status !== "ok") {
+        // No manifest ref claims this dataFile → 404 before touching disk.
+        // This is what keeps sidecar .meta.json files private and stops an
+        // encoded ..%2F traversal (the regex admits "%" against the encoded
+        // pathname; decodeURIComponent would re-introduce "/") from serving
+        // files outside the data dir — only ref-listed blobs are readable.
+        if (!ref) return new Response("not found", { status: 404 })
+        if (ref.status !== "ok") {
           if (isPackage) await extractPackageOnDemand(ref.id)
           else await extractConfig(ref.id)
           // Re-resolve: extraction settles onto the ref in the manifest that
@@ -257,4 +267,5 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
   })
 
   console.log(`flake-explorer serving ${flakeRef} at http://localhost:${server.port}`)
+  return server
 }

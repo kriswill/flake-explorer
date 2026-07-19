@@ -2,10 +2,12 @@
 import { REL_PATH_RE, resolveKnownRef } from "../../src/pathref"
 import { displayLabel, type FileOrigin } from "../../src/schema"
 import { colorFor } from "../lib/color"
-import { resolveFile } from "../lib/indexes"
+import { parsePosition, resolveFile } from "../lib/indexes"
+import { prefs } from "../lib/prefs.svelte"
 import { type Interval, segmentLines } from "../lib/segments"
 import { app, loadedConfig, loadedPackage } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
+import AsyncSlot from "./AsyncSlot.svelte"
 import Dot from "./Dot.svelte"
 import HeaderChip from "./HeaderChip.svelte"
 import InputProvenance from "./InputProvenance.svelte"
@@ -13,7 +15,7 @@ import SourceView from "./SourceView.svelte"
 
 const { fileId }: { fileId: string } = $props()
 
-const gen = $derived(THEMES[app.themeIndex]!.gen)
+const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 const manifestEntry = $derived(app.manifest?.files.find((f) => f.id === fileId) ?? null)
 
 /** Config-side view of this file (any loaded config that references it). */
@@ -115,9 +117,7 @@ const packagesHere = $derived.by(() => {
     const loaded = loadedPackage(app.packages[ref.id])
     const position = loaded?.data.meta?.position
     if (!position?.startsWith(selfPrefix)) continue
-    const m = position.match(/^(.*):(\d+)$/)
-    const file = m ? m[1]! : position
-    const line = m ? m[2] : undefined
+    const { file, line } = parsePosition(position)
     if (resolveFile(file, app.manifest, app.flakeIndexes).id === fileId) {
       out.push({ id: ref.id, path: ref.path, line })
     }
@@ -201,17 +201,16 @@ const label = displayLabel
         The module system reports this declaration under the virtual path
         <span class="mono">{storePath}</span> — there is no store file to show.
       </p>
-    {:else if !contentSlot || contentSlot === "loading"}
-      <p class="muted">loading source…</p>
-    {:else if "error" in contentSlot}
-      <p class="muted err">
-        {contentSlot.error.split("\n")[0]}
-        {#if !contentSlot.permanent}
-          <button class="retry" onclick={() => app.retryFileContent(fileId, storePath!)}>retry</button>
-        {/if}
-      </p>
     {:else}
-      <SourceView {lines} onref={(id) => app.select({ kind: "file", fileId: id })} />
+      <AsyncSlot
+        value={contentSlot}
+        loadingText="loading source…"
+        retry={() => app.retryFileContent(fileId, storePath!)}
+      >
+        {#snippet children()}
+          <SourceView {lines} onref={(id) => app.select({ kind: "file", fileId: id })} />
+        {/snippet}
+      </AsyncSlot>
     {/if}
   </div>
 
@@ -373,18 +372,6 @@ const label = displayLabel
   .muted {
     color: var(--ink-muted);
     font-size: 0.75rem;
-  }
-  .err {
-    color: var(--err);
-  }
-  .retry {
-    background: none;
-    border: 1px solid var(--grid);
-    border-radius: 4px;
-    color: var(--ink-2);
-    font-size: 0.6875rem;
-    cursor: pointer;
-    margin-left: 6px;
   }
   p {
     margin: 3px 0;
