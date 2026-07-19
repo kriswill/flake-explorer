@@ -78,37 +78,39 @@
         ];
       };
 
-      packageDrv = derivation {
-        name = "mini-0.1.0";
-        system = "x86_64-linux";
-        builder = "/bin/sh";
-        args = [
-          "-c"
-          "echo ${depDrv} ok > $out"
-        ];
-      } // {
-        pname = "mini";
-        version = "0.1.0";
-        meta = {
-          description = "Mini test package";
-          homepage = "https://example.com/mini";
-          mainProgram = "mini";
-          platforms = [ "x86_64-linux" ];
-          license = {
-            shortName = "mit";
-            fullName = "MIT License";
-            spdxId = "MIT";
-            free = true;
-          };
-          maintainers = [
-            {
-              name = "Test Maintainer";
-              github = "testuser";
-            }
+      packageDrv =
+        derivation {
+          name = "mini-0.1.0";
+          system = "x86_64-linux";
+          builder = "/bin/sh";
+          args = [
+            "-c"
+            "echo ${depDrv} ok > $out"
           ];
+        }
+        // {
+          pname = "mini";
+          version = "0.1.0";
+          meta = {
+            description = "Mini test package";
+            homepage = "https://example.com/mini";
+            mainProgram = "mini";
+            platforms = [ "x86_64-linux" ];
+            license = {
+              shortName = "mit";
+              fullName = "MIT License";
+              spdxId = "MIT";
+              free = true;
+            };
+            maintainers = [
+              {
+                name = "Test Maintainer";
+                github = "testuser";
+              }
+            ];
+          };
+          nativeBuildInputs = [ depDrv ];
         };
-        nativeBuildInputs = [ depDrv ];
-      };
 
       # A single throwing meta field (unfree/broken markers do this in real
       # nixpkgs, typically on `meta.license`/`meta.available`, never on
@@ -117,22 +119,24 @@
       # classification for the whole flake; this doesn't). Exercises
       # extractPackage's metaError path: meta absent, everything else
       # (pname/version/deps) still extracts normally.
-      brokenMetaDrv = derivation {
-        name = "mini-broken-meta-0.1.0";
-        system = "x86_64-linux";
-        builder = "/bin/sh";
-        args = [
-          "-c"
-          "echo ok > $out"
-        ];
-      } // {
-        pname = "mini-broken-meta";
-        version = "0.1.0";
-        meta = {
-          description = "Mini package with an unfree marker";
-          license = throw "unfree: this package is unfree";
+      brokenMetaDrv =
+        derivation {
+          name = "mini-broken-meta-0.1.0";
+          system = "x86_64-linux";
+          builder = "/bin/sh";
+          args = [
+            "-c"
+            "echo ok > $out"
+          ];
+        }
+        // {
+          pname = "mini-broken-meta";
+          version = "0.1.0";
+          meta = {
+            description = "Mini package with an unfree marker";
+            license = throw "unfree: this package is unfree";
+          };
         };
-      };
 
       devShellDrv = derivation {
         name = "mini-devshell";
@@ -144,29 +148,33 @@
         ];
       };
 
-      checkDrv = derivation {
-        name = "mini-check";
-        system = "x86_64-linux";
-        builder = "/bin/sh";
-        args = [
-          "-c"
-          "echo check > $out"
-        ];
-      } // {
-        meta.description = "Mini test check";
-      };
+      checkDrv =
+        derivation {
+          name = "mini-check";
+          system = "x86_64-linux";
+          builder = "/bin/sh";
+          args = [
+            "-c"
+            "echo check > $out"
+          ];
+        }
+        // {
+          meta.description = "Mini test check";
+        };
 
-      formatterDrv = derivation {
-        name = "mini-formatter";
-        system = "x86_64-linux";
-        builder = "/bin/sh";
-        args = [
-          "-c"
-          "echo fmt > $out"
-        ];
-      } // {
-        meta.mainProgram = "mini-formatter";
-      };
+      formatterDrv =
+        derivation {
+          name = "mini-formatter";
+          system = "x86_64-linux";
+          builder = "/bin/sh";
+          args = [
+            "-c"
+            "echo fmt > $out"
+          ];
+        }
+        // {
+          meta.mainProgram = "mini-formatter";
+        };
     in
     {
       lib = {

@@ -147,7 +147,9 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
           applyExtractedPackage(cur, r)
           manifest.warnings.push(...r.warnings)
         }
-        console.log(`  ${packageId}: builder=${r.data.builder} in ${(r.durationMs / 1000).toFixed(1)}s`)
+        console.log(
+          `  ${packageId}: builder=${r.data.builder} in ${(r.durationMs / 1000).toFixed(1)}s`,
+        )
       })().catch((e) => {
         const msg = String(e).split("\n").slice(0, 3).join(" ")
         const cur = manifest.packages.find((p) => p.id === packageId)

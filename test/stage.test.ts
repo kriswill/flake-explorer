@@ -24,7 +24,9 @@ function seed() {
 function loadTestConfig() {
   const m = app.manifest!
   const config = fixtureConfig()
-  app.configs = { "nixos/test": { data: config, indexes: buildConfigIndexes(m, config, app.flakeIndexes!) } }
+  app.configs = {
+    "nixos/test": { data: config, indexes: buildConfigIndexes(m, config, app.flakeIndexes!) },
+  }
 }
 
 beforeEach(seed)

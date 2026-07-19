@@ -220,7 +220,10 @@ describe("PackageDetail", () => {
   })
 
   test("broken and unfree flags render as their own rows", () => {
-    const data = { ...samplePackage(), meta: { ...samplePackage().meta, broken: true, unfree: true } }
+    const data = {
+      ...samplePackage(),
+      meta: { ...samplePackage().meta, broken: true, unfree: true },
+    }
     app.packages = { [PKG_ID]: { data } }
     withMount(PackageDetail, { refId: PKG_ID }, (host) => {
       const dtdd = (label: string) => {
@@ -234,7 +237,10 @@ describe("PackageDetail", () => {
   })
 
   test("warnings render in a collapsed details block", () => {
-    const data = { ...samplePackage(), warnings: ["meta unavailable for hello (broken/unfree package?)"] }
+    const data = {
+      ...samplePackage(),
+      warnings: ["meta unavailable for hello (broken/unfree package?)"],
+    }
     app.packages = { [PKG_ID]: { data } }
     withMount(PackageDetail, { refId: PKG_ID }, (host) => {
       const summary = [...host.querySelectorAll("details summary")].find((s) =>

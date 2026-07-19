@@ -60,7 +60,10 @@ describe("InputDetail", () => {
     }
     const fileId = makeFileId({ kind: "input", input: "vendor" }, "flake.nix")
     // Pre-injected so the mount-time $effect resolves from it directly.
-    injectData(`file/${encodeURIComponent(fileId)}`, { text: 'description = "vendor";', tokens: [] })
+    injectData(`file/${encodeURIComponent(fileId)}`, {
+      text: 'description = "vendor";',
+      tokens: [],
+    })
 
     const host = document.createElement("div")
     document.body.appendChild(host)
@@ -98,7 +101,10 @@ describe("InputDetail", () => {
       flushSync()
       expect(host.textContent).toContain("HTTP 500")
 
-      injectData(`file/${encodeURIComponent(fileId)}`, { text: 'description = "vendor";', tokens: [] })
+      injectData(`file/${encodeURIComponent(fileId)}`, {
+        text: 'description = "vendor";',
+        tokens: [],
+      })
       buttonsWithText(host, "retry")[0]!.click()
       await Bun.sleep(0)
       flushSync()

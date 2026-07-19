@@ -199,7 +199,16 @@ describe.skipIf(!hasNix)("export (real nix)", () => {
 // degradation paths (blob-missing downgrade, ok-but-unwanted downgrade,
 // input re-fetch failure, self-file skip) without needing nix.
 describe("exportHtml (synthetic fixture)", () => {
-  test("missing blobs and sources degrade to warnings + pending refs", async () => {
+  // Configs and packages share one exportHtml() call (and so one buildApp()
+  // bundle build) rather than a test each: bundling the real SPA is the
+  // expensive part of this call, and a nix-sandboxed build has much lower
+  // resource limits than an interactive shell — enough that one extra
+  // `exportHtml` call in this file reproducibly broke Bun's bundler
+  // ("Unexpected reading file: .../svelte/.../disclose-version.js") under
+  // `nix flake check`'s sandboxed test derivation, deterministic across
+  // rebuilds. Not a logic bug in either path — folding them back into one
+  // call is the fix.
+  test("missing blobs and sources degrade to warnings + pending refs (configs and packages)", async () => {
     const outDir = await mkdtemp(join(tmpdir(), "syn-export-"))
     try {
       const m = fixtureManifest()
@@ -222,50 +231,12 @@ describe("exportHtml (synthetic fixture)", () => {
           status: "ok",
         },
       )
-      await Bun.write(join(outDir, "config/nixos.test.json"), JSON.stringify(fixtureConfig()))
-
-      const htmlPath = join(outDir, "flake.html")
-      const summary = await exportHtml("./no-such-flake", m, {
-        outDir,
-        htmlPath,
-        sources: "all",
-        timeoutMs: 10_000,
-        wanted: ["nixos/test", "nixos/gone"],
-        wantedPackages: [],
-      })
-      const html = await Bun.file(htmlPath).text()
-
-      expect(embedded<ConfigData>(html, "config/nixos.test.json")?.id).toBe("nixos/test")
-      const em = embedded<Manifest>(html, "manifest.json")!
-      expect(em.configurations.find((c) => c.id === "nixos/test")?.status).toBe("ok")
-      expect(em.configurations.find((c) => c.id === "nixos/other")?.status).toBe("pending")
-      expect(em.configurations.find((c) => c.id === "nixos/gone")?.status).toBe("pending")
-      expect(summary.warnings.some((w) => w.includes("nixos/gone"))).toBe(true)
-
-      // No fixture store path exists: self files skip with a warning; the
-      // config-referenced sops file resolves to an input id, and its nix
-      // re-fetch fails (bogus flakeref / no nix) — warned, not embedded.
-      expect(summary.files).toEqual([])
-      expect(summary.warnings.some((w) => w.includes("self:modules/a.nix"))).toBe(true)
-      expect(
-        summary.warnings.some((w) => w.includes("input:sops-nix:modules/sops/default.nix")),
-      ).toBe(true)
-      // Export warnings surface in the embedded manifest for the UI.
-      expect(em.warnings.length).toBeGreaterThanOrEqual(summary.warnings.length)
-    } finally {
-      await rm(outDir, { recursive: true, force: true })
-    }
-  })
-
-  test("package refs degrade the same way: ok-but-unrequested and ok-but-missing-blob both downgrade", async () => {
-    const outDir = await mkdtemp(join(tmpdir(), "syn-export-pkg-"))
-    try {
-      const m = fixtureManifest()
       const [hello, devShell] = fixturePackageRefs()
       m.packages = [
         { ...hello!, status: "ok" }, // requested + blob present → stays ok
         { ...devShell!, id: "extra/unrequested", status: "ok" }, // ok but NOT requested → downgrade
       ]
+      await Bun.write(join(outDir, "config/nixos.test.json"), JSON.stringify(fixtureConfig()))
       const helloData = {
         version: 1,
         id: hello!.id,
@@ -282,18 +253,34 @@ describe("exportHtml (synthetic fixture)", () => {
       const summary = await exportHtml("./no-such-flake", m, {
         outDir,
         htmlPath,
-        sources: "self",
+        sources: "all",
         timeoutMs: 10_000,
-        wanted: [],
+        wanted: ["nixos/test", "nixos/gone"],
         wantedPackages: [hello!.id, "extra/nope"], // "extra/nope" isn't even in m.packages
       })
       const html = await Bun.file(htmlPath).text()
 
+      expect(embedded<ConfigData>(html, "config/nixos.test.json")?.id).toBe("nixos/test")
       expect(embedded<PackageData>(html, hello!.dataFile)?.pname).toBe("hello")
       const em = embedded<Manifest>(html, "manifest.json")!
+      expect(em.configurations.find((c) => c.id === "nixos/test")?.status).toBe("ok")
+      expect(em.configurations.find((c) => c.id === "nixos/other")?.status).toBe("pending")
+      expect(em.configurations.find((c) => c.id === "nixos/gone")?.status).toBe("pending")
       expect(em.packages.find((p) => p.id === hello!.id)?.status).toBe("ok")
       expect(em.packages.find((p) => p.id === "extra/unrequested")?.status).toBe("pending")
+      expect(summary.warnings.some((w) => w.includes("nixos/gone"))).toBe(true)
       expect(summary.packages).toEqual([hello!.id])
+
+      // No fixture store path exists: self files skip with a warning; the
+      // config-referenced sops file resolves to an input id, and its nix
+      // re-fetch fails (bogus flakeref / no nix) — warned, not embedded.
+      expect(summary.files).toEqual([])
+      expect(summary.warnings.some((w) => w.includes("self:modules/a.nix"))).toBe(true)
+      expect(
+        summary.warnings.some((w) => w.includes("input:sops-nix:modules/sops/default.nix")),
+      ).toBe(true)
+      // Export warnings surface in the embedded manifest for the UI.
+      expect(em.warnings.length).toBeGreaterThanOrEqual(summary.warnings.length)
     } finally {
       await rm(outDir, { recursive: true, force: true })
     }

@@ -32,7 +32,10 @@ describe("tokenClass", () => {
 describe("segmentLines", () => {
   test("plain text with no tokens/refs yields one unstyled segment per line", () => {
     const lines = segmentLines("a = 1;\nb = 2;", [])
-    expect(lines).toEqual([[{ text: "a = 1;", ref: undefined, cls: undefined }], [{ text: "b = 2;", ref: undefined, cls: undefined }]])
+    expect(lines).toEqual([
+      [{ text: "a = 1;", ref: undefined, cls: undefined }],
+      [{ text: "b = 2;", ref: undefined, cls: undefined }],
+    ])
   })
 
   test("an empty line still yields one (empty) segment, not zero", () => {
@@ -73,7 +76,9 @@ describe("segmentLines", () => {
 
   test("overlapping ref and token intervals both apply to the same segment", () => {
     const tokens: TokenRun[] = [{ start: 0, end: 9, name: "string" }]
-    const lines = segmentLines('"./foo.nix"', tokens, () => [{ start: 1, end: 10, value: "self:foo.nix" }])
+    const lines = segmentLines('"./foo.nix"', tokens, () => [
+      { start: 1, end: 10, value: "self:foo.nix" },
+    ])
     // bounds 0,1,9,10,11 -> [0,1) string-only, [1,9) string+ref, [9,10) ref-only, [10,11) plain
     expect(lines[0]).toEqual([
       { text: '"', ref: undefined, cls: "tok-string" },

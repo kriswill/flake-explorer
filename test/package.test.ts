@@ -157,9 +157,16 @@ describe("normalizePackageMeta", () => {
     expect(normalizePackageMeta({ license: { shortName: "mit", free: true } }).license).toEqual([
       { shortName: "mit", fullName: undefined, spdxId: undefined, url: undefined, free: true },
     ])
-    expect(
-      normalizePackageMeta({ license: ["MIT", { shortName: "asl20" }] }).license,
-    ).toEqual([{ shortName: "MIT" }, { shortName: "asl20", fullName: undefined, spdxId: undefined, url: undefined, free: undefined }])
+    expect(normalizePackageMeta({ license: ["MIT", { shortName: "asl20" }] }).license).toEqual([
+      { shortName: "MIT" },
+      {
+        shortName: "asl20",
+        fullName: undefined,
+        spdxId: undefined,
+        url: undefined,
+        free: undefined,
+      },
+    ])
   })
 
   test("absent/empty fields become undefined, not empty arrays", () => {

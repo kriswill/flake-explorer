@@ -73,7 +73,11 @@ describe("FileDetail", () => {
     const origClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard")
     const copied: { text: string | null } = { text: null }
     Object.defineProperty(navigator, "clipboard", {
-      value: { writeText: async (t: string) => void (copied.text = t) },
+      value: {
+        writeText: async (t: string) => {
+          copied.text = t
+        },
+      },
       configurable: true,
     })
     injectData(`file/${encodeURIComponent("self:modules/a.nix")}`, { text: "{ }", tokens: [] })
@@ -103,7 +107,12 @@ describe("FileDetail", () => {
       ...fixtureManifest(),
       files: [
         ...fixtureManifest().files,
-        { id: "self:virtual", relPath: "virtual", origin: { kind: "self" }, storePath: "lib/modules.nix" },
+        {
+          id: "self:virtual",
+          relPath: "virtual",
+          origin: { kind: "self" },
+          storePath: "lib/modules.nix",
+        },
       ],
     }
     withMount(FileDetail, { fileId: "self:virtual" }, (host) => {

@@ -174,7 +174,9 @@ describe("reconcile: packages", () => {
     expect(p.extractedAt).toBe(meta.extractedAt)
     expect(p.durationMs).toBe(meta.durationMs)
     expect(Object.hasOwn(p, "optionCount")).toBe(false)
-    expect(m.warnings).toContain("[cached] meta unavailable for packages/x86_64-linux/hello (broken/unfree package?)")
+    expect(m.warnings).toContain(
+      "[cached] meta unavailable for packages/x86_64-linux/hello (broken/unfree package?)",
+    )
   })
 
   test("narHash mismatch stays pending, same as configurations", async () => {
@@ -200,7 +202,13 @@ describe("reconcile: packages", () => {
 
     const m = pendingPackageManifest(NAR)
     m.configurations = [
-      { id: "nixos/test", kind: "nixos", name: "test", dataFile: cfgRef.dataFile, status: "pending" },
+      {
+        id: "nixos/test",
+        kind: "nixos",
+        name: "test",
+        dataFile: cfgRef.dataFile,
+        status: "pending",
+      },
     ]
     await reconcile(outDir, m)
     expect(m.configurations[0]!.status).toBe("ok")

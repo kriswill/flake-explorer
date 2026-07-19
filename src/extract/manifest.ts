@@ -58,9 +58,7 @@ export async function buildManifest(
     (relPath) => makeFileId({ kind: "self" }, relPath),
   )
 
-  const outputs: OutputNode = showJson
-    ? normalizeShow(showJson)
-    : { kind: "attrset", children: {} }
+  const outputs: OutputNode = showJson ? normalizeShow(showJson) : { kind: "attrset", children: {} }
 
   return {
     version: SCHEMA_VERSION,
@@ -107,7 +105,7 @@ export function packageRefs(outputs: OutputNode): PackageRef[] {
 
   for (const category of ["packages", "devShells", "checks"] as const) {
     const catNode = outputs.children[category]
-    if (!catNode || catNode.kind !== "attrset") continue
+    if (catNode?.kind !== "attrset") continue
     for (const [system, sysNode] of Object.entries(catNode.children)) {
       if (sysNode.kind !== "attrset") continue
       for (const [name, leaf] of Object.entries(sysNode.children)) {

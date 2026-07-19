@@ -441,7 +441,8 @@ class AppState {
 const incompatibleData = (name: string, got: unknown) =>
   `${name} was produced by an incompatible extractor (schema v${got ?? "pre-1"}, this UI expects v${SCHEMA_VERSION}) — re-run extract`
 
-const samePath = (a: string[], b: string[]) => a.length === b.length && a.every((s, i) => s === b[i])
+const samePath = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((s, i) => s === b[i])
 
 const PANE_KEY = "flake-explorer:panes@1"
 const PANE_DEFAULTS = { left: 280, right: 340 }

@@ -41,7 +41,9 @@ export async function extractPackage(
   )
 
   if (!ev.isDrv) {
-    throw new Error(`${ref.id} is not a derivation (output may have changed since the last refresh)`)
+    throw new Error(
+      `${ref.id} is not a derivation (output may have changed since the last refresh)`,
+    )
   }
   if (ev.metaError) {
     warnings.push(`meta unavailable for ${ref.id} (broken/unfree package?)`)
@@ -70,7 +72,9 @@ export async function extractPackage(
         }
       }
     } catch (e) {
-      warnings.push(`${ref.id}: path-info failed for output "${out.name}": ${String(e).split("\n")[0]}`)
+      warnings.push(
+        `${ref.id}: path-info failed for output "${out.name}": ${String(e).split("\n")[0]}`,
+      )
     }
   }
 
@@ -197,7 +201,8 @@ export function normalizeDerivationShow(raw: unknown): DrvInfo | null {
   if (!rawEntry || typeof rawEntry !== "object") return null
   const e = rawEntry as Record<string, unknown>
 
-  const nestedDrvs = (e.inputs as { drvs?: Record<string, { outputs?: string[] }> } | undefined)?.drvs
+  const nestedDrvs = (e.inputs as { drvs?: Record<string, { outputs?: string[] }> } | undefined)
+    ?.drvs
   const flatDrvs = e.inputDrvs as Record<string, { outputs?: string[] }> | undefined
   const rawInputDrvs = nestedDrvs ?? flatDrvs ?? {}
   const inputDrvs: DrvInputRef[] = Object.entries(rawInputDrvs).map(([drvBasename, info]) => ({

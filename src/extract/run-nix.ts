@@ -128,7 +128,11 @@ export function attrSelector(path: string[]): string {
  * older nix returns the drv map directly at the top level — both shapes are
  * normalized by the pure, unit-tested normalizeDerivationShow (package.ts).
  */
-export function derivationShow(flakeRef: string, path: string[], timeoutMs = 60_000): Promise<unknown> {
+export function derivationShow(
+  flakeRef: string,
+  path: string[],
+  timeoutMs = 60_000,
+): Promise<unknown> {
   const attr = attrSelector(path)
   return runJson(["derivation", "show", "--impure", `${flakeRef}#${attr}`], timeoutMs)
 }

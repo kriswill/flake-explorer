@@ -179,9 +179,9 @@ describe("derivationShow", () => {
   test("builds argv with --impure and the (quoted) flake attr path", async () => {
     shim("echo-args")
     const argvOf = (p: Promise<unknown>) => p as Promise<string>
-    expect(
-      await argvOf(derivationShow("/my/flake", ["packages", "x86_64-linux", "rtk"])),
-    ).toBe("--option lazy-trees false derivation show --impure /my/flake#packages.x86_64-linux.rtk")
+    expect(await argvOf(derivationShow("/my/flake", ["packages", "x86_64-linux", "rtk"]))).toBe(
+      "--option lazy-trees false derivation show --impure /my/flake#packages.x86_64-linux.rtk",
+    )
   })
 })
 
