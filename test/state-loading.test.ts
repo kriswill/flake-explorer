@@ -5,9 +5,9 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { resetSlotKeys } from "../app/lib/color"
 import { buildFlakeIndexes } from "../app/lib/indexes"
-import { app, loadedConfig } from "../app/lib/state.svelte"
+import { app, loadedConfig, loadedPackage } from "../app/lib/state.svelte"
 import { SCHEMA_VERSION } from "../src/schema"
-import { fixtureConfig, fixtureManifest } from "./fixtures/data"
+import { fixtureConfig, fixtureManifest, fixturePackageRefs } from "./fixtures/data"
 
 const injected = new Map<string, HTMLElement>()
 
@@ -25,6 +25,7 @@ beforeEach(() => {
   app.manifestError = null
   app.flakeIndexes = null
   app.configs = {}
+  app.packages = {}
   app.fileContents = {}
   app.selection = null
   app.q = ""
@@ -99,6 +100,91 @@ describe("loadConfig", () => {
     app.configs = { "nixos/test": "loading" }
     await app.loadConfig("nixos/test")
     expect(app.configs["nixos/test"]).toBe("loading")
+  })
+})
+
+describe("loadPackage", () => {
+  const PKG_ID = "packages/x86_64-linux/hello"
+  const packageData = () => ({
+    version: 1 as const,
+    id: PKG_ID,
+    path: ["packages", "x86_64-linux", "hello"],
+    pname: "hello",
+    builder: "unknown" as const,
+    outputs: [],
+    deps: { nativeBuildInputs: [], buildInputs: [], propagatedBuildInputs: [] },
+    warnings: [],
+  })
+
+  beforeEach(() => {
+    const m = fixtureManifest()
+    app.manifest = m
+    app.flakeIndexes = buildFlakeIndexes(m)
+  })
+
+  test("unknown package ids are ignored", async () => {
+    await app.loadPackage("packages/x86_64-linux/nope")
+    expect(app.packages["packages/x86_64-linux/nope"]).toBeUndefined()
+  })
+
+  test("loads a package blob; retryPackage recovers from a bad one", async () => {
+    injectData(fixturePackageRefs()[0]!.dataFile, { ...packageData(), version: 999 })
+    await app.loadPackage(PKG_ID)
+    const slot = app.packages[PKG_ID]
+    expect(slot && typeof slot === "object" && "error" in slot ? slot.error : "").toContain(
+      "incompatible extractor",
+    )
+
+    injected.get(fixturePackageRefs()[0]!.dataFile)!.textContent = JSON.stringify(packageData())
+    app.retryPackage(PKG_ID)
+    await Bun.sleep(0)
+    expect(loadedPackage(app.packages[PKG_ID])?.data.pname).toBe("hello")
+  })
+
+  test("an already-populated slot is not reloaded", async () => {
+    app.packages = { [PKG_ID]: "loading" }
+    await app.loadPackage(PKG_ID)
+    expect(app.packages[PKG_ID]).toBe("loading")
+  })
+
+  test("#followSelection loads the package matching an output-tree selection", async () => {
+    injectData(fixturePackageRefs()[0]!.dataFile, packageData())
+    app.select({ kind: "output", path: ["packages", "x86_64-linux", "hello"] })
+    await Bun.sleep(0)
+    expect(loadedPackage(app.packages[PKG_ID])?.data.pname).toBe("hello")
+  })
+
+  test("#followSelection no-ops for an output path that isn't a package", async () => {
+    app.select({ kind: "output", path: ["lib", "greeting"] })
+    await Bun.sleep(0)
+    expect(Object.keys(app.packages)).toEqual([])
+  })
+
+  test("#followSelection expands the left tree's ancestor chain for any output selection", () => {
+    // Not package-specific: revealOutput expands the generic OutputBranch/
+    // OutputsTree `out:<dot.joined.prefix>` keys for ANY output-tree leaf, a
+    // deep link's equivalent of clicking down through each ancestor.
+    app.select({ kind: "output", path: ["packages", "x86_64-linux", "hello"] })
+    expect(app.expanded.has("out:packages")).toBe(true)
+    expect(app.expanded.has("out:packages.x86_64-linux")).toBe(true)
+    // The leaf itself never gets its own expand key (nothing to expand into).
+    expect(app.expanded.has("out:packages.x86_64-linux.hello")).toBe(false)
+
+    app.expanded.clear()
+    app.select({ kind: "output", path: ["lib", "greeting"] })
+    expect(app.expanded.has("out:lib")).toBe(true)
+
+    app.expanded.clear()
+    // formatter.<system> is depth 2 (no name level) — one ancestor to expand.
+    app.select({ kind: "output", path: ["formatter", "x86_64-linux"] })
+    expect(app.expanded.has("out:formatter")).toBe(true)
+  })
+
+  test("applyHash (a real deep link / back-forward) expands the tree the same way select() does", () => {
+    app.applyHash("#/o/packages.x86_64-linux.hello")
+    expect(app.selection).toEqual({ kind: "output", path: ["packages", "x86_64-linux", "hello"] })
+    expect(app.expanded.has("out:packages")).toBe(true)
+    expect(app.expanded.has("out:packages.x86_64-linux")).toBe(true)
   })
 })
 
@@ -181,6 +267,16 @@ describe("static export mode", () => {
     injectData("config/nixos.test.json", fixtureConfig())
     await app.loadConfig("nixos/test")
     expect(loadedConfig(app.configs["nixos/test"])?.data.id).toBe("nixos/test")
+    expect(fetchCalls).toBe(0)
+  })
+
+  test("a package without an embedded blob is permanently not-included", async () => {
+    const pkgId = fixturePackageRefs()[0]!.id
+    await app.loadPackage(pkgId)
+    expect(app.packages[pkgId]).toEqual({
+      error: "package not included in this export",
+      permanent: true,
+    })
     expect(fetchCalls).toBe(0)
   })
 

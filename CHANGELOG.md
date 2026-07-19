@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Rich detail page for derivation-typed outputs — packages, devShells,
+  checks, and formatter. Click one in the outputs tree to see builder kind
+  (rustPlatform/buildGoModule/node/trivial/stdenv/unknown), pname/version,
+  meta (license, homepage, platforms, maintainers, position), source
+  fetcher, build phases, declared + drv-level dependencies, outputs, and
+  runtime closure size when the output is already in the local store.
+  Extracted on demand, same lifecycle as configuration options; new
+  `--packages id,...` CLI flag (`--all` now covers packages too).
+
+### Changed
+
+- Bumped `EXTRACTOR_VERSION` to `0.3.0` for the new package data shape —
+  invalidates existing cached config sidecars once (re-extracted
+  automatically on next access).
+
 ## [0.1.3] — 2026-07-12
 
 ### Fixed
