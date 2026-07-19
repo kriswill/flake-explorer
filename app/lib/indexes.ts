@@ -190,7 +190,9 @@ export function buildConfigIndexes(
   const tree = buildTree(filesById, refsByFile)
   const fileToNodes = buildFileToNodes(tree)
   const optionsByLoc = new Map<string, number>()
-  config.options.forEach((o, i) => optionsByLoc.set(o.loc.join("."), i))
+  config.options.forEach((o, i) => {
+    optionsByLoc.set(o.loc.join("."), i)
+  })
   return { tree, fileToNodes, refsByFile, filesById, optionsByLoc }
 }
 
