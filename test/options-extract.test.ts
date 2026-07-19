@@ -21,30 +21,34 @@ type Scenario = Record<string, ScenarioEntry>
 
 const SHIM = String.raw`#!/usr/bin/env bun
 // Fake nix for options-extract.test.ts. Key format mirrors scenarioKey() there.
+// die() awaits the stderr write before process.exit — console.error followed
+// by an immediate exit can lose the (piped) output before it is flushed,
+// which would strip the "error:" line the tests assert on.
 function scenarioKey(a) {
   const p = (a.path ?? []).join(".")
   if (a.mode === "optionNames") return "names:" + p
   const c = (a.childNames ?? []).join(",")
   return "opts:" + p + "|c=" + c + "|v=" + (a.withValues ? 1 : 0) + "|d=" + (a.withDescriptions ? 1 : 0)
 }
+const die = async (msg, code) => {
+  await Bun.write(Bun.stderr, msg + "\n")
+  process.exit(code)
+}
 const argv = process.argv.slice(2)
 const expr = argv[argv.indexOf("--expr") + 1]
 const m = expr ? expr.match(/builtins\.fromJSON ("(?:[^"\\]|\\.)*")/) : null
 if (!m) {
-  console.error("error: shim could not find extract args in: " + argv.join(" "))
-  process.exit(9)
+  await die("error: shim could not find extract args in: " + argv.join(" "), 9)
 }
 const args = JSON.parse(JSON.parse(m[1]))
 const scenario = JSON.parse(await Bun.file(process.env.FE_OPTIONS_SCENARIO).text())
 const key = scenarioKey(args)
 const entry = scenario[key]
 if (!entry) {
-  console.error("error: SCENARIO MISS " + key)
-  process.exit(1)
+  await die("error: SCENARIO MISS " + key, 1)
 }
 if ("fail" in entry) {
-  console.error("error: " + entry.fail)
-  process.exit(1)
+  await die("error: " + entry.fail, 1)
 }
 console.log(JSON.stringify(entry.ok))
 `
