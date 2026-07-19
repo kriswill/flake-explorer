@@ -1,6 +1,7 @@
 <script lang="ts">
 import { prefs } from "../lib/prefs.svelte"
 import { app } from "../lib/state.svelte"
+import SearchBox from "./SearchBox.svelte"
 
 const isDark = $derived(prefs.themeIndex === 1)
 const toggleTheme = () => prefs.setTheme(isDark ? 0 : 1)
@@ -12,15 +13,7 @@ const toggleTheme = () => prefs.setTheme(isDark ? 0 : 1)
       <span class="b1">Flake</span><span class="b2">Explorer</span>
     </button>
   </h1>
-  <input
-    class="search"
-    type="search"
-    name="filter"
-    aria-label="Filter modules and files"
-    placeholder="filter modules & files…"
-    value={app.q}
-    oninput={(e) => app.setFilters({ q: e.currentTarget.value })}
-  />
+  <SearchBox />
   <div class="controls">
     <span class="fontctl" role="group" aria-label="Text size">
       <button type="button" title="Smaller text" aria-label="Smaller text" onclick={() => prefs.adjustFontScale(-0.1)}>A−</button>
@@ -82,19 +75,6 @@ const toggleTheme = () => prefs.setTheme(isDark ? 0 : 1)
   .b2 {
     color: var(--ink-muted);
     font-weight: 400;
-  }
-  .search {
-    background: var(--page);
-    border: 1px solid var(--grid);
-    border-radius: 6px;
-    color: var(--ink-1);
-    padding: 5px 10px;
-    font-size: 0.8125rem;
-    width: 100%;
-  }
-  .search:focus {
-    outline: none;
-    border-color: var(--link);
   }
   .controls {
     display: flex;
