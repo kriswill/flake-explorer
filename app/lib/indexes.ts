@@ -51,6 +51,8 @@ export interface FlakeIndexes {
   inputByStoreName: Map<string, string>
   imports: Map<string, Set<string>>
   importedBy: Map<string, Set<string>>
+  /** Input name -> self fileIds whose source references it (manifest.inputRefs). */
+  inputRefsByInput: Map<string, string[]>
 }
 
 /**
@@ -103,7 +105,12 @@ export function buildFlakeIndexes(manifest: Manifest): FlakeIndexes {
     ;(imports.get(e.from) ?? imports.set(e.from, new Set()).get(e.from)!).add(e.to)
     ;(importedBy.get(e.to) ?? importedBy.set(e.to, new Set()).get(e.to)!).add(e.from)
   }
-  return { selfByStorePath, inputPrefixes, inputByStoreName, imports, importedBy }
+  const inputRefsByInput = new Map<string, string[]>()
+  // Older embedded exports may predate inputRefs — degrade to empty.
+  for (const r of manifest.inputRefs ?? []) {
+    ;(inputRefsByInput.get(r.input) ?? inputRefsByInput.set(r.input, []).get(r.input)!).push(r.file)
+  }
+  return { selfByStorePath, inputPrefixes, inputByStoreName, imports, importedBy, inputRefsByInput }
 }
 
 /** Resolve an option's file string (a store path or "<unknown-file>") to identity. */

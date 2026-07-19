@@ -9,9 +9,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { flushSync, mount, unmount } from "svelte"
 import InputDetail from "../app/components/InputDetail.svelte"
+import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
 import { app } from "../app/lib/state.svelte"
 import { makeFileId } from "../src/schema"
-import { fixtureManifest } from "./fixtures/data"
+import { fixtureConfig, fixtureManifest } from "./fixtures/data"
 import { buttonsWithText, withMount } from "./helpers"
 
 const injected: HTMLElement[] = []
@@ -26,8 +27,17 @@ function injectData(name: string, value: unknown) {
 
 beforeEach(() => {
   app.manifest = fixtureManifest()
+  app.flakeIndexes = buildFlakeIndexes(app.manifest)
   app.fileContents = {}
+  app.configs = {}
+  app.selection = null
 })
+
+/** Pre-seed the input's own flake.nix so the mount-time $effect never fetches. */
+function seedSource(input: string) {
+  const fileId = makeFileId({ kind: "input", input }, "flake.nix")
+  app.fileContents = { ...app.fileContents, [fileId]: { text: "{ }", tokens: [] } }
+}
 
 afterEach(() => {
   for (const el of injected.splice(0)) el.remove()
@@ -79,6 +89,108 @@ describe("InputDetail", () => {
       void unmount(instance)
       host.remove()
     }
+  })
+
+  test("referenced-by lists scanning hits as file links", () => {
+    seedSource("sops-nix")
+    withMount(InputDetail, { name: "sops-nix" }, (host) => {
+      expect(host.textContent).toContain("Referenced by")
+      const link = buttonsWithText(host, "modules/a.nix")[0]!
+      link.click()
+      expect(app.selection).toEqual({ kind: "file", fileId: "self:modules/a.nix" })
+    })
+  })
+
+  test("no scanning hits: honest empty state", () => {
+    seedSource("nixpkgs")
+    withMount(InputDetail, { name: "nixpkgs" }, (host) => {
+      expect(host.textContent).toContain("No source references to inputs.nixpkgs")
+    })
+  })
+
+  test("modules contributed: unloaded config offers a load button, loaded one lists modules", () => {
+    seedSource("sops-nix")
+    withMount(InputDetail, { name: "sops-nix" }, (host) => {
+      expect(host.textContent).toContain("load to see contributed modules")
+    })
+
+    const config = fixtureConfig()
+    app.configs = {
+      "nixos/test": {
+        data: config,
+        indexes: buildConfigIndexes(app.manifest!, config, app.flakeIndexes!),
+      },
+    }
+    withMount(InputDetail, { name: "sops-nix" }, (host) => {
+      expect(host.textContent).toContain("1 modules")
+      const link = buttonsWithText(host, "modules/sops/default.nix")[0]!
+      link.click()
+      expect(app.selection).toEqual({
+        kind: "module",
+        configId: "nixos/test",
+        moduleId: "input:sops-nix:modules/sops/default.nix",
+      })
+    })
+  })
+
+  test("grafted outputs link back to the output node", () => {
+    app.manifest = {
+      ...app.manifest!,
+      grafts: [{ output: "lib", input: "nixpkgs", added: ["mine"], inherited: 12 }],
+    }
+    seedSource("nixpkgs")
+    withMount(InputDetail, { name: "nixpkgs" }, (host) => {
+      expect(host.textContent).toContain("Outputs built from it")
+      expect(host.textContent).toContain("1 added, 12 inherited")
+      buttonsWithText(host, "lib")[0]!.click()
+      expect(app.selection).toEqual({ kind: "output", path: ["lib"] })
+    })
+  })
+
+  test("its inputs: transitive entries link to input pages, follows edges to their target", () => {
+    app.manifest = {
+      ...app.manifest!,
+      inputs: {
+        ...app.manifest!.inputs,
+        "sops-nix/stable": {
+          name: "sops-nix/stable",
+          nodeKey: "st",
+          transitive: true,
+          type: "github",
+          rev: "abcdef1234567",
+        },
+      },
+    }
+    seedSource("sops-nix")
+    withMount(InputDetail, { name: "sops-nix" }, (host) => {
+      expect(host.textContent).toContain("Its inputs")
+      // Transitive entry links to its own input page.
+      buttonsWithText(host, "stable")[0]!.click()
+      expect(app.selection).toEqual({ kind: "input", name: "sops-nix/stable" })
+      // Follows edge (fixture: sops-nix/nixpkgs → nixpkgs) links to the target.
+      expect(host.textContent).toContain("→ follows")
+      buttonsWithText(host, "nixpkgs")[0]!.click()
+      expect(app.selection).toEqual({ kind: "input", name: "nixpkgs" })
+    })
+  })
+
+  test("a transitive input's page hides the referenced-by section", () => {
+    app.manifest = {
+      ...app.manifest!,
+      inputs: {
+        ...app.manifest!.inputs,
+        "sops-nix/stable": {
+          name: "sops-nix/stable",
+          nodeKey: "st",
+          transitive: true,
+          type: "github",
+        },
+      },
+    }
+    seedSource("sops-nix/stable")
+    withMount(InputDetail, { name: "sops-nix/stable" }, (host) => {
+      expect(host.textContent).not.toContain("Referenced by")
+    })
   })
 
   test("a failed load shows the error (first line only) with a retry that recovers", async () => {

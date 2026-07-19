@@ -63,7 +63,8 @@ const manifest: Manifest = {
     { from: "self:modules/a.nix", to: "self:lib/c.nix" },
     { from: "self:modules/sub/b.nix", to: "self:lib/c.nix" },
   ],
-  inputRefs: [],
+  inputRefs: [{ file: "self:modules/a.nix", input: "sops-nix" }],
+  inputFollows: [],
   configurations: [],
   packages: [],
   grafts: [],
@@ -96,6 +97,11 @@ describe("flake indexes", () => {
     expect(fx.importedBy.get("self:lib/c.nix")).toEqual(
       new Set(["self:modules/a.nix", "self:modules/sub/b.nix"]),
     )
+  })
+
+  test("inputRefsByInput groups referencing files per input", () => {
+    expect(fx.inputRefsByInput.get("sops-nix")).toEqual(["self:modules/a.nix"])
+    expect(fx.inputRefsByInput.get("nixpkgs")).toBeUndefined()
   })
 
   test("resolveFile attributes self, input, patched-input, and unknown", () => {

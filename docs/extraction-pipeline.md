@@ -35,7 +35,7 @@ The cache check happens at manifest time, not per request: after every manifest 
 
 ### manifest.ts — the cheap pass
 
-[`src/extract/manifest.ts`](../src/extract/manifest.ts) assembles the `Manifest`: `nix flake metadata` (lock graph, narHash), `nix flake show --json` (normalized across the classic and Determinate "inventory" formats), the `extract.nix` manifest eval (store paths, configuration names, `.nix` file list, grafts, output names), the static import graph, and per-file git info when the flakeref is a local checkout. Config names are sanitized (`safeName`) so a quoted attr name containing `/` cannot escape the data dir.
+[`src/extract/manifest.ts`](../src/extract/manifest.ts) assembles the `Manifest`: `nix flake metadata` (lock graph, narHash), `nix flake show --json` (normalized across the classic and Determinate "inventory" formats), the `extract.nix` manifest eval (store paths, configuration names, `.nix` file list, grafts, output names), the static import graph, and per-file git info when the flakeref is a local checkout. The lock-graph walk (`inputInfos`) dedups shared nodes into one entry per node; the follows/shared edges that dedup would drop are recorded separately as `Manifest.inputFollows` so input pages can still draw the "sops-nix/nixpkgs → nixpkgs" arrows. Config names are sanitized (`safeName`) so a quoted attr name containing `/` cannot escape the data dir.
 
 ### extract.nix — the Nix-side core
 

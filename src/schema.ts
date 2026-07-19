@@ -20,6 +20,8 @@ export interface Manifest {
   importEdges: ImportEdge[]
   /** Self files whose source references `inputs.<name>` (regex scan, like importEdges). */
   inputRefs: InputRef[]
+  /** Follows/shared-node edges dropped from `inputs` by dedup (see InputFollow). */
+  inputFollows: InputFollow[]
   configurations: ConfigRef[]
   /** Derivation-typed outputs: packages, devShells, checks, formatter (see PackageRef). */
   packages: PackageRef[]
@@ -172,6 +174,19 @@ export interface InputRef {
   file: string
   /** Canonical root input name (follows aliases resolved to the real input). */
   input: string
+}
+
+/**
+ * A transitive lock-graph edge whose target node is already claimed by
+ * another inputs entry (follows dedup): the "sops-nix/nixpkgs → nixpkgs"
+ * arrows. Without these the deduped inputs record silently drops exactly
+ * the follows relationships people get lost in.
+ */
+export interface InputFollow {
+  /** "parent/child" name the edge would have had as its own entry. */
+  name: string
+  /** Name of the InputInfo entry that owns the shared lock node. */
+  target: string
 }
 
 export type ConfigKind = "nixos" | "darwin"
