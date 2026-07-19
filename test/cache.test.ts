@@ -2,8 +2,15 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { applyExtracted, extractAndPersist, reconcile, writeSidecar } from "../src/extract/cache"
-import type { ConfigRef, Manifest } from "../src/schema"
+import {
+  applyExtracted,
+  applyExtractedPackage,
+  extractAndPersist,
+  extractAndPersistPackage,
+  reconcile,
+  writeSidecar,
+} from "../src/extract/cache"
+import type { ConfigRef, Manifest, PackageRef } from "../src/schema"
 import { fixtureManifest } from "./fixtures/data"
 
 const NAR = "sha256-NNNN"
@@ -118,6 +125,127 @@ describe("reconcile / writeSidecar", () => {
         { timeoutMs: 1_000 },
       ),
     ).rejects.toThrow("refusing to write outside the data dir: ../evil.json")
+  })
+})
+
+// fixtureManifest with one pending package and a known narHash — mirrors
+// pendingManifest above; reconcile shares one code path (reconcileRef) for
+// both, so these tests focus on the package-specific wrinkle (no
+// optionCount) rather than re-covering every freshness scenario above.
+const pendingPackageManifest = (narHash?: string): Manifest => {
+  const m = fixtureManifest()
+  m.flake.narHash = narHash
+  m.packages = [
+    {
+      id: "packages/x86_64-linux/hello",
+      path: ["packages", "x86_64-linux", "hello"],
+      dataFile: "package/packages.x86_64-linux.hello.json",
+      status: "pending",
+    },
+  ]
+  return m
+}
+
+describe("reconcile: packages", () => {
+  let outDir: string
+  beforeEach(async () => {
+    outDir = await mkdtemp(join(tmpdir(), "cache-test-pkg-"))
+  })
+  afterEach(async () => {
+    await rm(outDir, { recursive: true, force: true })
+  })
+
+  const ref = { dataFile: "package/packages.x86_64-linux.hello.json" }
+  const blobPath = () => join(outDir, ref.dataFile)
+  const meta = {
+    narHash: NAR,
+    extractedAt: "2026-07-08T12:00:00Z",
+    durationMs: 1234,
+    warnings: ["meta unavailable for packages/x86_64-linux/hello (broken/unfree package?)"],
+  }
+
+  test("matching sidecar flips a package ref to ok without ever gaining optionCount", async () => {
+    await Bun.write(blobPath(), "{}")
+    await writeSidecar(outDir, ref, meta)
+    const m = pendingPackageManifest(NAR)
+    await reconcile(outDir, m)
+    const p = m.packages[0]!
+    expect(p.status).toBe("ok")
+    expect(p.extractedAt).toBe(meta.extractedAt)
+    expect(p.durationMs).toBe(meta.durationMs)
+    expect(Object.hasOwn(p, "optionCount")).toBe(false)
+    expect(m.warnings).toContain("[cached] meta unavailable for packages/x86_64-linux/hello (broken/unfree package?)")
+  })
+
+  test("narHash mismatch stays pending, same as configurations", async () => {
+    await Bun.write(blobPath(), "{}")
+    await writeSidecar(outDir, ref, { ...meta, narHash: "sha256-OTHER" })
+    const m = pendingPackageManifest(NAR)
+    await reconcile(outDir, m)
+    expect(m.packages[0]!.status).toBe("pending")
+  })
+
+  test("reconcile covers configurations and packages in the same pass", async () => {
+    const cfgRef = { dataFile: "config/nixos.test.json" }
+    await Bun.write(join(outDir, cfgRef.dataFile), "{}")
+    await writeSidecar(outDir, cfgRef, {
+      narHash: NAR,
+      extractedAt: "2026-07-08T12:00:00Z",
+      optionCount: 3,
+      durationMs: 10,
+      warnings: [],
+    })
+    await Bun.write(blobPath(), "{}")
+    await writeSidecar(outDir, ref, meta)
+
+    const m = pendingPackageManifest(NAR)
+    m.configurations = [
+      { id: "nixos/test", kind: "nixos", name: "test", dataFile: cfgRef.dataFile, status: "pending" },
+    ]
+    await reconcile(outDir, m)
+    expect(m.configurations[0]!.status).toBe("ok")
+    expect(m.packages[0]!.status).toBe("ok")
+  })
+
+  test("extractAndPersistPackage refuses a dataFile escaping the data dir", async () => {
+    await expect(
+      extractAndPersistPackage(
+        outDir,
+        "/flake",
+        NAR,
+        { id: "evil", path: ["evil"], dataFile: "../evil.json" },
+        { timeoutMs: 1_000 },
+      ),
+    ).rejects.toThrow("refusing to write outside the data dir: ../evil.json")
+  })
+})
+
+describe("applyExtractedPackage", () => {
+  test("stamps extraction stats onto the current-manifest ref", () => {
+    const ref: PackageRef = {
+      id: "packages/x86_64-linux/hello",
+      path: ["packages", "x86_64-linux", "hello"],
+      dataFile: "package/packages.x86_64-linux.hello.json",
+      status: "pending",
+    }
+    applyExtractedPackage(ref, {
+      data: {
+        version: 1,
+        id: ref.id,
+        path: ref.path,
+        builder: "unknown",
+        outputs: [],
+        deps: { nativeBuildInputs: [], buildInputs: [], propagatedBuildInputs: [] },
+        warnings: [],
+      },
+      warnings: [],
+      durationMs: 999,
+      extractedAt: "2026-07-08T12:00:00Z",
+    })
+    expect(ref.status).toBe("ok")
+    expect(ref.extractedAt).toBe("2026-07-08T12:00:00Z")
+    expect(ref.durationMs).toBe(999)
+    expect(Object.hasOwn(ref, "optionCount")).toBe(false)
   })
 })
 

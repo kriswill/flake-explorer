@@ -59,6 +59,90 @@
 
       networking = import ./modules/networking.nix { inherit mkOpt hostFile hostDefs; };
       nginx = import ./modules/nginx.nix { inherit mkOpt hostFile hostDefs; };
+
+      # Package/devShell/check/formatter fixtures: raw `derivation` builtin
+      # merged with pname/version/meta/nativeBuildInputs via `//` — the merge
+      # keeps type/drvPath/outPath pointing at the real (never-built)
+      # derivation while letting extract.nix's package mode see the extra
+      # attrs, all without a nixpkgs import. `${depDrv}` inside `args`
+      # (rather than only in the merged `nativeBuildInputs`) is what actually
+      # makes depDrv a real .drv-level input, matching `nix derivation
+      # show`'s `inputDrvs` — the merged attribute alone would not.
+      depDrv = derivation {
+        name = "mini-dep";
+        system = "x86_64-linux";
+        builder = "/bin/sh";
+        args = [
+          "-c"
+          "echo dep > $out"
+        ];
+      };
+
+      packageDrv = derivation {
+        name = "mini-0.1.0";
+        system = "x86_64-linux";
+        builder = "/bin/sh";
+        args = [
+          "-c"
+          "echo ${depDrv} ok > $out"
+        ];
+      } // {
+        pname = "mini";
+        version = "0.1.0";
+        meta = {
+          description = "Mini test package";
+          homepage = "https://example.com/mini";
+          mainProgram = "mini";
+          platforms = [ "x86_64-linux" ];
+          license = {
+            shortName = "mit";
+            fullName = "MIT License";
+            spdxId = "MIT";
+            free = true;
+          };
+          maintainers = [
+            {
+              name = "Test Maintainer";
+              github = "testuser";
+            }
+          ];
+        };
+        nativeBuildInputs = [ depDrv ];
+      };
+
+      devShellDrv = derivation {
+        name = "mini-devshell";
+        system = "x86_64-linux";
+        builder = "/bin/sh";
+        args = [
+          "-c"
+          "echo shell > $out"
+        ];
+      };
+
+      checkDrv = derivation {
+        name = "mini-check";
+        system = "x86_64-linux";
+        builder = "/bin/sh";
+        args = [
+          "-c"
+          "echo check > $out"
+        ];
+      } // {
+        meta.description = "Mini test check";
+      };
+
+      formatterDrv = derivation {
+        name = "mini-formatter";
+        system = "x86_64-linux";
+        builder = "/bin/sh";
+        args = [
+          "-c"
+          "echo fmt > $out"
+        ];
+      } // {
+        meta.mainProgram = "mini-formatter";
+      };
     in
     {
       lib = {
@@ -66,6 +150,11 @@
         helper = import ./lib/helper.nix;
         extras = import ./extras;
       };
+
+      packages.x86_64-linux.mini = packageDrv;
+      devShells.x86_64-linux.default = devShellDrv;
+      checks.x86_64-linux.mini-check = checkDrv;
+      formatter.x86_64-linux = formatterDrv;
 
       nixosConfigurations.mini = {
         # `nix flake show`'s builtin nixosConfigurations schema forces

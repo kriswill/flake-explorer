@@ -11,6 +11,7 @@ import {
   type Manifest,
   makeFileId,
   type OutputNode,
+  type PackageRef,
   SCHEMA_VERSION,
 } from "../schema"
 import { lastCommits, repoPrefix } from "./git"
@@ -57,6 +58,10 @@ export async function buildManifest(
     (relPath) => makeFileId({ kind: "self" }, relPath),
   )
 
+  const outputs: OutputNode = showJson
+    ? normalizeShow(showJson)
+    : { kind: "attrset", children: {} }
+
   return {
     version: SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
@@ -68,7 +73,7 @@ export async function buildManifest(
       rev: meta.revision,
       narHash: meta.locked?.narHash,
     },
-    outputs: showJson ? normalizeShow(showJson) : { kind: "attrset", children: {} },
+    outputs,
     inputs,
     files,
     importEdges,
@@ -79,9 +84,56 @@ export async function buildManifest(
       dataFile: `config/${kind}.${safeName(n)}.json`,
       status: "pending" as const,
     })),
+    packages: packageRefs(outputs),
     grafts: ev.grafts ?? [],
     outputNames: ev.outputNames ?? {},
     warnings,
+  }
+}
+
+/**
+ * Derivation-typed outputs (packages, devShells, checks, formatter), enumerated
+ * straight from the already-normalized outputs tree — no extra eval, unlike
+ * configurations. packages/devShells/checks are <system>.<name> (depth 3);
+ * formatter is <system> only, one derivation per system (depth 2). Any leaf
+ * counts regardless of its `type` string — classic nix flake show says
+ * "derivation", Determinate's inventory says "package"/"development
+ * environment"/etc. `apps` and `legacyPackages` are intentionally skipped
+ * (apps need an extra eval to resolve `program` to a derivation).
+ */
+export function packageRefs(outputs: OutputNode): PackageRef[] {
+  const refs: PackageRef[] = []
+  if (outputs.kind !== "attrset") return refs
+
+  for (const category of ["packages", "devShells", "checks"] as const) {
+    const catNode = outputs.children[category]
+    if (!catNode || catNode.kind !== "attrset") continue
+    for (const [system, sysNode] of Object.entries(catNode.children)) {
+      if (sysNode.kind !== "attrset") continue
+      for (const [name, leaf] of Object.entries(sysNode.children)) {
+        if (leaf.kind !== "leaf") continue
+        refs.push(makePackageRef([category, system, name]))
+      }
+    }
+  }
+
+  const formatterNode = outputs.children.formatter
+  if (formatterNode?.kind === "attrset") {
+    for (const [system, leaf] of Object.entries(formatterNode.children)) {
+      if (leaf.kind !== "leaf") continue
+      refs.push(makePackageRef(["formatter", system]))
+    }
+  }
+
+  return refs
+}
+
+function makePackageRef(path: string[]): PackageRef {
+  return {
+    id: path.join("/"),
+    path,
+    dataFile: `package/${path.map(safeName).join(".")}.json`,
+    status: "pending",
   }
 }
 
@@ -91,7 +143,7 @@ export async function buildManifest(
  * serve route's charset pass through; anything else becomes a slug plus a
  * short collision hash (still matching /^[\w@%.+-]+$/, so it stays fetchable).
  */
-function safeName(name: string): string {
+export function safeName(name: string): string {
   if (/^[\w@+.-]+$/.test(name)) return name
   return `${name.replace(/[^\w@+.-]/g, "_")}-${Bun.hash(name).toString(36).slice(0, 8)}`
 }
