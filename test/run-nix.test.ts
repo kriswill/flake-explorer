@@ -7,11 +7,14 @@ import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
+  attrSelector,
   checkNix,
+  derivationShow,
   evalExtract,
   flakeMetadata,
   flakeShow,
   NixError,
+  pathInfo,
   readInputFile,
   runJson,
 } from "../src/extract/run-nix"
@@ -32,6 +35,12 @@ case "$NIX_SHIM" in
       *default.nix*) printf "the file contents" ;;
       *) echo "error: cannot read: Is a directory" >&2; exit 1 ;;
     esac ;;
+  path-info-null)
+    for last; do :; done
+    printf '{"%s": null}' "$last" ;;
+  path-info-value)
+    for last; do :; done
+    printf '{"%s": {"narSize": 123, "closureSize": 456, "references": ["/nix/store/a", "/nix/store/b"]}}' "$last" ;;
   *) echo "unexpected NIX_SHIM=$NIX_SHIM" >&2; exit 9 ;;
 esac
 `
@@ -149,5 +158,48 @@ describe("readInputFile", () => {
   test("non-directory errors pass through untouched", async () => {
     shim("fail")
     await expect(readInputFile("/f", "vendor", "modules/sops.nix")).rejects.toThrow(NixError)
+  })
+})
+
+describe("attrSelector", () => {
+  test("bare nix identifiers pass through unquoted", () => {
+    expect(attrSelector(["packages", "x86_64-linux", "rtk"])).toBe("packages.x86_64-linux.rtk")
+    expect(attrSelector(["formatter", "x86_64-linux"])).toBe("formatter.x86_64-linux")
+  })
+
+  test("segments with special characters get JSON-quoted", () => {
+    expect(attrSelector(["packages", "x86_64-linux", "my.pkg name"])).toBe(
+      'packages.x86_64-linux."my.pkg name"',
+    )
+    expect(attrSelector(["a", "1abc"])).toBe('a."1abc"') // digit-first isn't a bare identifier
+  })
+})
+
+describe("derivationShow", () => {
+  test("builds argv with --impure and the (quoted) flake attr path", async () => {
+    shim("echo-args")
+    const argvOf = (p: Promise<unknown>) => p as Promise<string>
+    expect(await argvOf(derivationShow("/my/flake", ["packages", "x86_64-linux", "rtk"]))).toBe(
+      "--option lazy-trees false derivation show --impure /my/flake#packages.x86_64-linux.rtk",
+    )
+  })
+})
+
+describe("pathInfo", () => {
+  // Verified against a running nix (see extract.nix's outputInfo comment):
+  // this always exits 0 — a path not yet realized in the store maps to
+  // `null` in the JSON rather than a nonzero exit code.
+  test("a path missing from the store resolves to null, not a thrown error", async () => {
+    shim("path-info-null")
+    expect(await pathInfo("/nix/store/xxx-thing")).toBeNull()
+  })
+
+  test("a valid path returns its narSize/closureSize/references", async () => {
+    shim("path-info-value")
+    expect(await pathInfo("/nix/store/xxx-thing")).toEqual({
+      narSize: 123,
+      closureSize: 456,
+      references: ["/nix/store/a", "/nix/store/b"],
+    })
   })
 })

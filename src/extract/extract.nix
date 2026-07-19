@@ -3,9 +3,10 @@
 #     'import <store>/extract.nix (builtins.fromJSON ''<args>'')'
 # (--impure is required for builtins.getFlake on path/dirty refs.)
 #
-# Two modes:
+# Three modes:
 #   manifest — cheap: self/input store paths, configuration names, .nix files.
 #   options  — expensive: the full options tree of one configuration.
+#   package  — one derivation-typed output (packages/devShells/checks/formatter).
 #
 # Deliberately builtins-only (no nixpkgs lib): works on flakes with no
 # nixpkgs input (e.g. the mini-flake fixture) and keeps the eval surface
@@ -22,6 +23,8 @@
   # extracts chunk-by-chunk and splits failing chunks recursively, because an
   # uncatchable eval error (missing attr / type error — tryEval only catches
   # throw/assert) poisons the entire eval it occurs in.
+  # package mode: the output-tree path to the derivation itself (e.g.
+  # ["packages" "x86_64-linux" "rtk"]), walking `flake.outputs` instead.
   path ? [ ],
   childNames ? null,
   skipInvisible ? true,
@@ -384,10 +387,142 @@ let
           value = subtree.${n};
         }) (builtins.filter (n: subtree ? ${n}) childNames)
       );
+
+  # ----------------------------------------------------------------- package
+  # Derivation-typed outputs (packages/devShells/checks/formatter), resolved
+  # generically by walking `flake.outputs` via `path` (reusing `descend`
+  # above). Unlike `cfg` above there's no flat kind->outputs map to ternary
+  # on: these are <system>.<name> (formatter: <system> alone), so the walk
+  # has to go through the tree rather than pick one of two fixed attrsets.
+  pkg = descend flake.outputs path;
+
+  isDrv =
+    let
+      r = builtins.tryEval (builtins.isAttrs pkg && (pkg.type or null) == "derivation");
+    in
+    r.success && r.value;
+
+  # Per-field guard for scalars that are supposed to be strings but might be
+  # thrown (unfree/broken markers — tryEval DOES catch throw/assert) or,
+  # rarely, some other type entirely. The type check runs BEFORE ever
+  # calling `str`/toString: coercing a non-coercible value (a plain attrset,
+  # a list, a function) is a TYPE error, and unlike throw/assert, tryEval
+  # does NOT catch that (see module header) — so it must never be attempted.
+  strOrNull =
+    v:
+    let
+      r = builtins.tryEval (
+        if v == null then
+          null
+        else if
+          builtins.isString v
+          || builtins.isPath v
+          || builtins.isInt v
+          || builtins.isFloat v
+          || builtins.isBool v
+        then
+          str v
+        else
+          null
+      );
+    in
+    if r.success then r.value else null;
+
+  tryOr =
+    default: v:
+    let
+      r = builtins.tryEval v;
+    in
+    if r.success then r.value else default;
+
+  markers = {
+    cargoDeps = tryOr false (pkg ? cargoDeps);
+    goModules = tryOr false (pkg ? goModules);
+    npmDeps = tryOr false (pkg ? npmDeps);
+    buildCommand = tryOr false (pkg ? buildCommand);
+  };
+
+  # Dependency lists: names only, never `.outPath`/`.drvPath` — forcing those
+  # would pull each dep's own closure into scope for no reason. package.ts
+  # gets real drv-level inputs (with outputs) from `nix derivation show`.
+  depName =
+    d:
+    let
+      n = d.name or d.pname or "?";
+      r = builtins.tryEval (if builtins.isString n then n else "?");
+    in
+    if r.success then r.value else "?";
+
+  depNames = list: tryOr [ ] (map depName list);
+
+  pkgOutputNames = tryOr [ "out" ] (pkg.outputs or [ "out" ]);
+
+  # NB: the returned attr must NOT be named `outPath` — `nix eval --json`
+  # special-cases any attrset carrying that key and silently collapses the
+  # WHOLE attrset down to just that string (same rule that lets a derivation
+  # coerce to its outPath), discarding `name` entirely. package.ts renames
+  # this back to `outPath` when building the public PackageData shape.
+  outputInfo = outName: {
+    name = outName;
+    path = strOrNull (pkg.${outName}.outPath or null);
+  };
+
+  # meta/src go through scrub+deepSafe (defined above): both are
+  # user-controlled attrsets that routinely throw WHOLE (an unfree/broken
+  # package's `meta.license = throw "..."` poisons all of meta at once, not
+  # just that one field) — scrub already knows how to safely flatten
+  # arbitrary nix values, so reuse it rather than re-deriving per-field
+  # guards here. License-shape normalization (string|attrs|list -> list)
+  # happens in package.ts, off this raw scrubbed value.
+  metaResult = deepSafe (pkg.meta or { });
+
+  srcOrNull =
+    if !(pkg ? src) then
+      null
+    else
+      let
+        s = pkg.src;
+        isAttrsSrc = tryOr false (builtins.isAttrs s);
+      in
+      if !isAttrsSrc then
+        {
+          storePath = strOrNull s;
+          url = null;
+          rev = null;
+          outputHash = null;
+        }
+      else
+        {
+          storePath = strOrNull (s.outPath or null);
+          url = strOrNull (s.url or null);
+          rev = strOrNull (s.rev or null);
+          outputHash = strOrNull (s.outputHash or null);
+        };
+
+  packageInfo = {
+    inherit isDrv;
+    name = strOrNull (pkg.name or null);
+    pname = strOrNull (pkg.pname or null);
+    pkgVersion = strOrNull (pkg.version or null);
+    stdenv = strOrNull (pkg.stdenv.name or null);
+    system = strOrNull (pkg.system or null);
+    inherit markers;
+    outputs = tryOr [ ] (map outputInfo pkgOutputNames);
+    meta = if metaResult ? ok then metaResult.ok else null;
+    metaError = metaResult ? err;
+    src = srcOrNull;
+    deps = {
+      nativeBuildInputs = depNames (pkg.nativeBuildInputs or [ ]);
+      buildInputs = depNames (pkg.buildInputs or [ ]);
+      propagatedBuildInputs = depNames (pkg.propagatedBuildInputs or [ ]);
+    };
+  };
 in
 if mode == "manifest" then
   manifest
 else if mode == "optionNames" then
   (if isOption subtree || !builtins.isAttrs subtree then [ ] else builtins.attrNames subtree)
+else if mode == "package" then
+  packageInfo
 else
   { options = walk walkRoot; }

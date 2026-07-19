@@ -7,7 +7,13 @@
 import { mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { buildApp, pageHtml } from "./build-app"
-import { applyExtracted, extractAndPersist, reconcile } from "./extract/cache"
+import {
+  applyExtracted,
+  applyExtractedPackage,
+  extractAndPersist,
+  extractAndPersistPackage,
+  reconcile,
+} from "./extract/cache"
 import { tokenizeNix } from "./extract/highlight"
 import { buildManifest } from "./extract/manifest"
 import { checkNix, readInputFile } from "./extract/run-nix"
@@ -27,6 +33,7 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
   await checkNix()
   const outDir = flags.out
   mkdirSync(join(outDir, "config"), { recursive: true })
+  mkdirSync(join(outDir, "package"), { recursive: true })
 
   console.log(`building UI ...`)
   const title = `flake-explorer — ${flakeRef}`
@@ -119,6 +126,45 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
     return p
   }
 
+  // Same single-flight Map as extractConfig above, keyed with a "pkg:" prefix
+  // so a package id can never collide with a config id in `inflight`.
+  async function extractPackageOnDemand(packageId: string): Promise<void> {
+    const ref = manifest.packages.find((p) => p.id === packageId)
+    if (!ref || ref.status === "ok") return
+    const key = `pkg:${packageId}`
+    let p = inflight.get(key)
+    if (!p) {
+      const narHash = manifest.flake.narHash
+      p = (async () => {
+        console.log(`extracting package ${packageId} ...`)
+        const r = await extractAndPersistPackage(outDir, flakeRef, narHash, ref, {
+          timeoutMs: flags.timeout * 1000,
+        })
+        // Settle onto the ref in the CURRENT manifest — see extractConfig's
+        // comment above, same reasoning applies to /api/refresh races.
+        const cur = manifest.packages.find((p) => p.id === packageId)
+        if (cur) {
+          applyExtractedPackage(cur, r)
+          manifest.warnings.push(...r.warnings)
+        }
+        console.log(
+          `  ${packageId}: builder=${r.data.builder} in ${(r.durationMs / 1000).toFixed(1)}s`,
+        )
+      })().catch((e) => {
+        const msg = String(e).split("\n").slice(0, 3).join(" ")
+        const cur = manifest.packages.find((p) => p.id === packageId)
+        if (cur) {
+          cur.status = "error"
+          cur.error = msg
+        }
+        console.error(`  ${packageId} failed: ${msg}`)
+      })
+      inflight.set(key, p)
+      void p.finally(() => inflight.delete(key))
+    }
+    return p
+  }
+
   const server = Bun.serve({
     port: flags.port ?? 4321,
     idleTimeout: 0, // extraction-held requests can exceed any fixed timeout
@@ -147,16 +193,22 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
       if (url.pathname === "/data/manifest.json") {
         return Response.json(manifest)
       }
-      const m = url.pathname.match(/^\/data\/(config\/[\w@%.+-]+\.json)$/)
+      const m = url.pathname.match(/^\/data\/((?:config|package)\/[\w@%.+-]+\.json)$/)
       if (m) {
         const rel = decodeURIComponent(m[1]!)
-        const ref = manifest.configurations.find((c) => c.dataFile === rel)
+        const isPackage = rel.startsWith("package/")
+        const findRef = () =>
+          isPackage
+            ? manifest.packages.find((p) => p.dataFile === rel)
+            : manifest.configurations.find((c) => c.dataFile === rel)
+        const ref = findRef()
         if (ref && ref.status !== "ok") {
-          await extractConfig(ref.id)
+          if (isPackage) await extractPackageOnDemand(ref.id)
+          else await extractConfig(ref.id)
           // Re-resolve: extraction settles onto the ref in the manifest that
           // is current at completion (see extractConfig), which /api/refresh
           // may have swapped while we awaited.
-          const cur = manifest.configurations.find((c) => c.dataFile === rel)
+          const cur = findRef()
           if (cur?.status !== "ok") {
             return new Response(cur?.error ?? "extraction failed", { status: 500 })
           }

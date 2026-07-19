@@ -10,7 +10,13 @@ import { cp, mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { buildConfigIndexes, buildFlakeIndexes, resolveFile } from "../app/lib/indexes"
-import { applyExtracted, extractAndPersist, reconcile } from "../src/extract/cache"
+import {
+  applyExtracted,
+  applyExtractedPackage,
+  extractAndPersist,
+  extractAndPersistPackage,
+  reconcile,
+} from "../src/extract/cache"
 import { buildManifest } from "../src/extract/manifest"
 import { extractOptions } from "../src/extract/options"
 import type { Manifest } from "../src/schema"
@@ -67,6 +73,24 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
         status: "pending",
       },
     ])
+
+    // packages/devShells/checks/formatter, enumerated straight from the
+    // outputs tree (no extra eval) — apps is intentionally out of v1 scope.
+    expect(new Set(m.packages.map((p) => p.id))).toEqual(
+      new Set([
+        "packages/x86_64-linux/mini",
+        "packages/x86_64-linux/mini-broken-meta",
+        "devShells/x86_64-linux/default",
+        "checks/x86_64-linux/mini-check",
+        "formatter/x86_64-linux",
+      ]),
+    )
+    expect(m.packages.find((p) => p.id === "packages/x86_64-linux/mini")).toEqual({
+      id: "packages/x86_64-linux/mini",
+      path: ["packages", "x86_64-linux", "mini"],
+      dataFile: "package/packages.x86_64-linux.mini.json",
+      status: "pending",
+    })
   })
 
   test("options: declares vs. defines spans networking.nix, nginx.nix, hosts/mini.nix", async () => {
@@ -159,6 +183,82 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
       await reconcile(outDir, m2)
       expect(m2.configurations[0]!.status).toBe("ok")
       expect(m2.configurations[0]!.optionCount).toBe(ref.optionCount)
+    } finally {
+      await rm(outDir, { recursive: true, force: true })
+    }
+  })
+
+  test("extractAndPersistPackage writes a blob + sidecar that reconcile then accepts", async () => {
+    const outDir = await mkdtemp(join(tmpdir(), "mini-extract-pkg-"))
+    try {
+      const m = await buildManifest(FIXTURE, { timeoutMs: 60_000 })
+      const ref = m.packages.find((p) => p.id === "packages/x86_64-linux/mini")!
+
+      const r = await extractAndPersistPackage(outDir, FIXTURE, m.flake.narHash, ref, {
+        timeoutMs: 60_000,
+      })
+      applyExtractedPackage(ref, r)
+      expect(ref.status).toBe("ok")
+      expect(Object.hasOwn(ref, "optionCount")).toBe(false)
+
+      // The full real-nix pipeline, end to end: eval markers/meta/deps,
+      // `nix derivation show` (drv-level inputs), `nix path-info` (absent —
+      // mini is never built).
+      expect(r.data.pname).toBe("mini")
+      expect(r.data.pkgVersion).toBe("0.1.0")
+      expect(r.data.deps.nativeBuildInputs).toEqual(["mini-dep"])
+      expect(r.data.meta?.license?.[0]).toMatchObject({ spdxId: "MIT" })
+      expect(r.data.drv?.inputDrvs[0]).toMatchObject({ name: "mini-dep" })
+      expect(r.data.runtime).toBeUndefined() // never built
+
+      const blob = await Bun.file(join(outDir, ref.dataFile)).json()
+      expect(blob.id).toBe("packages/x86_64-linux/mini")
+
+      // A fresh manifest reconciles against the persisted sidecar → no re-eval.
+      const m2 = await buildManifest(FIXTURE, { timeoutMs: 60_000 })
+      await reconcile(outDir, m2)
+      const ref2 = m2.packages.find((p) => p.id === "packages/x86_64-linux/mini")!
+      expect(ref2.status).toBe("ok")
+    } finally {
+      await rm(outDir, { recursive: true, force: true })
+    }
+  })
+
+  test("devShells/checks/formatter extract too, and classify as builder=unknown (raw derivation, no phases)", async () => {
+    const outDir = await mkdtemp(join(tmpdir(), "mini-extract-pkgs-"))
+    try {
+      const m = await buildManifest(FIXTURE, { timeoutMs: 60_000 })
+      for (const id of [
+        "devShells/x86_64-linux/default",
+        "checks/x86_64-linux/mini-check",
+        "formatter/x86_64-linux",
+      ]) {
+        const ref = m.packages.find((p) => p.id === id)!
+        const r = await extractAndPersistPackage(outDir, FIXTURE, m.flake.narHash, ref, {
+          timeoutMs: 60_000,
+        })
+        expect(r.data.builder).toBe("unknown")
+        expect(r.data.outputs[0]?.outPath).toContain("/nix/store/")
+      }
+    } finally {
+      await rm(outDir, { recursive: true, force: true })
+    }
+  })
+
+  test("a package whose meta throws (unfree/broken) degrades to a warning, not a failure", async () => {
+    const outDir = await mkdtemp(join(tmpdir(), "mini-extract-broken-meta-"))
+    try {
+      const m = await buildManifest(FIXTURE, { timeoutMs: 60_000 })
+      const ref = m.packages.find((p) => p.id === "packages/x86_64-linux/mini-broken-meta")!
+      const r = await extractAndPersistPackage(outDir, FIXTURE, m.flake.narHash, ref, {
+        timeoutMs: 60_000,
+      })
+      applyExtractedPackage(ref, r)
+      expect(ref.status).toBe("ok") // meta failing is a warning, not an extraction failure
+      expect(r.data.pname).toBe("mini-broken-meta")
+      expect(r.data.pkgVersion).toBe("0.1.0")
+      expect(r.data.meta).toBeUndefined()
+      expect(r.warnings.some((w) => w.includes("meta unavailable"))).toBe(true)
     } finally {
       await rm(outDir, { recursive: true, force: true })
     }

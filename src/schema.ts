@@ -7,7 +7,7 @@
 export const SCHEMA_VERSION = 1
 
 /** Extractor version — part of the cache key; bump on schema/extractor changes. */
-export const EXTRACTOR_VERSION = "0.2.0"
+export const EXTRACTOR_VERSION = "0.3.0"
 
 export interface Manifest {
   version: typeof SCHEMA_VERSION
@@ -22,6 +22,8 @@ export interface Manifest {
   /** file→file static import graph (self files only). */
   importEdges: ImportEdge[]
   configurations: ConfigRef[]
+  /** Derivation-typed outputs: packages, devShells, checks, formatter (see PackageRef). */
+  packages: PackageRef[]
   /** Outputs that extend an input's same-named namespace (lib = nixpkgs.lib.extend …). */
   grafts: GraftInfo[]
   /** Top-level attr names per output — fills in where nix flake show says "unknown". */
@@ -173,6 +175,142 @@ export interface ConfigRef {
   extractedAt?: string
   optionCount?: number
   durationMs?: number
+}
+
+// ---------------------------------------------------------------------------
+// Derivation-typed outputs: packages, devShells, checks, formatter. Extracted
+// on demand (data/package/<safe-path>.json), same lifecycle as ConfigRef —
+// enumerated for free from the already-normalized `outputs` tree (no extra
+// eval), unlike ConfigRef which comes from a dedicated nix-side eval.
+
+export interface PackageRef {
+  /** path.join("/"), e.g. "packages/x86_64-linux/rtk". */
+  id: string
+  /** Output-tree path segments, e.g. ["packages", "x86_64-linux", "rtk"]. */
+  path: string[]
+  /** Data file relative to the data dir, e.g. "package/packages.x86_64-linux.rtk.json". */
+  dataFile: string
+  status: "pending" | "ok" | "error"
+  error?: string
+  extractedAt?: string
+  durationMs?: number
+}
+
+export type BuilderKind =
+  | "rustPlatform"
+  | "buildGoModule"
+  | "node"
+  | "trivial"
+  | "stdenv"
+  | "unknown"
+
+export interface PackageLicense {
+  shortName?: string
+  fullName?: string
+  spdxId?: string
+  url?: string
+  free?: boolean
+}
+
+export interface PackageMaintainer {
+  name?: string
+  github?: string
+  email?: string
+}
+
+export interface PackageMeta {
+  description?: string
+  homepage?: string
+  /** Always normalized to a list, whatever shape meta.license took (attr/list/string). */
+  license?: PackageLicense[]
+  platforms?: string[]
+  mainProgram?: string
+  /** Capped — some nixpkgs packages list dozens. */
+  maintainers?: PackageMaintainer[]
+  /** meta.position, "file:line" — resolvable to a file chip when under the flake's own path. */
+  position?: string
+  broken?: boolean
+  unfree?: boolean
+}
+
+export interface PackageSrc {
+  storePath?: string
+  url?: string
+  rev?: string
+  outputHash?: string
+}
+
+export interface PackageDeps {
+  nativeBuildInputs: string[]
+  buildInputs: string[]
+  propagatedBuildInputs: string[]
+}
+
+/** One derivation phase script, e.g. {name: "buildPhase", script: "..."}. */
+export interface DrvPhase {
+  name: string
+  script: string
+}
+
+export interface DrvInputRef {
+  drvPath: string
+  name: string
+  outputs: string[]
+}
+
+/**
+ * `nix derivation show` output (instantiation only — never builds). Absent
+ * when instantiation itself fails (recorded as a warning instead).
+ */
+export interface DrvInfo {
+  drvPath: string
+  system: string
+  builderPath: string
+  inputDrvs: DrvInputRef[]
+  /** Scripts capped ~4000 chars each. */
+  phases: DrvPhase[]
+  doCheck?: boolean
+  strictDeps?: boolean
+  structuredAttrs?: boolean
+}
+
+/**
+ * `nix path-info` for one output — present only when that output's path is
+ * already valid in the local store (query-only; this tool never builds).
+ */
+export interface RuntimeInfo {
+  outPath: string
+  references: string[]
+  narSize?: number
+  closureSize?: number
+}
+
+// ---------------------------------------------------------------------------
+// Per-package blob (data/package/<safe-path>.json)
+
+export interface PackageData {
+  /** SCHEMA_VERSION at extraction time — the SPA rejects mismatched blobs. */
+  version: typeof SCHEMA_VERSION
+  id: string
+  path: string[]
+  name?: string
+  pname?: string
+  /**
+   * The derivation's own `version` attr — named pkgVersion (not `version`)
+   * to avoid colliding with the schema-version discriminant above.
+   */
+  pkgVersion?: string
+  builder: BuilderKind
+  stdenv?: string
+  system?: string
+  meta?: PackageMeta
+  src?: PackageSrc
+  outputs: { name: string; outPath?: string }[]
+  deps: PackageDeps
+  drv?: DrvInfo
+  /** Keyed by output name, e.g. runtime.out. */
+  runtime?: Record<string, RuntimeInfo>
+  warnings: string[]
 }
 
 // ---------------------------------------------------------------------------

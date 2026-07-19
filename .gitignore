@@ -10,3 +10,4 @@ coverage/
 .claude/workflows/
 _site/
 .docs-api/
+/.envrc
