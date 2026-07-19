@@ -308,6 +308,6 @@ export interface RawOption {
   defaultText: string | null
   default: ValueEnvelope
   value: ValueEnvelope
-  declarations: string[]
+  declarations: { file: string; line: number | null; column: number | null }[]
   definitions: { file: string; value: ValueEnvelope }[]
 }

@@ -39,6 +39,8 @@ export interface ConfigIndexes {
   refsByFile: Map<string, FileOptionRefs>
   /** Every file participating in this config, by id. */
   filesById: Map<string, FileMeta>
+  /** loc.join(".") -> index into config.options, for option-page routing. */
+  optionsByLoc: Map<string, number>
 }
 
 export interface FlakeIndexes {
@@ -180,7 +182,11 @@ export function buildConfigIndexes(
 
   const tree = buildTree(filesById, refsByFile)
   const fileToNodes = buildFileToNodes(tree)
-  return { tree, fileToNodes, refsByFile, filesById }
+  const optionsByLoc = new Map<string, number>()
+  config.options.forEach((o, i) => {
+    optionsByLoc.set(o.loc.join("."), i)
+  })
+  return { tree, fileToNodes, refsByFile, filesById, optionsByLoc }
 }
 
 /**

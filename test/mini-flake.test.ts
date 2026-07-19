@@ -58,6 +58,9 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
     // not a regression, just this Nix's local-path-input behavior.
     expect(m.files.find((f) => f.relPath === "vendor/flake.nix")?.origin.kind).toBe("self")
 
+    // flake.nix's own `inputs.vendor.url = …` line is a source reference too.
+    expect(m.inputRefs).toEqual([{ file: "self:flake.nix", input: "vendor" }])
+
     const edges = new Set(m.importEdges.map((e) => `${e.from}->${e.to}`))
     expect(edges.has("self:lib/greeting.nix->self:lib/helper.nix")).toBe(true)
     expect(edges.has("self:lib/greeting.nix->self:extras/default.nix")).toBe(true)
@@ -104,6 +107,14 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
       value: "mini",
       default: "unset",
     })
+    // networking.nix supplies declarationPositions → line/column survive;
+    // nginx.nix does not → bare-declarations fallback, file only.
+    expect(byLoc.get("networking.hostName")?.declarations).toEqual([
+      { file: `${m.flake.path}/modules/networking.nix`, line: 12, column: 3 },
+    ])
+    expect(byLoc.get("services.nginx.enable")?.declarations).toEqual([
+      { file: `${m.flake.path}/modules/nginx.nix` },
+    ])
     expect(byLoc.get("services.nginx.enable")).toMatchObject({
       customized: true,
       value: true,

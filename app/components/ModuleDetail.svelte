@@ -86,7 +86,7 @@ const fileEntry = $derived(app.manifest?.files.find((f) => f.id === moduleId) ??
     {:else}
       <ul class="opts">
         {#each configures as entry (entry.loc.join("."))}
-          <OptionRow {entry} highlightFile={meta.storePath} />
+          <OptionRow {entry} highlightFile={meta.storePath} {configId} />
         {/each}
       </ul>
     {/if}
@@ -109,7 +109,7 @@ const fileEntry = $derived(app.manifest?.files.find((f) => f.id === moduleId) ??
     {:else}
       <ul class="opts">
         {#each declares as entry (entry.loc.join("."))}
-          <OptionRow {entry} highlightFile={meta.storePath} />
+          <OptionRow {entry} highlightFile={meta.storePath} {configId} />
         {/each}
       </ul>
     {/if}

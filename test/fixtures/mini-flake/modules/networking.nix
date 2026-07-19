@@ -18,6 +18,15 @@
     description = "The host name of this machine.";
     default = "unset";
     declarations = [ ./networking.nix ];
+    # Real-module-system parallel list — exercises the declarer line/column
+    # passthrough; nginx.nix omits it to exercise the bare-declarations fallback.
+    declarationPositions = [
+      {
+        file = ./networking.nix;
+        line = 12;
+        column = 3;
+      }
+    ];
     definitionsWithLocations = [
       {
         file = hostFile;

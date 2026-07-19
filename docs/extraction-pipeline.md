@@ -61,6 +61,10 @@ The cache check happens at manifest time, not per request: after every manifest 
 
 [`src/extract/imports.ts`](../src/extract/imports.ts) builds the file→file import graph with a regex scan (patterns in [`src/pathref.ts`](../src/pathref.ts)), not a parser: dendritic flakes have near-zero manual imports, false positives are harmless in a visualization, and `nix-instantiate --parse` re-prints Nix rather than emitting JSON, so a "real" approach would still be text-munging. Its header names tree-sitter-nix as the upgrade path.
 
+### input-refs.ts — input reference scan
+
+[`src/extract/input-refs.ts`](../src/extract/input-refs.ts) scans the same self files for `inputs.<name>` / `inputs'.<name>` references (`Manifest.inputRefs`), with the same regex-over-parser tradeoff as imports.ts — destructured input args (`outputs = { nixpkgs, ... }:`) are invisible to any syntactic approach, so a parser wouldn't buy correctness where it matters. Follows-aliases (`inputs.stable.follows = "nixpkgs"`) are resolved to the canonical input name; unknown names are dropped.
+
 ### highlight.ts — server-side syntax highlighting
 
 [`src/extract/highlight.ts`](../src/extract/highlight.ts) tokenizes Nix source with tree-sitter-nix compiled to WASM, vendored in `src/extract/vendor/` from nixpkgs' `pkgsCross.wasi32.tree-sitter-grammars.tree-sitter-nix` (a native WASI build — no emscripten or npm grammar package). It resolves the highlight query's captures into flat, non-overlapping runs (narrower node wins; on the same node the earlier-declared query pattern wins); the client only maps capture names to colors. The header documents the exact `nix build` + `cp` commands to regenerate the vendored grammar and query file.

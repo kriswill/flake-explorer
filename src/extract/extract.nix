@@ -350,7 +350,25 @@ let
           deepSafe o.value
         else
           (if isDefined then { skipped = true; } else null);
-      declarations = map str (o.declarations or [ ]);
+      # declarationPositions (file+line+column) exists since nixpkgs 23.11;
+      # older module systems (or ones that fill it with an empty list while
+      # declarations is populated) fall back to the bare declarations files.
+      declarations =
+        let
+          positions = o.declarationPositions or null;
+        in
+        if builtins.isList positions && positions != [ ] then
+          map (p: {
+            file = str p.file;
+            line = p.line or null;
+            column = p.column or null;
+          }) positions
+        else
+          map (f: {
+            file = str f;
+            line = null;
+            column = null;
+          }) (o.declarations or [ ]);
       definitions = if defsR.success then defsR.value else [ ];
     };
 

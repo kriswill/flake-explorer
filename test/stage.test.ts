@@ -40,6 +40,15 @@ describe("Stage", () => {
     })
   })
 
+  test("option selection renders OptionDetail", () => {
+    loadTestConfig()
+    app.selection = { kind: "option", configId: "nixos/test", loc: ["services", "x", "enable"] }
+    withMount(Stage, {}, (host) => {
+      expect(host.querySelector("h2")?.textContent).toBe("services.x.enable")
+      expect(host.textContent).toContain("Declared in")
+    })
+  })
+
   test("file selection renders FileDetail", () => {
     app.selection = { kind: "file", fileId: "self:lib/c.nix" }
     withMount(Stage, {}, (host) => {

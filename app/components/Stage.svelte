@@ -4,6 +4,7 @@ import FileDetail from "./FileDetail.svelte"
 import InputDetail from "./InputDetail.svelte"
 import Legend from "./Legend.svelte"
 import ModuleDetail from "./ModuleDetail.svelte"
+import OptionDetail from "./OptionDetail.svelte"
 import PackageDetail from "./PackageDetail.svelte"
 
 const outputLeaf = $derived.by(() => {
@@ -31,6 +32,8 @@ const packageRef = $derived.by(() => {
 <div class="stage">
   {#if app.selection?.kind === "module"}
     <ModuleDetail configId={app.selection.configId} moduleId={app.selection.moduleId} />
+  {:else if app.selection?.kind === "option"}
+    <OptionDetail configId={app.selection.configId} loc={app.selection.loc} />
   {:else if app.selection?.kind === "file"}
     <FileDetail fileId={app.selection.fileId} />
   {:else if app.selection?.kind === "input"}

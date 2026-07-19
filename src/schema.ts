@@ -18,6 +18,8 @@ export interface Manifest {
   files: FileEntry[]
   /** file→file static import graph (self files only). */
   importEdges: ImportEdge[]
+  /** Self files whose source references `inputs.<name>` (regex scan, like importEdges). */
+  inputRefs: InputRef[]
   configurations: ConfigRef[]
   /** Derivation-typed outputs: packages, devShells, checks, formatter (see PackageRef). */
   packages: PackageRef[]
@@ -162,6 +164,14 @@ export interface TokenRun {
 export interface ImportEdge {
   from: string
   to: string
+}
+
+/** A self file whose source text references `inputs.<input>` (or `inputs'.<input>`). */
+export interface InputRef {
+  /** FileEntry.id of the referencing file. */
+  file: string
+  /** Canonical root input name (follows aliases resolved to the real input). */
+  input: string
 }
 
 export type ConfigKind = "nixos" | "darwin"
@@ -364,6 +374,8 @@ export interface OptionEntry {
   value?: unknown
   /** True when evaluating/serializing the value threw. */
   valueError?: true
+  /** True when the extractor skipped the value (package-typed, or a degraded chunk). */
+  valueSkipped?: true
   default?: unknown
   defaultText?: string
   /** Declaring files. */
@@ -374,12 +386,25 @@ export interface OptionEntry {
 
 export interface DeclarationRef {
   file: string // store path or "<unknown-file>"
+  /** 1-based declaration site (option.declarationPositions); absent on older module systems. */
+  line?: number
+  column?: number
 }
 
 export interface DefinitionRef {
   file: string // store path or "<unknown-file>"
   value?: unknown
   valueError?: true
+  /** True when the extractor skipped this definition's value. */
+  valueSkipped?: true
+  /**
+   * mkOverride priority lifted from a wrapper surviving in this definition's
+   * raw value. The real module system strips wrappers AND drops losing-prio
+   * definitions before exposing definitionsWithLocations (lib filterOverrides),
+   * so there absent means "merged at the option's highestPrio"; it is present
+   * only on module systems that expose raw definition values.
+   */
+  prio?: number
 }
 
 /** Sentinel file string the module system uses for inline/anonymous modules. */

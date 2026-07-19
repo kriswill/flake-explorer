@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onDestroy } from "svelte"
 import { type OptionEntry, PRIO } from "../../src/schema"
+import { jsonSegments } from "../lib/json-segments"
 import { app } from "../lib/state.svelte"
 import Dot from "./Dot.svelte"
 
@@ -8,8 +9,10 @@ interface Props {
   entry: OptionEntry
   /** storePath of the module being viewed — used to pick "its" definition. */
   highlightFile: string
+  /** When set, the option name links to its option page in this config. */
+  configId?: string
 }
-const { entry, highlightFile }: Props = $props()
+const { entry, highlightFile, configId }: Props = $props()
 
 let open = $state(false)
 
@@ -33,57 +36,15 @@ const prioChip = $derived.by(() => {
 const ownDefinition = $derived(entry.definitions.find((d) => d.file === highlightFile))
 const shownValue = $derived(ownDefinition ? ownDefinition.value : entry.value)
 const shownValueError = $derived(ownDefinition ? ownDefinition.valueError : entry.valueError)
+const shownValueSkipped = $derived(ownDefinition ? ownDefinition.valueSkipped : entry.valueSkipped)
 
 const preview = $derived.by(() => {
   if (shownValueError) return "⚠ value failed to evaluate"
-  if (shownValue === undefined) {
-    return entry.customized ? "(value skipped)" : (entry.defaultText ?? "—")
-  }
+  if (shownValueSkipped) return "(value skipped)"
+  if (shownValue === undefined) return entry.defaultText ?? "—"
   const s = JSON.stringify(shownValue)
   return s === undefined ? "—" : s
 })
-
-interface JsonSeg {
-  text: string
-  cls?: string
-}
-
-/** Walks a parsed JSON value and emits {text, cls} runs, matching JSON.stringify(v, null, 2)'s layout. */
-function jsonSegments(value: unknown, indent: string): JsonSeg[] {
-  if (value === null || typeof value === "boolean")
-    return [{ text: JSON.stringify(value), cls: "tok-atom" }]
-  if (typeof value === "number") return [{ text: JSON.stringify(value), cls: "tok-number" }]
-  if (typeof value === "string") return [{ text: JSON.stringify(value), cls: "tok-string" }]
-
-  const nextIndent = `${indent}  `
-  if (Array.isArray(value)) {
-    if (value.length === 0) return [{ text: "[]" }]
-    const segs: JsonSeg[] = [{ text: "[\n" }]
-    value.forEach((item, i) => {
-      segs.push({ text: nextIndent }, ...jsonSegments(item, nextIndent))
-      segs.push({ text: i < value.length - 1 ? ",\n" : "\n" })
-    })
-    segs.push({ text: `${indent}]` })
-    return segs
-  }
-  if (typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>)
-    if (entries.length === 0) return [{ text: "{}" }]
-    const segs: JsonSeg[] = [{ text: "{\n" }]
-    entries.forEach(([k, v], i) => {
-      segs.push(
-        { text: nextIndent },
-        { text: JSON.stringify(k), cls: "tok-key" },
-        { text: ": " },
-        ...jsonSegments(v, nextIndent),
-      )
-      segs.push({ text: i < entries.length - 1 ? ",\n" : "\n" })
-    })
-    segs.push({ text: `${indent}}` })
-    return segs
-  }
-  return [{ text: String(value) }]
-}
 
 const fullSegments = $derived(shownValue !== undefined ? jsonSegments(shownValue, "") : undefined)
 
@@ -106,19 +67,33 @@ onDestroy(() => {
 </script>
 
 <li>
-  <button
+  <div
     class="opt"
     class:customized={entry.customized}
-    onclick={() => (open = !open)}
+    role="group"
     onpointerenter={enter}
     onpointerleave={leave}
   >
-    <Dot hollow={!entry.customized} />
-    <span class="loc mono">{entry.loc.join(".")}</span>
+    <button class="expand dotbtn" aria-expanded={open} aria-label="toggle value" onclick={() => (open = !open)}>
+      <Dot hollow={!entry.customized} />
+    </button>
+    {#if configId}
+      <button
+        class="loc mono loclink"
+        onclick={() => app.select({ kind: "option", configId, loc: entry.loc })}
+      >{entry.loc.join(".")}</button>
+    {:else}
+      <span class="loc mono">{entry.loc.join(".")}</span>
+    {/if}
     {#if prioChip}<span class="chip {prioChip.cls}">{prioChip.label}</span>{/if}
     {#if entry.readOnly}<span class="chip ro">read-only</span>{/if}
-    <span class="val mono" class:muted={!entry.customized}>{preview}</span>
-  </button>
+    <button
+      class="expand val mono"
+      class:muted={!entry.customized}
+      aria-expanded={open}
+      onclick={() => (open = !open)}
+    >{preview}</button>
+  </div>
   {#if open}
     <pre class="mono">{#if fullSegments}{#each fullSegments as seg}<span class={seg.cls}>{seg.text}</span>{/each}{:else}{preview}{/if}</pre>
   {/if}
@@ -130,15 +105,11 @@ onDestroy(() => {
     align-items: center;
     gap: 8px;
     width: 100%;
-    background: none;
-    border: none;
+    box-sizing: border-box;
     border-radius: 6px;
     color: var(--ink-1);
-    font: inherit;
     font-size: 0.8125rem;
     padding: 0.2rem 0.4rem;
-    cursor: pointer;
-    text-align: left;
   }
   .opt {
     --c: var(--link);
@@ -149,6 +120,23 @@ onDestroy(() => {
   .opt:hover {
     background: var(--page);
   }
+  /* Buttons inside the row inherit the row's look — the row used to BE one
+     button; these carry its reset so the layout reads unchanged. */
+  .expand,
+  .loclink {
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+  }
+  .dotbtn {
+    flex: none;
+    display: flex;
+    align-items: center;
+  }
   .mono {
     font-family: ui-monospace, monospace;
   }
@@ -158,6 +146,10 @@ onDestroy(() => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .loclink:hover {
+    color: var(--link);
+    text-decoration: underline;
   }
   .customized .loc {
     font-weight: 600;
