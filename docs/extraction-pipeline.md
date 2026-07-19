@@ -16,22 +16,22 @@ sequenceDiagram
   B->>S: GET /data/config/nixos.host.json
   Note over S: config status pending
   S->>S: single-flight - join in-flight extraction or start one
-  S->>C: extractAndPersist(outDir, flakeRef, narHash, ref)
+  S->>C: extractAndPersist(outDir, flakeRef, cacheKey, ref)
   C->>N: optionNames, then option chunks (extract.nix)
   N-->>C: options JSON per chunk
-  C->>C: write blob + sidecar (narHash, extractor version)
+  C->>C: write blob + sidecar (cache key + extractor fingerprint)
   C-->>S: OptionsResult
   S->>S: applyExtracted onto the CURRENT manifest
   S-->>B: config blob (request held open throughout)
 ```
 
-The cache check happens at manifest time, not per request: after every manifest build (startup and `POST /api/refresh`), `reconcile` flips configs to `ok` when their sidecar records the same flake `narHash` and `EXTRACTOR_VERSION` — those are served straight from disk. The narHash is captured at extraction *start*, because `/api/refresh` can swap the manifest mid-extraction and stamping the new hash onto data evaluated from the old flake state would poison the cache.
+The cache check happens at manifest time, not per request: after every manifest build (startup and `POST /api/refresh`), `reconcile` flips configs to `ok` when their sidecar records the current cache key — an extractor-code fingerprint plus the flake's identity and resolved-input lock hash (see cache.ts below) — those are served straight from disk. The key is captured at extraction *start*, because `/api/refresh` can swap the manifest mid-extraction and stamping the new key onto data evaluated from the old flake state would poison the cache.
 
 ## Modules
 
 ### drive.ts — shared extraction driver
 
-[`src/extract/drive.ts`](../src/extract/drive.ts) runs manifest + selected configurations into the data dir, reusing the narHash-keyed cache, and writes `manifest.json` so the data dir stays reconcilable for later runs. Both `extract` and `export` call it; it lives outside the CLI entry so tests can call it in-process.
+[`src/extract/drive.ts`](../src/extract/drive.ts) runs manifest + selected configurations into the data dir, reusing the fingerprint-keyed cache, and writes `manifest.json` so the data dir stays reconcilable for later runs. Both `extract` and `export` call it; it lives outside the CLI entry so tests can call it in-process.
 
 ### manifest.ts — the cheap pass
 
@@ -51,7 +51,7 @@ The cache check happens at manifest time, not per request: after every manifest 
 
 ### cache.ts — sidecar cache
 
-[`src/extract/cache.ts`](../src/extract/cache.ts) keys the cache on flake `narHash` + `EXTRACTOR_VERSION`, recorded in a sidecar next to each blob (`config/<kind>.<name>.meta.json`). `extractAndPersist` writes blob + sidecar (with a path-traversal guard on `dataFile`); `reconcile` flips matching configs to `ok` on a fresh manifest. It deliberately does not mutate the `ConfigRef` itself — the caller applies the outcome to whichever manifest is current when extraction settles.
+[`src/extract/cache.ts`](../src/extract/cache.ts) keys the cache on three components, recorded in a sidecar next to each blob (`config/<kind>.<name>.meta.json`): an **extractor fingerprint** ([`src/extract/fingerprint.ts`](../src/extract/fingerprint.ts) — a content hash of `src/extract/**` plus `src/schema.ts`, so any extractor change invalidates cached blobs automatically, no manual version bump), a **flake identity** (`narHash`, or the content-addressed self store path when a dirty checkout has none), and a **lockHash** over the resolved input set (catches input drift the flake's own identity can't see, e.g. an uncommitted flake.lock re-resolving an unpinned input). `extractAndPersist` writes blob + sidecar (with a path-traversal guard on `dataFile`); `reconcile` flips matching configs to `ok` on a fresh manifest. It deliberately does not mutate the `ConfigRef` itself — the caller applies the outcome to whichever manifest is current when extraction settles.
 
 ### git.ts — per-file commit info
 

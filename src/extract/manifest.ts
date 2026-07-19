@@ -5,7 +5,6 @@
 import { existsSync, statSync } from "node:fs"
 import { resolve } from "node:path"
 import {
-  EXTRACTOR_VERSION,
   type FileEntry,
   type InputInfo,
   type Manifest,
@@ -14,6 +13,7 @@ import {
   type PackageRef,
   SCHEMA_VERSION,
 } from "../schema"
+import { extractorFingerprint } from "./fingerprint"
 import { lastCommits, repoPrefix } from "./git"
 import { importGraph } from "./imports"
 import {
@@ -63,7 +63,7 @@ export async function buildManifest(
   return {
     version: SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
-    extractor: EXTRACTOR_VERSION,
+    extractor: await extractorFingerprint(),
     flake: {
       ref: flakeRef,
       path: ev.self,

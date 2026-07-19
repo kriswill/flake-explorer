@@ -13,6 +13,7 @@ import { buildConfigIndexes, buildFlakeIndexes, resolveFile } from "../app/lib/i
 import {
   applyExtracted,
   applyExtractedPackage,
+  cacheKeyOf,
   extractAndPersist,
   extractAndPersistPackage,
   reconcile,
@@ -165,7 +166,7 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
       const ref = m.configurations[0]!
       const progress: string[] = []
 
-      const r = await extractAndPersist(outDir, FIXTURE, m.flake.narHash, ref, {
+      const r = await extractAndPersist(outDir, FIXTURE, cacheKeyOf(m), ref, {
         timeoutMs: 60_000,
         onProgress: (p) => progress.push(p.current),
       })
@@ -194,7 +195,7 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
       const m = await buildManifest(FIXTURE, { timeoutMs: 60_000 })
       const ref = m.packages.find((p) => p.id === "packages/x86_64-linux/mini")!
 
-      const r = await extractAndPersistPackage(outDir, FIXTURE, m.flake.narHash, ref, {
+      const r = await extractAndPersistPackage(outDir, FIXTURE, cacheKeyOf(m), ref, {
         timeoutMs: 60_000,
       })
       applyExtractedPackage(ref, r)
@@ -234,7 +235,7 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
         "formatter/x86_64-linux",
       ]) {
         const ref = m.packages.find((p) => p.id === id)!
-        const r = await extractAndPersistPackage(outDir, FIXTURE, m.flake.narHash, ref, {
+        const r = await extractAndPersistPackage(outDir, FIXTURE, cacheKeyOf(m), ref, {
           timeoutMs: 60_000,
         })
         expect(r.data.builder).toBe("unknown")
@@ -250,7 +251,7 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
     try {
       const m = await buildManifest(FIXTURE, { timeoutMs: 60_000 })
       const ref = m.packages.find((p) => p.id === "packages/x86_64-linux/mini-broken-meta")!
-      const r = await extractAndPersistPackage(outDir, FIXTURE, m.flake.narHash, ref, {
+      const r = await extractAndPersistPackage(outDir, FIXTURE, cacheKeyOf(m), ref, {
         timeoutMs: 60_000,
       })
       applyExtractedPackage(ref, r)

@@ -5,6 +5,7 @@ import { join } from "node:path"
 import {
   applyExtracted,
   applyExtractedPackage,
+  cacheKeyOf,
   extractAndPersist,
   extractAndPersistPackage,
   reconcile,
@@ -44,8 +45,10 @@ describe("reconcile / writeSidecar", () => {
   const ref = { dataFile: "config/nixos.test.json" }
   const blobPath = () => join(outDir, ref.dataFile)
   const sidecarPath = () => join(outDir, "config/nixos.test.meta.json")
+  // The key a fresh extraction of pendingManifest(NAR) would stamp.
+  const key = cacheKeyOf(pendingManifest(NAR))
   const meta = {
-    narHash: NAR,
+    ...key,
     extractedAt: "2026-07-08T12:00:00Z",
     optionCount: 42,
     durationMs: 1234,
@@ -74,22 +77,45 @@ describe("reconcile / writeSidecar", () => {
     expect(m.warnings).toEqual([])
   })
 
-  test("narHash mismatch stays pending", async () => {
+  test("flakeKey (narHash) mismatch stays pending", async () => {
     await Bun.write(blobPath(), "{}")
-    await writeSidecar(outDir, ref, { ...meta, narHash: "sha256-OTHER" })
+    await writeSidecar(outDir, ref, { ...meta, flakeKey: "sha256-OTHER" })
     const m = pendingManifest(NAR)
     await reconcile(outDir, m)
     expect(m.configurations[0]!.status).toBe("pending")
   })
 
-  test("manifest without narHash accepts a sidecar with any narHash", async () => {
-    // Documents current lenient behavior: no narHash on the flake means the
-    // hash check is skipped entirely.
+  test("lockHash mismatch stays pending even when the flakeKey matches", async () => {
     await Bun.write(blobPath(), "{}")
-    await writeSidecar(outDir, ref, { ...meta, narHash: "sha256-WHATEVER" })
+    await writeSidecar(outDir, ref, { ...meta, lockHash: "0000000000000000" })
+    const m = pendingManifest(NAR)
+    await reconcile(outDir, m)
+    expect(m.configurations[0]!.status).toBe("pending")
+  })
+
+  test("manifest without narHash falls back to the self store path as identity", async () => {
+    // No narHash (dirty local checkout): the content-addressed self path
+    // stands in, so a matching sidecar is fresh ...
+    await Bun.write(blobPath(), "{}")
     const m = pendingManifest(undefined)
+    await writeSidecar(outDir, ref, { ...meta, ...cacheKeyOf(m) })
     await reconcile(outDir, m)
     expect(m.configurations[0]!.status).toBe("ok")
+
+    // ... and one recorded from different flake content is not.
+    const m2 = pendingManifest(undefined)
+    m2.flake.path = "/nix/store/ffffffffffffffffffffffffffffffff-source"
+    await reconcile(outDir, m2)
+    expect(m2.configurations[0]!.status).toBe("pending")
+  })
+
+  test("pre-CacheKey sidecar (bare narHash, no flakeKey) stays pending", async () => {
+    await Bun.write(blobPath(), "{}")
+    const { flakeKey: _f, lockHash: _l, ...legacy } = meta
+    await Bun.write(sidecarPath(), JSON.stringify({ ...legacy, narHash: NAR, extractor: "0.4.0" }))
+    const m = pendingManifest(NAR)
+    await reconcile(outDir, m)
+    expect(m.configurations[0]!.status).toBe("pending")
   })
 
   test("sidecar without a blob stays pending", async () => {
@@ -120,7 +146,7 @@ describe("reconcile / writeSidecar", () => {
       extractAndPersist(
         outDir,
         "/flake",
-        NAR,
+        key,
         { kind: "nixos", name: "evil", dataFile: "../evil.json" },
         { timeoutMs: 1_000 },
       ),
@@ -157,8 +183,9 @@ describe("reconcile: packages", () => {
 
   const ref = { dataFile: "package/packages.x86_64-linux.hello.json" }
   const blobPath = () => join(outDir, ref.dataFile)
+  const key = cacheKeyOf(pendingPackageManifest(NAR))
   const meta = {
-    narHash: NAR,
+    ...key,
     extractedAt: "2026-07-08T12:00:00Z",
     durationMs: 1234,
     warnings: ["meta unavailable for packages/x86_64-linux/hello (broken/unfree package?)"],
@@ -179,9 +206,9 @@ describe("reconcile: packages", () => {
     )
   })
 
-  test("narHash mismatch stays pending, same as configurations", async () => {
+  test("flakeKey mismatch stays pending, same as configurations", async () => {
     await Bun.write(blobPath(), "{}")
-    await writeSidecar(outDir, ref, { ...meta, narHash: "sha256-OTHER" })
+    await writeSidecar(outDir, ref, { ...meta, flakeKey: "sha256-OTHER" })
     const m = pendingPackageManifest(NAR)
     await reconcile(outDir, m)
     expect(m.packages[0]!.status).toBe("pending")
@@ -191,7 +218,7 @@ describe("reconcile: packages", () => {
     const cfgRef = { dataFile: "config/nixos.test.json" }
     await Bun.write(join(outDir, cfgRef.dataFile), "{}")
     await writeSidecar(outDir, cfgRef, {
-      narHash: NAR,
+      ...key,
       extractedAt: "2026-07-08T12:00:00Z",
       optionCount: 3,
       durationMs: 10,
@@ -220,11 +247,37 @@ describe("reconcile: packages", () => {
       extractAndPersistPackage(
         outDir,
         "/flake",
-        NAR,
+        key,
         { id: "evil", path: ["evil"], dataFile: "../evil.json" },
         { timeoutMs: 1_000 },
       ),
     ).rejects.toThrow("refusing to write outside the data dir: ../evil.json")
+  })
+})
+
+describe("cacheKeyOf", () => {
+  test("prefers narHash, falls back to the self store path", () => {
+    const m = fixtureManifest()
+    m.flake.narHash = NAR
+    expect(cacheKeyOf(m).flakeKey).toBe(NAR)
+    m.flake.narHash = undefined
+    expect(cacheKeyOf(m).flakeKey).toBe(m.flake.path)
+  })
+
+  test("lockHash tracks input identity, not object key order", () => {
+    const m = fixtureManifest()
+    const base = cacheKeyOf(m).lockHash
+
+    // Same inputs, reversed insertion order → same hash.
+    const reordered = fixtureManifest()
+    reordered.inputs = Object.fromEntries(Object.entries(reordered.inputs).reverse())
+    expect(cacheKeyOf(reordered).lockHash).toBe(base)
+
+    // One input moves to a new narHash → different hash.
+    const bumped = fixtureManifest()
+    const name = Object.keys(bumped.inputs)[0]!
+    bumped.inputs[name] = { ...bumped.inputs[name]!, narHash: "sha256-MOVED" }
+    expect(cacheKeyOf(bumped).lockHash).not.toBe(base)
   })
 })
 

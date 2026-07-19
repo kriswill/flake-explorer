@@ -6,13 +6,10 @@
 
 export const SCHEMA_VERSION = 1
 
-/** Extractor version — part of the cache key; bump on schema/extractor changes. */
-export const EXTRACTOR_VERSION = "0.4.0"
-
 export interface Manifest {
   version: typeof SCHEMA_VERSION
   generatedAt: string // ISO timestamp
-  extractor: string // EXTRACTOR_VERSION at generation time
+  extractor: string // extraction-code fingerprint at generation time (extract/fingerprint.ts)
   flake: FlakeInfo
   /** Output tree from `nix flake show --json`, normalized. */
   outputs: OutputNode

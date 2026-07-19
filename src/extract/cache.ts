@@ -1,14 +1,49 @@
 // Extraction cache: a config blob is fresh when its sidecar records the same
-// flake narHash and extractor version that produced it. Sidecars live next
-// to the blobs (config/<kind>.<name>.meta.json).
+// cache key that a fresh extraction would use — a fingerprint of the
+// extraction code itself (fingerprint.ts) plus the identity of the flake it
+// was extracted from (CacheKey below). Sidecars live next to the blobs
+// (config/<kind>.<name>.meta.json).
 
 import { join, resolve, sep } from "node:path"
-import { type ConfigRef, EXTRACTOR_VERSION, type Manifest, type PackageRef } from "../schema"
+import type { ConfigRef, Manifest, PackageRef } from "../schema"
+import { extractorFingerprint } from "./fingerprint"
 import { extractOptions, type OptionsProgress, type OptionsResult } from "./options"
 import { extractPackage, type PackageResult } from "./package"
 
+/** The "what was extracted" half of the cache key (the code half is the extractor fingerprint). */
+export interface CacheKey {
+  /**
+   * The flake's narHash when it has one; else its self store path, which is
+   * content-addressed too — so a dirty local checkout still invalidates on
+   * every source change instead of never.
+   */
+  flakeKey: string
+  /**
+   * Fingerprint over the resolved input set (the effective flake.lock).
+   * Redundant when flakeKey pins a committed lock file, but catches input
+   * drift the flake's own identity can't see — e.g. a flake without a
+   * committed flake.lock re-resolving an unpinned input.
+   */
+  lockHash: string
+}
+
+export function cacheKeyOf(manifest: Pick<Manifest, "flake" | "inputs">): CacheKey {
+  const hasher = new Bun.CryptoHasher("sha256")
+  for (const name of Object.keys(manifest.inputs).sort()) {
+    const i = manifest.inputs[name]!
+    hasher.update(`${name}=${i.narHash ?? i.rev ?? i.url ?? ""}\n`)
+  }
+  return {
+    flakeKey: manifest.flake.narHash ?? manifest.flake.path,
+    lockHash: hasher.digest("hex").slice(0, 16),
+  }
+}
+
 interface SidecarMeta {
-  narHash?: string
+  /** Both optional only so pre-CacheKey sidecars still parse; absent always means stale. */
+  flakeKey?: string
+  lockHash?: string
+  /** extractorFingerprint() at write time. */
   extractor: string
   extractedAt: string
   /** Absent for package sidecars — "options" don't apply to a derivation. */
@@ -27,7 +62,7 @@ export async function writeSidecar(
 ): Promise<void> {
   await Bun.write(
     sidecarPath(outDir, ref),
-    JSON.stringify({ ...meta, extractor: EXTRACTOR_VERSION }),
+    JSON.stringify({ ...meta, extractor: await extractorFingerprint() }),
   )
 }
 
@@ -41,7 +76,7 @@ export async function writeSidecar(
 export async function extractAndPersist(
   outDir: string,
   flakeRef: string,
-  narHash: string | undefined,
+  key: CacheKey,
   ref: Pick<ConfigRef, "kind" | "name" | "dataFile">,
   opts: { timeoutMs: number; onProgress?: (p: OptionsProgress) => void },
 ): Promise<OptionsResult & { extractedAt: string }> {
@@ -55,7 +90,7 @@ export async function extractAndPersist(
   await Bun.write(blobPath, JSON.stringify(r.data))
   const extractedAt = new Date().toISOString()
   await writeSidecar(outDir, ref, {
-    narHash,
+    ...key,
     extractedAt,
     optionCount: r.data.options.length,
     durationMs: r.durationMs,
@@ -83,7 +118,7 @@ export function applyExtracted(ref: ConfigRef, r: OptionsResult & { extractedAt:
 export async function extractAndPersistPackage(
   outDir: string,
   flakeRef: string,
-  narHash: string | undefined,
+  key: CacheKey,
   ref: Pick<PackageRef, "id" | "path" | "dataFile">,
   opts: { timeoutMs: number },
 ): Promise<PackageResult & { extractedAt: string }> {
@@ -95,7 +130,7 @@ export async function extractAndPersistPackage(
   await Bun.write(blobPath, JSON.stringify(r.data))
   const extractedAt = new Date().toISOString()
   await writeSidecar(outDir, ref, {
-    narHash,
+    ...key,
     extractedAt,
     durationMs: r.durationMs,
     warnings: r.warnings,
@@ -120,14 +155,16 @@ type ReconcilableRef = Pick<ConfigRef, "dataFile" | "status" | "extractedAt" | "
 async function reconcileRef(
   outDir: string,
   manifest: Manifest,
+  fingerprint: string,
+  key: CacheKey,
   ref: ReconcilableRef,
 ): Promise<void> {
   try {
     const blob = Bun.file(join(outDir, ref.dataFile))
     if (!(await blob.exists())) return
     const meta = (await Bun.file(sidecarPath(outDir, ref)).json()) as SidecarMeta
-    if (meta.extractor !== EXTRACTOR_VERSION) return
-    if (manifest.flake.narHash && meta.narHash !== manifest.flake.narHash) return
+    if (meta.extractor !== fingerprint) return
+    if (meta.flakeKey !== key.flakeKey || meta.lockHash !== key.lockHash) return
     ref.status = "ok"
     ref.extractedAt = meta.extractedAt
     ref.durationMs = meta.durationMs
@@ -141,10 +178,14 @@ async function reconcileRef(
 
 /**
  * Reconcile a freshly built manifest with blobs already on disk: refs whose
- * sidecar matches (narHash + extractor) flip to "ok" so serve/extract skip
- * re-evaluating them. Runs over both configurations and packages.
+ * sidecar matches the current cache key (extractor fingerprint + flake
+ * identity + lock hash) flip to "ok" so serve/extract skip re-evaluating
+ * them. Runs over both configurations and packages.
  */
 export async function reconcile(outDir: string, manifest: Manifest): Promise<void> {
-  for (const ref of manifest.configurations) await reconcileRef(outDir, manifest, ref)
-  for (const ref of manifest.packages) await reconcileRef(outDir, manifest, ref)
+  const fingerprint = await extractorFingerprint()
+  const key = cacheKeyOf(manifest)
+  for (const ref of manifest.configurations)
+    await reconcileRef(outDir, manifest, fingerprint, key, ref)
+  for (const ref of manifest.packages) await reconcileRef(outDir, manifest, fingerprint, key, ref)
 }

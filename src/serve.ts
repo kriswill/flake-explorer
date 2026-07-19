@@ -10,6 +10,7 @@ import { buildApp, pageHtml } from "./build-app"
 import {
   applyExtracted,
   applyExtractedPackage,
+  cacheKeyOf,
   extractAndPersist,
   extractAndPersistPackage,
   reconcile,
@@ -91,13 +92,13 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
     if (!ref || ref.status === "ok") return
     let p = inflight.get(configId)
     if (!p) {
-      // Capture the narHash at extraction START: /api/refresh can swap the
-      // manifest mid-extraction, and stamping the new hash onto data evaluated
+      // Capture the cache key at extraction START: /api/refresh can swap the
+      // manifest mid-extraction, and stamping the new key onto data evaluated
       // from the old flake state would poison the sidecar cache.
-      const narHash = manifest.flake.narHash
+      const key = cacheKeyOf(manifest)
       p = (async () => {
         console.log(`extracting options of ${configId} ...`)
-        const r = await extractAndPersist(outDir, flakeRef, narHash, ref, {
+        const r = await extractAndPersist(outDir, flakeRef, key, ref, {
           timeoutMs: flags.timeout * 1000,
         })
         // Settle onto the ref in the CURRENT manifest — /api/refresh may have
@@ -134,10 +135,10 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
     const key = `pkg:${packageId}`
     let p = inflight.get(key)
     if (!p) {
-      const narHash = manifest.flake.narHash
+      const cacheKey = cacheKeyOf(manifest)
       p = (async () => {
         console.log(`extracting package ${packageId} ...`)
-        const r = await extractAndPersistPackage(outDir, flakeRef, narHash, ref, {
+        const r = await extractAndPersistPackage(outDir, flakeRef, cacheKey, ref, {
           timeoutMs: flags.timeout * 1000,
         })
         // Settle onto the ref in the CURRENT manifest — see extractConfig's

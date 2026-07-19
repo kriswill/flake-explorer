@@ -1,5 +1,5 @@
 // Shared extraction driver: manifest + selected configurations into the
-// data dir, reusing the narHash-keyed cache. Both `extract` and `export`
+// data dir, reusing the fingerprint-keyed cache. Both `extract` and `export`
 // run this; it lives outside the CLI entry so tests can call it in-process.
 
 import { mkdirSync } from "node:fs"
@@ -8,6 +8,7 @@ import type { Manifest } from "../schema"
 import {
   applyExtracted,
   applyExtractedPackage,
+  cacheKeyOf,
   extractAndPersist,
   extractAndPersistPackage,
   reconcile,
@@ -49,6 +50,7 @@ export async function extractToDir(
   )
   for (const w of manifest.warnings) console.warn(`  warn: ${w}`)
   await reconcile(flags.out, manifest)
+  const cacheKey = cacheKeyOf(manifest)
 
   const wanted =
     flags.configs === "all"
@@ -62,12 +64,12 @@ export async function extractToDir(
     const ref = manifest.configurations.find((c) => c.id === id)
     if (!ref) throw new Error(`no such configuration: ${id}`)
     if (ref.status === "ok") {
-      console.log(`options of ${id} cached (narHash + extractor match), skipping`)
+      console.log(`options of ${id} cached (flake + extractor unchanged), skipping`)
       continue
     }
     console.log(`extracting options of ${id} ...`)
     try {
-      const r = await extractAndPersist(flags.out, flakeRef, manifest.flake.narHash, ref, {
+      const r = await extractAndPersist(flags.out, flakeRef, cacheKey, ref, {
         timeoutMs: flags.timeout * 1000,
         onProgress: (p) =>
           process.stdout.write(`\r  ${p.done}/${p.total} ${p.current.padEnd(40).slice(0, 40)}`),
@@ -100,12 +102,12 @@ export async function extractToDir(
     const ref = manifest.packages.find((p) => p.id === id)
     if (!ref) throw new Error(`no such package: ${id}`)
     if (ref.status === "ok") {
-      console.log(`package ${id} cached (narHash + extractor match), skipping`)
+      console.log(`package ${id} cached (flake + extractor unchanged), skipping`)
       continue
     }
     console.log(`extracting package ${id} ...`)
     try {
-      const r = await extractAndPersistPackage(flags.out, flakeRef, manifest.flake.narHash, ref, {
+      const r = await extractAndPersistPackage(flags.out, flakeRef, cacheKey, ref, {
         timeoutMs: flags.timeout * 1000,
       })
       applyExtractedPackage(ref, r)
