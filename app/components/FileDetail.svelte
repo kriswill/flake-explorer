@@ -2,8 +2,9 @@
 import { REL_PATH_RE, resolveKnownRef } from "../../src/pathref"
 import { displayLabel, type FileOrigin } from "../../src/schema"
 import { colorFor } from "../lib/color"
+import { resolveFile } from "../lib/indexes"
 import { type Interval, segmentLines } from "../lib/segments"
-import { app, loadedConfig } from "../lib/state.svelte"
+import { app, loadedConfig, loadedPackage } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
 import Dot from "./Dot.svelte"
 import InputProvenance from "./InputProvenance.svelte"
@@ -102,6 +103,27 @@ const customizes = $derived.by(() => {
   return configView.refs.defines.map((i) => configView.slot.data.options[i]!)
 })
 
+/** Packages (already loaded this session) whose meta.position is this file —
+ *  mirrors PackageDetail's positionInfo, which only resolves a chip for
+ *  positions under the flake's own path, so only self-authored files land here. */
+const packagesHere = $derived.by(() => {
+  if (!app.manifest || !app.flakeIndexes) return []
+  const selfPrefix = `${app.manifest.flake.path}/`
+  const out: { id: string; path: string[]; line?: string }[] = []
+  for (const ref of app.manifest.packages) {
+    const loaded = loadedPackage(app.packages[ref.id])
+    const position = loaded?.data.meta?.position
+    if (!position?.startsWith(selfPrefix)) continue
+    const m = position.match(/^(.*):(\d+)$/)
+    const file = m ? m[1]! : position
+    const line = m ? m[2] : undefined
+    if (resolveFile(file, app.manifest, app.flakeIndexes).id === fileId) {
+      out.push({ id: ref.id, path: ref.path, line })
+    }
+  }
+  return out
+})
+
 let copied = $state(false)
 async function copyHash() {
   if (!manifestEntry?.git) return
@@ -196,6 +218,21 @@ const label = displayLabel
             {/each}
           </ul>
         {/if}
+      </div>
+    {/if}
+
+    {#if packagesHere.length}
+      <div class="section">
+        <h3>packages defined here <span class="count">{packagesHere.length}</span></h3>
+        <ul>
+          {#each packagesHere as p (p.id)}
+            <li>
+              <button class="link mono" onclick={() => app.select({ kind: "output", path: p.path })}
+                >{p.path.join(".")}{p.line ? `:${p.line}` : ""}</button
+              >
+            </li>
+          {/each}
+        </ul>
       </div>
     {/if}
 
