@@ -1,14 +1,15 @@
-// Server-side Nix syntax highlighting. tree-sitter-nix (WASM, vendored from
-// nixpkgs' pkgsCross.wasi32.tree-sitter-grammars.tree-sitter-nix — a native
-// build, no emscripten/npm grammar needed) parses each file once per request
-// and resolves the highlight query's captures into flat, non-overlapping
-// runs. Rendering (class names, colors) lives entirely on the client; this
-// just says "these chars are a comment/keyword/string/...".
+// Server-side syntax highlighting (Nix + bash phase scripts). Each grammar is
+// vendored as WASM from nixpkgs' pkgsCross.wasi32.tree-sitter-grammars — a
+// native build, no emscripten/npm grammar needed — and parses text once per
+// request, resolving the highlight query's captures into flat,
+// non-overlapping runs. Rendering (class names, colors) lives entirely on the
+// client; this just says "these chars are a comment/keyword/string/...".
 //
-// Regenerate the vendored grammar (e.g. after a tree-sitter-nix release):
+// Regenerate a vendored grammar (e.g. after a tree-sitter-{nix,bash} release):
 //   nix build nixpkgs#pkgsCross.wasi32.tree-sitter-grammars.tree-sitter-nix -o /tmp/tsn
 //   cp /tmp/tsn/parser.wasm src/extract/vendor/tree-sitter-nix.wasm
 //   cp /tmp/tsn/queries/highlights.scm src/extract/vendor/nix-highlights.scm
+//   (swap "nix" for "bash" for the other grammar)
 //
 // web-tree-sitter's Node/string capture offsets are UTF-16 code-unit indices
 // (verified empirically against a multi-byte character) — directly usable
@@ -21,34 +22,49 @@ import type { TokenRun } from "../schema"
 
 const VENDOR_DIR = join(import.meta.dir, "vendor")
 
-let ready: Promise<{ parser: Parser; query: Query }> | null = null
+type Lang = "nix" | "bash"
 
-function init(): Promise<{ parser: Parser; query: Query }> {
-  if (!ready) {
-    ready = (async () => {
-      await Parser.init()
-      const language = await Language.load(join(VENDOR_DIR, "tree-sitter-nix.wasm"))
+const GRAMMARS: Record<Lang, { wasm: string; highlights: string }> = {
+  nix: { wasm: "tree-sitter-nix.wasm", highlights: "nix-highlights.scm" },
+  bash: { wasm: "tree-sitter-bash.wasm", highlights: "bash-highlights.scm" },
+}
+
+/** Parser.init() loads the tree-sitter WASM runtime itself — shared by every grammar, so run once. */
+let runtimeReady: Promise<void> | null = null
+function initRuntime(): Promise<void> {
+  if (!runtimeReady) runtimeReady = Parser.init()
+  return runtimeReady
+}
+
+const languageReady = new Map<Lang, Promise<{ parser: Parser; query: Query }>>()
+
+function init(lang: Lang): Promise<{ parser: Parser; query: Query }> {
+  let p = languageReady.get(lang)
+  if (!p) {
+    const grammar = GRAMMARS[lang]
+    p = (async () => {
+      await initRuntime()
+      const language = await Language.load(join(VENDOR_DIR, grammar.wasm))
       const parser = new Parser()
       parser.setLanguage(language)
-      const query = new Query(
-        language,
-        readFileSync(join(VENDOR_DIR, "nix-highlights.scm"), "utf8"),
-      )
+      const query = new Query(language, readFileSync(join(VENDOR_DIR, grammar.highlights), "utf8"))
       return { parser, query }
     })()
+    languageReady.set(lang, p)
   }
-  return ready
+  return p
 }
 
 /**
- * Parse `text` as Nix and resolve the highlight query's captures into flat,
- * non-overlapping runs: a narrower node wins over the broader one it nests
- * inside, and among captures on the exact same node the earliest-declared
- * query pattern wins — the highlights.scm convention, since specific
- * patterns are listed before the generic catch-alls they'd otherwise lose to.
+ * Parse `text` in `lang` and resolve the highlight query's captures into
+ * flat, non-overlapping runs: a narrower node wins over the broader one it
+ * nests inside, and among captures on the exact same node the
+ * earliest-declared query pattern wins — the highlights.scm convention,
+ * since specific patterns are listed before the generic catch-alls they'd
+ * otherwise lose to.
  */
-export async function tokenizeNix(text: string): Promise<TokenRun[]> {
-  const { parser, query } = await init()
+async function tokenize(lang: Lang, text: string): Promise<TokenRun[]> {
+  const { parser, query } = await init(lang)
   const tree = parser.parse(text)
   if (!tree) return []
   try {
@@ -79,3 +95,6 @@ export async function tokenizeNix(text: string): Promise<TokenRun[]> {
     tree.delete()
   }
 }
+
+export const tokenizeNix = (text: string): Promise<TokenRun[]> => tokenize("nix", text)
+export const tokenizeBash = (text: string): Promise<TokenRun[]> => tokenize("bash", text)

@@ -7,7 +7,7 @@
 export const SCHEMA_VERSION = 1
 
 /** Extractor version — part of the cache key; bump on schema/extractor changes. */
-export const EXTRACTOR_VERSION = "0.3.0"
+export const EXTRACTOR_VERSION = "0.4.0"
 
 export interface Manifest {
   version: typeof SCHEMA_VERSION
@@ -250,6 +250,8 @@ export interface PackageDeps {
 export interface DrvPhase {
   name: string
   script: string
+  /** Flat, non-overlapping tree-sitter (bash) highlight spans over `script`; [] if tokenizing failed. */
+  tokens: TokenRun[]
 }
 
 export interface DrvInputRef {

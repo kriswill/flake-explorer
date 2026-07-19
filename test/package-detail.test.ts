@@ -64,7 +64,7 @@ const samplePackage = (): PackageData => ({
     system: "x86_64-linux",
     builderPath: "/nix/store/bash/bin/bash",
     inputDrvs: [{ drvPath: "/nix/store/zzz-gcc.drv", name: "gcc", outputs: ["out"] }],
-    phases: [{ name: "buildPhase", script: "make" }],
+    phases: [{ name: "buildPhase", script: "make", tokens: [] }],
     doCheck: true,
   },
   runtime: {

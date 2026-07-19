@@ -1,10 +1,12 @@
 <script lang="ts">
 import { colorFor } from "../lib/color"
 import { resolveFile } from "../lib/indexes"
+import { segmentLines } from "../lib/segments"
 import { app, loadedPackage, packageError } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
 import { webUrl } from "../lib/url"
 import Dot from "./Dot.svelte"
+import SourceView from "./SourceView.svelte"
 
 interface Props {
   refId: string
@@ -192,7 +194,9 @@ const positionInfo = $derived.by(() => {
         {#each drv.phases as phase (phase.name)}
           <details>
             <summary class="mono">{phase.name}</summary>
-            <pre class="mono">{phase.script}</pre>
+            <div class="phase-src">
+              <SourceView lines={segmentLines(phase.script, phase.tokens)} />
+            </div>
           </details>
         {/each}
       {:else}
@@ -399,16 +403,13 @@ const positionInfo = $derived.by(() => {
     cursor: pointer;
     color: var(--ink-2);
   }
-  pre {
+  .phase-src {
     max-height: 260px;
     overflow: auto;
     background: var(--page);
     border: 1px solid var(--grid);
     border-radius: 6px;
     padding: 8px;
-    font-size: 0.75rem;
-    white-space: pre-wrap;
-    word-break: break-all;
   }
   .outs,
   .drvs,
