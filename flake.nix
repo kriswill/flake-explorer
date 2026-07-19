@@ -43,6 +43,18 @@
           devShells.default = pkgs.mkShell {
             packages = builtins.attrValues { inherit (pkgs) bun git; } ++ [
               config.treefmt.build.wrapper
+              # Live-source `flake-explorer`: runs the enclosing checkout's
+              # flake-explorer.ts (a flake only sees a store copy of itself, so
+              # the working tree must be resolved at call time) — edits apply
+              # with no rebuild.
+              (pkgs.writeShellScriptBin "flake-explorer" ''
+                root=$(git rev-parse --show-toplevel 2>/dev/null)
+                if [ ! -f "$root/flake-explorer.ts" ]; then
+                  echo "flake-explorer(dev shim): no flake-explorer.ts at the git toplevel ('$root') — run inside the flake-explorer checkout" >&2
+                  exit 1
+                fi
+                FLAKE_EXPLORER_PROG=flake-explorer exec bun "$root/flake-explorer.ts" "$@"
+              '')
             ];
           };
         };
