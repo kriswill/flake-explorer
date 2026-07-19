@@ -9,7 +9,8 @@ import { flushSync, mount, unmount } from "svelte"
 import FileDetail from "../app/components/FileDetail.svelte"
 import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
 import { app } from "../app/lib/state.svelte"
-import { fixtureConfig, fixtureManifest } from "./fixtures/data"
+import type { PackageData } from "../src/schema"
+import { fixtureConfig, fixtureManifest, fixturePackageRefs, SELF } from "./fixtures/data"
 import { buttonsWithText, withMount } from "./helpers"
 
 const injected: HTMLElement[] = []
@@ -27,6 +28,7 @@ function seed() {
   app.manifest = m
   app.flakeIndexes = buildFlakeIndexes(m)
   app.configs = {}
+  app.packages = {}
   app.fileContents = {}
   app.selection = null
   // A few tests click module/file links, which populate this via revealFile —
@@ -46,6 +48,20 @@ function loadTestConfig() {
   app.configs = { "nixos/test": { data: fixtureConfig(), indexes } }
 }
 
+/** Minimal loaded PackageData whose meta.position is `position` — for packagesHere tests. */
+function samplePackageAt(id: string, path: string[], position: string): PackageData {
+  return {
+    version: 1,
+    id,
+    path,
+    builder: "unknown",
+    meta: { position },
+    outputs: [],
+    deps: { nativeBuildInputs: [], buildInputs: [], propagatedBuildInputs: [] },
+    warnings: [],
+  }
+}
+
 describe("FileDetail", () => {
   test("self file with no config loaded: importedBy section, no modulechip/InputProvenance", async () => {
     injectData(`file/${encodeURIComponent("self:lib/c.nix")}`, { text: "x: x", tokens: [] })
@@ -56,7 +72,13 @@ describe("FileDetail", () => {
       await Bun.sleep(0)
       flushSync()
       expect(host.querySelector("h2")?.textContent).toBe("lib/c.nix")
-      expect(host.querySelector(".modulechip")).toBeNull()
+      // "module" as a substring would also match the "imported by" entries
+      // below (modules/a.nix, modules/sub/b.nix) — match the chip's exact label.
+      expect(
+        Array.from(host.querySelectorAll("button")).filter(
+          (b) => b.textContent?.trim() === "module",
+        ).length,
+      ).toBe(0)
       expect(host.querySelector(".prov")).toBeNull() // InputProvenance only for input-origin
       // Both a.nix and sub/b.nix import c.nix (fixtureManifest importEdges).
       expect(host.textContent).toContain("imported by")
@@ -203,6 +225,107 @@ describe("FileDetail", () => {
       link.click()
       flushSync()
       expect(app.selection).toEqual({ kind: "file", fileId: "self:lib/c.nix" })
+    } finally {
+      void unmount(instance)
+      host.remove()
+    }
+  })
+
+  test("packagesHere: a single match renders a package header chip that navigates, plus the footer entry", async () => {
+    const [helloRef] = fixturePackageRefs()
+    app.packages = {
+      [helloRef!.id]: {
+        data: samplePackageAt(helloRef!.id, helloRef!.path, `${SELF}/modules/a.nix:5`),
+      },
+    }
+    injectData(`file/${encodeURIComponent("self:modules/a.nix")}`, { text: "{ }", tokens: [] })
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const instance = mount(FileDetail, { target: host, props: { fileId: "self:modules/a.nix" } })
+    try {
+      await Bun.sleep(0)
+      flushSync()
+      expect(host.textContent).toContain("packages defined here")
+      expect(host.textContent).toContain("1")
+      expect(host.textContent).toContain("packages.x86_64-linux.hello:5")
+
+      const chips = Array.from(host.querySelectorAll("button")).filter(
+        (b) => b.textContent?.trim() === "package",
+      )
+      expect(chips.length).toBe(1)
+      chips[0]!.click()
+      flushSync()
+      expect(app.selection).toEqual({ kind: "output", path: helloRef!.path })
+    } finally {
+      void unmount(instance)
+      host.remove()
+    }
+  })
+
+  test("packagesHere: multiple matches list every entry but skip the header chip", async () => {
+    const [helloRef, , checkRef] = fixturePackageRefs()
+    app.packages = {
+      // No ":line" suffix here — covers the position-without-a-line branch too.
+      [helloRef!.id]: {
+        data: samplePackageAt(helloRef!.id, helloRef!.path, `${SELF}/modules/a.nix`),
+      },
+      [checkRef!.id]: {
+        data: samplePackageAt(checkRef!.id, checkRef!.path, `${SELF}/modules/a.nix:9`),
+      },
+    }
+    injectData(`file/${encodeURIComponent("self:modules/a.nix")}`, { text: "{ }", tokens: [] })
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const instance = mount(FileDetail, { target: host, props: { fileId: "self:modules/a.nix" } })
+    try {
+      await Bun.sleep(0)
+      flushSync()
+      expect(host.textContent).toContain("packages defined here")
+      expect(host.textContent).toContain("2")
+      expect(host.textContent).toContain("packages.x86_64-linux.hello")
+      expect(host.textContent).toContain("checks.x86_64-linux.test:9")
+      const chips = Array.from(host.querySelectorAll("button")).filter(
+        (b) => b.textContent?.trim() === "package",
+      )
+      expect(chips.length).toBe(0)
+
+      const link = buttonsWithText(host, "checks.x86_64-linux.test:9")[0]!
+      link.click()
+      flushSync()
+      expect(app.selection).toEqual({ kind: "output", path: checkRef!.path })
+    } finally {
+      void unmount(instance)
+      host.remove()
+    }
+  })
+
+  test("packagesHere excludes packages outside the flake's own path, not-yet-loaded, or pointing elsewhere", async () => {
+    const [helloRef, devShellRef, checkRef] = fixturePackageRefs()
+    app.packages = {
+      // Outside the flake's own path -> excluded even though it's loaded.
+      [helloRef!.id]: {
+        data: samplePackageAt(helloRef!.id, helloRef!.path, "/nix/store/other-source/x.nix:1"),
+      },
+      // Loaded, under the flake's path, but its position points at a DIFFERENT file.
+      [checkRef!.id]: {
+        data: samplePackageAt(checkRef!.id, checkRef!.path, `${SELF}/lib/c.nix:1`),
+      },
+      // Not loaded at all (still "loading") -> loadedPackage() returns null.
+      [devShellRef!.id]: "loading",
+      // formatterRef intentionally has no entry in app.packages at all.
+    }
+    injectData(`file/${encodeURIComponent("self:modules/a.nix")}`, { text: "{ }", tokens: [] })
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const instance = mount(FileDetail, { target: host, props: { fileId: "self:modules/a.nix" } })
+    try {
+      await Bun.sleep(0)
+      flushSync()
+      expect(host.textContent).not.toContain("packages defined here")
+      const chips = Array.from(host.querySelectorAll("button")).filter(
+        (b) => b.textContent?.trim() === "package",
+      )
+      expect(chips.length).toBe(0)
     } finally {
       void unmount(instance)
       host.remove()
