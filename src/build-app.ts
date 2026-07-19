@@ -12,7 +12,30 @@ export interface AppBundle {
   css: string
 }
 
-export async function buildApp(development = false): Promise<AppBundle> {
+// One bundle per mode per process: the sources can't change under a prod
+// process, and a second in-process Bun.build deterministically breaks under
+// the resource limits of nix's sandboxed test derivation (bogus
+// EISDIR/"Unexpected" errors out of svelte/.../disclose-version.js — see
+// test/export.test.ts). Serve's dev watcher is the one caller that needs a
+// rebuild after source edits; it passes fresh: true, which replaces the
+// cached entry.
+const bundleCache = new Map<boolean, Promise<AppBundle>>()
+
+export function buildApp(development = false, opts: { fresh?: boolean } = {}): Promise<AppBundle> {
+  let bundle = opts.fresh ? undefined : bundleCache.get(development)
+  if (!bundle) {
+    bundle = buildAppUncached(development)
+    bundleCache.set(development, bundle)
+    // A failed build must not stick: the next call should retry, not replay
+    // the rejection.
+    bundle.catch(() => {
+      if (bundleCache.get(development) === bundle) bundleCache.delete(development)
+    })
+  }
+  return bundle
+}
+
+async function buildAppUncached(development: boolean): Promise<AppBundle> {
   const build = await Bun.build({
     entrypoints: [join(import.meta.dir, "..", "app", "main.ts")],
     target: "browser",

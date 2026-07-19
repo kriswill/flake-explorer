@@ -69,7 +69,7 @@ export async function serve(
       timer = setTimeout(async () => {
         try {
           const t0 = Date.now()
-          page = pageHtml(await buildApp(true), title, { dev: true })
+          page = pageHtml(await buildApp(true, { fresh: true }), title, { dev: true })
           console.log(`dev: UI rebuilt in ${Date.now() - t0}ms — reloading clients`)
           devNotify()
         } catch (e) {
