@@ -8,10 +8,17 @@ import { buildFlakeIndexes, resolveFile } from "../app/lib/indexes"
 import { buildApp, pageHtml } from "./build-app"
 import { tokenizeNix } from "./extract/highlight"
 import { readInputFile } from "./extract/run-nix"
-import { type ConfigData, type FileSource, type Manifest, makeFileId, parseFileId } from "./schema"
+import {
+  type ConfigData,
+  type FileSource,
+  type Manifest,
+  makeFileId,
+  type PackageData,
+  parseFileId,
+} from "./schema"
 
 export interface ExportOptions {
-  /** Data/cache dir holding the extracted config blobs (extractToDir's out). */
+  /** Data/cache dir holding the extracted config/package blobs (extractToDir's out). */
   outDir: string
   htmlPath: string
   /** self: the flake's own files + each input's flake.nix.
@@ -20,12 +27,16 @@ export interface ExportOptions {
   timeoutMs: number
   /** Config ids to embed (extractToDir's resolved --configs/--all list). */
   wanted: string[]
+  /** Package ids to embed (extractToDir's resolved --packages/--all list). */
+  wantedPackages: string[]
 }
 
 export interface ExportSummary {
   htmlBytes: number
   /** Embedded configuration ids. */
   configs: string[]
+  /** Embedded package ids. */
+  packages: string[]
   /** Embedded source-file ids. */
   files: string[]
   warnings: string[]
@@ -54,6 +65,20 @@ export async function exportHtml(
       // Sidecar said ok but the blob is gone/corrupt — the manifest embed
       // below downgrades the ref to pending, so the UI stays honest.
       warnings.push(`configuration not exported: ${id} (${String(e).split("\n")[0]})`)
+    }
+  }
+
+  // Same read-back-and-embed pass as configurations above, for packages.
+  const packageData = new Map<string, PackageData>()
+  for (const id of opts.wantedPackages) {
+    const ref = manifest.packages.find((p) => p.id === id)
+    if (ref?.status !== "ok") continue
+    try {
+      const data = (await Bun.file(join(opts.outDir, ref.dataFile)).json()) as PackageData
+      packageData.set(id, data)
+      embeds[ref.dataFile] = data
+    } catch (e) {
+      warnings.push(`package not exported: ${id} (${String(e).split("\n")[0]})`)
     }
   }
 
@@ -92,8 +117,8 @@ export async function exportHtml(
   }
 
   // The embedded manifest goes in last so export warnings surface in the UI.
-  // A config that is ok on disk but NOT embedded is downgraded to a fresh
-  // pending ref — an "ok" claim without a blob behind it would be a lie.
+  // A config/package that is ok on disk but NOT embedded is downgraded to a
+  // fresh pending ref — an "ok" claim without a blob behind it would be a lie.
   embeds["manifest.json"] = {
     ...manifest,
     configurations: manifest.configurations.map((c) =>
@@ -107,6 +132,16 @@ export async function exportHtml(
             status: "pending" as const,
           },
     ),
+    packages: manifest.packages.map((p) =>
+      packageData.has(p.id) || p.status !== "ok"
+        ? p
+        : {
+            id: p.id,
+            path: p.path,
+            dataFile: p.dataFile,
+            status: "pending" as const,
+          },
+    ),
     warnings: [...manifest.warnings, ...warnings],
   } satisfies Manifest
 
@@ -116,12 +151,13 @@ export async function exportHtml(
   const htmlBytes = await Bun.write(opts.htmlPath, html)
 
   const configs = [...configData.keys()]
+  const packages = [...packageData.keys()]
   console.log(
     `wrote ${opts.htmlPath} (${(htmlBytes / 1024 / 1024).toFixed(1)} MB, ` +
-      `${configs.length} configurations, ${fileIds.length} source files)`,
+      `${configs.length} configurations, ${packages.length} packages, ${fileIds.length} source files)`,
   )
   for (const w of warnings) console.warn(`  warn: ${w}`)
-  return { htmlBytes, configs, files: fileIds, warnings }
+  return { htmlBytes, configs, packages, files: fileIds, warnings }
 }
 
 /**

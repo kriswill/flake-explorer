@@ -59,6 +59,7 @@ const manifest: Manifest = {
     { from: "self:modules/sub/b.nix", to: "self:lib/c.nix" },
   ],
   configurations: [],
+  packages: [],
   grafts: [],
   outputNames: {},
   warnings: [],

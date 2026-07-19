@@ -24,6 +24,7 @@ function seed() {
   app.q = ""
   app.showAll = false
   app.expanded.clear()
+  app.fileExpanded.clear()
 }
 
 function withMount(

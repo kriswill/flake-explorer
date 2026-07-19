@@ -109,6 +109,23 @@ describe("OutputsTree", () => {
     })
   })
 
+  test("app.select (a deep link or back/forward) expands the tree to reveal the selected leaf", () => {
+    // Regression: previously only clicking down through each ancestor expanded
+    // it; a URL-driven selection (cold deep link, browser back/forward) left
+    // the tree collapsed with no visible indication anything was selected,
+    // even though the Stage panel on the right showed the right detail page.
+    withMount(OutputsTree, {}, (host) => {
+      expect(buttonsWithText(host, "hello").length).toBe(0) // collapsed — not even rendered yet
+
+      app.select({ kind: "output", path: ["packages", "x86_64-linux", "hello"] })
+      flushSync()
+
+      const leaf = buttonsWithText(host, "hello")[0]
+      expect(leaf).not.toBeUndefined()
+      expect(leaf!.classList.contains("sel")).toBe(true)
+    })
+  })
+
   test("grafted namespace: badge, inherited note, and added-key selection", () => {
     seed((m) => {
       m.grafts = [{ output: "lib", input: "nixpkgs", added: ["myHelper"], inherited: 42 }]
