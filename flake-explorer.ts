@@ -10,6 +10,7 @@ const prog = process.env.FLAKE_EXPLORER_PROG ?? "bun flake-explorer.ts"
 interface Flags {
   out: string
   configs: string[] | "all" | null
+  packages: string[] | "all" | null
   allSystems: boolean
   timeout: number
   html: string
@@ -23,6 +24,7 @@ function parseFlags(argv: string[]): Flags {
   const f: Flags = {
     out: "./flake-explorer-data",
     configs: null,
+    packages: null,
     allSystems: false,
     timeout: 600,
     html: "./flake.html",
@@ -47,8 +49,11 @@ function parseFlags(argv: string[]): Flags {
     const a = argv[i]!
     if (a === "--out") f.out = arg(a, argv[++i])
     else if (a === "--configs") f.configs = arg(a, argv[++i]).split(",").filter(Boolean)
-    else if (a === "--all") f.configs = "all"
-    else if (a === "--all-systems") f.allSystems = true
+    else if (a === "--packages") f.packages = arg(a, argv[++i]).split(",").filter(Boolean)
+    else if (a === "--all") {
+      f.configs = "all"
+      f.packages = "all"
+    } else if (a === "--all-systems") f.allSystems = true
     else if (a === "--timeout") f.timeout = num(a, argv[++i])
     else if (a === "--html") f.html = arg(a, argv[++i])
     else if (a === "--sources") {
@@ -81,7 +86,8 @@ function canonicalRef(ref: string): string {
 
 async function cmdExtract(flags: Flags) {
   const flakeRef = canonicalRef(
-    flags.positional[0] ?? die("usage: extract <flakeref> [--out DIR] [--configs a,b | --all]"),
+    flags.positional[0] ??
+      die("usage: extract <flakeref> [--out DIR] [--configs a,b | --all] [--packages a,b | --all]"),
   )
   await extractToDir(flakeRef, flags)
 }
@@ -89,9 +95,11 @@ async function cmdExtract(flags: Flags) {
 async function cmdExport(flags: Flags) {
   const flakeRef = canonicalRef(
     flags.positional[0] ??
-      die("usage: export <flakeref> [--html FILE] [--configs a,b | --all] [--sources self|all]"),
+      die(
+        "usage: export <flakeref> [--html FILE] [--configs a,b | --all] [--packages a,b | --all] [--sources self|all]",
+      ),
   )
-  const { manifest, wanted } = await extractToDir(flakeRef, flags)
+  const { manifest, wanted, wantedPackages } = await extractToDir(flakeRef, flags)
   const { exportHtml } = await import("./src/export")
   await exportHtml(flakeRef, manifest, {
     outDir: flags.out,
@@ -99,6 +107,7 @@ async function cmdExport(flags: Flags) {
     sources: flags.sources,
     timeoutMs: flags.timeout * 1000,
     wanted,
+    wantedPackages,
   })
 }
 
@@ -106,9 +115,12 @@ function usage(): string {
   return `usage: ${prog} <command> [args]
 
 commands:
-  extract <flakeref> [--out DIR] [--configs kind/name,... | --all] [--all-systems] [--timeout SECS]
-      Extract manifest (+ selected configurations) to the data dir.
-  export <flakeref> [--html FILE] [--out DIR] [--configs kind/name,... | --all] [--all-systems] [--sources self|all] [--timeout SECS]
+  extract <flakeref> [--out DIR] [--configs kind/name,... | --all] [--packages path/segs,... | --all] [--all-systems] [--timeout SECS]
+      Extract manifest (+ selected configurations/packages) to the data dir.
+      --packages takes ids like "packages/x86_64-linux/rtk" (path.join("/") —
+      also devShells/checks/formatter). --all now means all configurations
+      AND all packages.
+  export <flakeref> [--html FILE] [--out DIR] [--configs kind/name,... | --all] [--packages path/segs,... | --all] [--all-systems] [--sources self|all] [--timeout SECS]
       Extract, then write ONE standalone HTML file (default ./flake.html)
       that works without a server — file://, any CDN, GitHub Pages.
       --sources all also embeds every file the exported configurations

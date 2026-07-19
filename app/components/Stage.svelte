@@ -4,6 +4,7 @@ import FileDetail from "./FileDetail.svelte"
 import InputDetail from "./InputDetail.svelte"
 import Legend from "./Legend.svelte"
 import ModuleDetail from "./ModuleDetail.svelte"
+import PackageDetail from "./PackageDetail.svelte"
 
 const outputLeaf = $derived.by(() => {
   if (app.selection?.kind !== "output" || !app.manifest) return null
@@ -14,6 +15,17 @@ const outputLeaf = $derived.by(() => {
   }
   return node
 })
+
+/** Same output-tree path, matched against the derivation-typed refs list. */
+const packageRef = $derived.by(() => {
+  if (app.selection?.kind !== "output" || !app.manifest) return null
+  const path = app.selection.path
+  return (
+    app.manifest.packages.find(
+      (p) => p.path.length === path.length && p.path.every((s, i) => s === path[i]),
+    ) ?? null
+  )
+})
 </script>
 
 <div class="stage">
@@ -23,6 +35,8 @@ const outputLeaf = $derived.by(() => {
     <FileDetail fileId={app.selection.fileId} />
   {:else if app.selection?.kind === "input"}
     <InputDetail name={app.selection.name} />
+  {:else if app.selection?.kind === "output" && packageRef}
+    <PackageDetail refId={packageRef.id} />
   {:else if app.selection?.kind === "output"}
     <h2 class="mono">{app.selection.path.join(".")}</h2>
     {#if outputLeaf?.kind === "leaf"}

@@ -1,6 +1,6 @@
 // Shared hand-written fixtures for unit and component tests.
 
-import type { ConfigData, Manifest, OptionEntry } from "../../src/schema"
+import type { ConfigData, Manifest, OptionEntry, PackageRef } from "../../src/schema"
 
 export const SELF = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-source"
 export const SOPS = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-source"
@@ -37,6 +37,38 @@ export const fixtureManifest = (): Manifest => ({
             children: { hello: { kind: "leaf", type: "package", name: "hello-1.0" } },
           },
           "aarch64-darwin": { kind: "omitted" },
+        },
+      },
+      devShells: {
+        kind: "attrset",
+        children: {
+          "x86_64-linux": {
+            kind: "attrset",
+            children: { default: { kind: "leaf", type: "development environment" } },
+          },
+        },
+      },
+      checks: {
+        kind: "attrset",
+        children: {
+          "x86_64-linux": {
+            kind: "attrset",
+            children: { test: { kind: "leaf", type: "derivation" } },
+          },
+        },
+      },
+      formatter: {
+        kind: "attrset",
+        children: { "x86_64-linux": { kind: "leaf", type: "package", name: "nixfmt" } },
+      },
+      // apps are intentionally NOT enumerated by packageRefs (v1 scope).
+      apps: {
+        kind: "attrset",
+        children: {
+          "x86_64-linux": {
+            kind: "attrset",
+            children: { hello: { kind: "leaf", type: "app" } },
+          },
         },
       },
       weird: { kind: "unknown" },
@@ -92,10 +124,27 @@ export const fixtureManifest = (): Manifest => ({
       status: "ok",
     },
   ],
+  packages: fixturePackageRefs(),
   grafts: [],
   outputNames: {},
   warnings: [],
 })
+
+/** Matches fixtureManifest().outputs' packages/devShells/checks/formatter (not apps). */
+export function fixturePackageRefs(): PackageRef[] {
+  const ref = (path: string[]): PackageRef => ({
+    id: path.join("/"),
+    path,
+    dataFile: `package/${path.join(".")}.json`,
+    status: "pending",
+  })
+  return [
+    ref(["packages", "x86_64-linux", "hello"]),
+    ref(["devShells", "x86_64-linux", "default"]),
+    ref(["checks", "x86_64-linux", "test"]),
+    ref(["formatter", "x86_64-linux"]),
+  ]
+}
 
 export const fixtureConfig = (): ConfigData => ({
   version: 1,

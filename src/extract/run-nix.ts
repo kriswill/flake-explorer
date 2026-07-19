@@ -112,6 +112,54 @@ export function evalExtract<T>(args: ExtractArgs, timeoutMs: number): Promise<T>
 }
 
 /**
+ * Quote a flake attrpath segment unless it's already a bare nix identifier
+ * (letters/digits/_/'/- , not digit-first) — e.g. `packages.x86_64-linux.rtk`
+ * needs no quoting, but an attr name with a "." or space does.
+ */
+export function attrSelector(path: string[]): string {
+  return path
+    .map((seg) => (/^[A-Za-z_][A-Za-z0-9_'-]*$/.test(seg) ? seg : JSON.stringify(seg)))
+    .join(".")
+}
+
+/**
+ * `nix derivation show <flakeRef>#<attr>` — instantiates the .drv, never
+ * builds. Newer nix wraps the result in {"derivations": {...}, "version": 4};
+ * older nix returns the drv map directly at the top level — both shapes are
+ * normalized by the pure, unit-tested normalizeDerivationShow (package.ts).
+ */
+export function derivationShow(
+  flakeRef: string,
+  path: string[],
+  timeoutMs = 60_000,
+): Promise<unknown> {
+  const attr = attrSelector(path)
+  return runJson(["derivation", "show", "--impure", `${flakeRef}#${attr}`], timeoutMs)
+}
+
+export interface PathInfoRaw {
+  narSize: number
+  closureSize?: number
+  references: string[]
+  narHash?: string
+}
+
+/**
+ * `nix path-info` for one already-instantiated output path — query only,
+ * this tool never builds. Verified against a running nix: the command exits
+ * 0 whether or not the path is valid; an invalid/not-yet-built path maps to
+ * `null` in the JSON rather than a nonzero exit, so that's the signal this
+ * wrapper checks (not the exit code).
+ */
+export async function pathInfo(outPath: string, timeoutMs = 30_000): Promise<PathInfoRaw | null> {
+  const result = await runJson<Record<string, PathInfoRaw | null>>(
+    ["path-info", "--json", "--json-format", "1", "--closure-size", outPath],
+    timeoutMs,
+  )
+  return result[outPath] ?? null
+}
+
+/**
  * Read a file out of a flake input directly through Nix, bypassing the store
  * path entirely. A cached ConfigData blob's declaration/definition file
  * strings are store paths frozen at extraction time — they 404 once GC has
@@ -150,10 +198,10 @@ function readInputFileRaw(
 
 export interface ExtractArgs {
   flakeRef: string
-  mode: "manifest" | "options" | "optionNames"
+  mode: "manifest" | "options" | "optionNames" | "package"
   name?: string
   kind?: "nixos" | "darwin"
-  /** options/optionNames mode: option path of the subtree to walk. */
+  /** options/optionNames mode: option path of the subtree to walk. package mode: the outputs-tree path to the derivation. */
   path?: string[]
   /** options mode: restrict the walk to these children of `path`. */
   childNames?: string[]
@@ -219,6 +267,32 @@ export interface ManifestEval {
 
 export interface OptionsEval {
   options: RawOption[]
+}
+
+export interface PackageEval {
+  isDrv: boolean
+  name: string | null
+  pname: string | null
+  pkgVersion: string | null
+  stdenv: string | null
+  system: string | null
+  markers: { cargoDeps: boolean; goModules: boolean; npmDeps: boolean; buildCommand: boolean }
+  /** `path`, not `outPath` — see extract.nix's outputInfo comment (JSON outPath-collapse quirk). */
+  outputs: { name: string; path: string | null }[]
+  meta: Record<string, unknown> | null
+  /** true when pkg.meta itself threw (whole-meta throw, e.g. unfree/broken) — meta is null in that case. */
+  metaError: boolean
+  src: {
+    storePath: string | null
+    url: string | null
+    rev: string | null
+    outputHash: string | null
+  } | null
+  deps: {
+    nativeBuildInputs: string[]
+    buildInputs: string[]
+    propagatedBuildInputs: string[]
+  }
 }
 
 /** Envelope from extract.nix deepSafe: value | error | skipped-as-unsafe. */

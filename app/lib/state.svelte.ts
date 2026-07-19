@@ -5,7 +5,7 @@
 
 import { SvelteSet } from "svelte/reactivity"
 import type { AboutData } from "../../src/licenses"
-import type { ConfigData, FileSource, Manifest, OptionEntry } from "../../src/schema"
+import type { ConfigData, FileSource, Manifest, OptionEntry, PackageData } from "../../src/schema"
 import { parseFileId, SCHEMA_VERSION } from "../../src/schema"
 import { registerSlotKeys } from "./color"
 import { hasEmbedded, isStatic, loadJson } from "./data"
@@ -39,6 +39,20 @@ export function configError(slot: ConfigSlot | undefined): SlotError | null {
   return slot && typeof slot === "object" && "error" in slot ? slot : null
 }
 
+export type PackageSlot = "loading" | SlotError | { data: PackageData }
+
+/** Narrow a PackageSlot to its loaded shape; null while loading/errored/absent. */
+export function loadedPackage(
+  slot: PackageSlot | undefined,
+): Extract<PackageSlot, { data: PackageData }> | null {
+  return slot && typeof slot === "object" && "data" in slot ? slot : null
+}
+
+/** Error slot of a failed PackageSlot; null otherwise. */
+export function packageError(slot: PackageSlot | undefined): SlotError | null {
+  return slot && typeof slot === "object" && "error" in slot ? slot : null
+}
+
 export type FileContentSlot = "loading" | SlotError | FileSource
 
 export type Hover = { kind: "file"; fileId: string } | { kind: "module"; fileId: string } | null
@@ -61,6 +75,7 @@ class AppState {
   manifestError = $state<string | null>(null)
   flakeIndexes = $state.raw<FlakeIndexes | null>(null)
   configs = $state.raw<Record<string, ConfigSlot>>({})
+  packages = $state.raw<Record<string, PackageSlot>>({})
   fileContents = $state.raw<Record<string, FileContentSlot>>({})
 
   expanded = new SvelteSet<string>()
@@ -168,6 +183,36 @@ class AppState {
     void this.loadConfig(configId)
   }
 
+  /** Same lifecycle as loadConfig above, for a derivation-typed output. */
+  async loadPackage(packageId: string) {
+    if (!this.manifest || this.packages[packageId]) return
+    const ref = this.manifest.packages.find((p) => p.id === packageId)
+    if (!ref) return
+    if (isStatic() && !hasEmbedded(ref.dataFile)) {
+      const error =
+        ref.status === "error" && ref.error
+          ? `extraction failed during export: ${ref.error}`
+          : "package not included in this export"
+      this.packages = { ...this.packages, [packageId]: { error, permanent: true } }
+      return
+    }
+    this.packages = { ...this.packages, [packageId]: "loading" }
+    try {
+      const data = await loadJson<PackageData>(ref.dataFile)
+      if (data.version !== SCHEMA_VERSION)
+        throw new Error(incompatibleData(ref.dataFile, data.version))
+      this.packages = { ...this.packages, [packageId]: { data } }
+    } catch (e) {
+      this.packages = { ...this.packages, [packageId]: { error: String(e) } }
+    }
+  }
+
+  retryPackage(packageId: string) {
+    const { [packageId]: _, ...rest } = this.packages
+    this.packages = rest
+    void this.loadPackage(packageId)
+  }
+
   /**
    * storePath is the caller's job to resolve (see FileDetail.svelte): a file
    * reached only through an option's declarations/definitions — e.g. a file
@@ -229,7 +274,24 @@ class AppState {
       }
     } else if (sel?.kind === "file") {
       this.revealFile(sel.fileId)
+    } else if (sel?.kind === "output") {
+      // Deep links (#/o/…) land here too — expand the left tree and extract
+      // on cold-load, same as clicking down to the leaf would.
+      this.revealOutput(sel.path)
+      const ref = this.manifest?.packages.find((p) => samePath(p.path, sel.path))
+      if (ref) void this.loadPackage(ref.id)
     }
+  }
+
+  /**
+   * Expand the left outputs-tree ancestor chain leading to an output-tree
+   * leaf — mirrors revealFile below, but for the OutputsTree/OutputBranch
+   * `out:<dot.joined.path>` keys rather than the file tree's ids. Clicking
+   * down through the tree expands each ancestor as you go; a URL-driven
+   * selection (deep link, back/forward) needs to do the same in one shot.
+   */
+  revealOutput(path: string[]) {
+    for (let i = 1; i < path.length; i++) this.expanded.add(`out:${path.slice(0, i).join(".")}`)
   }
 
   /** Expand the right-pane folder chain leading to a file. */
@@ -378,6 +440,9 @@ class AppState {
 /** Both data documents carry SCHEMA_VERSION — surface drift as a clear "re-extract" message. */
 const incompatibleData = (name: string, got: unknown) =>
   `${name} was produced by an incompatible extractor (schema v${got ?? "pre-1"}, this UI expects v${SCHEMA_VERSION}) — re-run extract`
+
+const samePath = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((s, i) => s === b[i])
 
 const PANE_KEY = "flake-explorer:panes@1"
 const PANE_DEFAULTS = { left: 280, right: 340 }

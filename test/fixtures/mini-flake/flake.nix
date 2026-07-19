@@ -59,6 +59,122 @@
 
       networking = import ./modules/networking.nix { inherit mkOpt hostFile hostDefs; };
       nginx = import ./modules/nginx.nix { inherit mkOpt hostFile hostDefs; };
+
+      # Package/devShell/check/formatter fixtures: raw `derivation` builtin
+      # merged with pname/version/meta/nativeBuildInputs via `//` — the merge
+      # keeps type/drvPath/outPath pointing at the real (never-built)
+      # derivation while letting extract.nix's package mode see the extra
+      # attrs, all without a nixpkgs import. `${depDrv}` inside `args`
+      # (rather than only in the merged `nativeBuildInputs`) is what actually
+      # makes depDrv a real .drv-level input, matching `nix derivation
+      # show`'s `inputDrvs` — the merged attribute alone would not.
+      depDrv = derivation {
+        name = "mini-dep";
+        system = "x86_64-linux";
+        builder = "/bin/sh";
+        args = [
+          "-c"
+          "echo dep > $out"
+        ];
+      };
+
+      packageDrv =
+        derivation {
+          name = "mini-0.1.0";
+          system = "x86_64-linux";
+          builder = "/bin/sh";
+          args = [
+            "-c"
+            "echo ${depDrv} ok > $out"
+          ];
+        }
+        // {
+          pname = "mini";
+          version = "0.1.0";
+          meta = {
+            description = "Mini test package";
+            homepage = "https://example.com/mini";
+            mainProgram = "mini";
+            platforms = [ "x86_64-linux" ];
+            license = {
+              shortName = "mit";
+              fullName = "MIT License";
+              spdxId = "MIT";
+              free = true;
+            };
+            maintainers = [
+              {
+                name = "Test Maintainer";
+                github = "testuser";
+              }
+            ];
+          };
+          nativeBuildInputs = [ depDrv ];
+        };
+
+      # A single throwing meta field (unfree/broken markers do this in real
+      # nixpkgs, typically on `meta.license`/`meta.available`, never on
+      # `meta.description` itself — `nix flake show` forces exactly that one
+      # field for its shortDescription, so a description-throw would break
+      # classification for the whole flake; this doesn't). Exercises
+      # extractPackage's metaError path: meta absent, everything else
+      # (pname/version/deps) still extracts normally.
+      brokenMetaDrv =
+        derivation {
+          name = "mini-broken-meta-0.1.0";
+          system = "x86_64-linux";
+          builder = "/bin/sh";
+          args = [
+            "-c"
+            "echo ok > $out"
+          ];
+        }
+        // {
+          pname = "mini-broken-meta";
+          version = "0.1.0";
+          meta = {
+            description = "Mini package with an unfree marker";
+            license = throw "unfree: this package is unfree";
+          };
+        };
+
+      devShellDrv = derivation {
+        name = "mini-devshell";
+        system = "x86_64-linux";
+        builder = "/bin/sh";
+        args = [
+          "-c"
+          "echo shell > $out"
+        ];
+      };
+
+      checkDrv =
+        derivation {
+          name = "mini-check";
+          system = "x86_64-linux";
+          builder = "/bin/sh";
+          args = [
+            "-c"
+            "echo check > $out"
+          ];
+        }
+        // {
+          meta.description = "Mini test check";
+        };
+
+      formatterDrv =
+        derivation {
+          name = "mini-formatter";
+          system = "x86_64-linux";
+          builder = "/bin/sh";
+          args = [
+            "-c"
+            "echo fmt > $out"
+          ];
+        }
+        // {
+          meta.mainProgram = "mini-formatter";
+        };
     in
     {
       lib = {
@@ -66,6 +182,12 @@
         helper = import ./lib/helper.nix;
         extras = import ./extras;
       };
+
+      packages.x86_64-linux.mini = packageDrv;
+      packages.x86_64-linux.mini-broken-meta = brokenMetaDrv;
+      devShells.x86_64-linux.default = devShellDrv;
+      checks.x86_64-linux.mini-check = checkDrv;
+      formatter.x86_64-linux = formatterDrv;
 
       nixosConfigurations.mini = {
         # `nix flake show`'s builtin nixosConfigurations schema forces

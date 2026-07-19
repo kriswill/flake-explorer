@@ -3,24 +3,26 @@
 // to the blobs (config/<kind>.<name>.meta.json).
 
 import { join, resolve, sep } from "node:path"
-import { type ConfigRef, EXTRACTOR_VERSION, type Manifest } from "../schema"
+import { type ConfigRef, EXTRACTOR_VERSION, type Manifest, type PackageRef } from "../schema"
 import { extractOptions, type OptionsProgress, type OptionsResult } from "./options"
+import { extractPackage, type PackageResult } from "./package"
 
 interface SidecarMeta {
   narHash?: string
   extractor: string
   extractedAt: string
-  optionCount: number
+  /** Absent for package sidecars — "options" don't apply to a derivation. */
+  optionCount?: number
   durationMs: number
   warnings: string[]
 }
 
-const sidecarPath = (outDir: string, ref: Pick<ConfigRef, "dataFile">) =>
+const sidecarPath = (outDir: string, ref: Pick<ConfigRef | PackageRef, "dataFile">) =>
   join(outDir, ref.dataFile.replace(/\.json$/, ".meta.json"))
 
 export async function writeSidecar(
   outDir: string,
-  ref: Pick<ConfigRef, "dataFile">,
+  ref: Pick<ConfigRef | PackageRef, "dataFile">,
   meta: Omit<SidecarMeta, "extractor">,
 ): Promise<void> {
   await Bun.write(
@@ -71,25 +73,78 @@ export function applyExtracted(ref: ConfigRef, r: OptionsResult & { extractedAt:
 }
 
 /**
- * Reconcile a freshly built manifest with blobs already on disk: configs
- * whose sidecar matches (narHash + extractor) flip to "ok" so serve/extract
- * skip re-evaluating them.
+ * Extraction driver for one derivation-typed output — mirrors
+ * extractAndPersist above (same blob+sidecar shape, same path-traversal
+ * guard), but calls extractPackage (package.ts) instead of extractOptions:
+ * a package's structural source (a derivation) is different enough from a
+ * NixOS options tree that sharing one function would just be an `if(kind)`
+ * in disguise.
+ */
+export async function extractAndPersistPackage(
+  outDir: string,
+  flakeRef: string,
+  narHash: string | undefined,
+  ref: Pick<PackageRef, "id" | "path" | "dataFile">,
+  opts: { timeoutMs: number },
+): Promise<PackageResult & { extractedAt: string }> {
+  const blobPath = join(outDir, ref.dataFile)
+  if (!resolve(blobPath).startsWith(resolve(outDir) + sep)) {
+    throw new Error(`refusing to write outside the data dir: ${ref.dataFile}`)
+  }
+  const r = await extractPackage(flakeRef, ref, opts)
+  await Bun.write(blobPath, JSON.stringify(r.data))
+  const extractedAt = new Date().toISOString()
+  await writeSidecar(outDir, ref, {
+    narHash,
+    extractedAt,
+    durationMs: r.durationMs,
+    warnings: r.warnings,
+  })
+  return { ...r, extractedAt }
+}
+
+/** Record a finished extraction on a (current-manifest) PackageRef. */
+export function applyExtractedPackage(
+  ref: PackageRef,
+  r: PackageResult & { extractedAt: string },
+): void {
+  ref.status = "ok"
+  ref.extractedAt = r.extractedAt
+  ref.durationMs = r.durationMs
+}
+
+type ReconcilableRef = Pick<ConfigRef, "dataFile" | "status" | "extractedAt" | "durationMs"> &
+  Partial<Pick<ConfigRef, "optionCount">>
+
+/** Shared freshness check: same sidecar body for both configurations and packages. */
+async function reconcileRef(
+  outDir: string,
+  manifest: Manifest,
+  ref: ReconcilableRef,
+): Promise<void> {
+  try {
+    const blob = Bun.file(join(outDir, ref.dataFile))
+    if (!(await blob.exists())) return
+    const meta = (await Bun.file(sidecarPath(outDir, ref)).json()) as SidecarMeta
+    if (meta.extractor !== EXTRACTOR_VERSION) return
+    if (manifest.flake.narHash && meta.narHash !== manifest.flake.narHash) return
+    ref.status = "ok"
+    ref.extractedAt = meta.extractedAt
+    ref.durationMs = meta.durationMs
+    // Only ever set for ConfigRef sidecars — never stamped onto a PackageRef.
+    if (meta.optionCount !== undefined) ref.optionCount = meta.optionCount
+    manifest.warnings.push(...meta.warnings.map((w) => `[cached] ${w}`))
+  } catch {
+    // missing/corrupt sidecar — stays pending
+  }
+}
+
+/**
+ * Reconcile a freshly built manifest with blobs already on disk: refs whose
+ * sidecar matches (narHash + extractor) flip to "ok" so serve/extract skip
+ * re-evaluating them. Runs over both configurations and packages.
  */
 export async function reconcile(outDir: string, manifest: Manifest): Promise<void> {
-  for (const ref of manifest.configurations) {
-    try {
-      const blob = Bun.file(join(outDir, ref.dataFile))
-      if (!(await blob.exists())) continue
-      const meta = (await Bun.file(sidecarPath(outDir, ref)).json()) as SidecarMeta
-      if (meta.extractor !== EXTRACTOR_VERSION) continue
-      if (manifest.flake.narHash && meta.narHash !== manifest.flake.narHash) continue
-      ref.status = "ok"
-      ref.extractedAt = meta.extractedAt
-      ref.optionCount = meta.optionCount
-      ref.durationMs = meta.durationMs
-      manifest.warnings.push(...meta.warnings.map((w) => `[cached] ${w}`))
-    } catch {
-      // missing/corrupt sidecar — stays pending
-    }
-  }
+  for (const ref of manifest.configurations) await reconcileRef(outDir, manifest, ref)
+  for (const ref of manifest.packages) await reconcileRef(outDir, manifest, ref)
 }
