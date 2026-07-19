@@ -19,8 +19,12 @@ import { PRIO, SCHEMA_VERSION } from "../src/schema"
 type ScenarioEntry = { ok: unknown } | { fail: string }
 type Scenario = Record<string, ScenarioEntry>
 
-const SHIM = String.raw`#!/usr/bin/env bun
-// Fake nix for options-extract.test.ts. Key format mirrors scenarioKey() there.
+// Shebang points at the bun binary running this suite, not "/usr/bin/env
+// bun": the nix sandbox (checks.test) has no /usr/bin/env, and posix_spawn
+// reports a missing shebang interpreter as ENOENT on the shim itself.
+const SHIM =
+  `#!${process.execPath}\n` +
+  String.raw`// Fake nix for options-extract.test.ts. Key format mirrors scenarioKey() there.
 // die() awaits the stderr write before process.exit — console.error followed
 // by an immediate exit can lose the (piped) output before it is flushed,
 // which would strip the "error:" line the tests assert on.
