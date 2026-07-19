@@ -86,6 +86,7 @@ describe.skipIf(!hasNix)("export (real nix)", () => {
         "devShells/x86_64-linux/default",
         "formatter/x86_64-linux",
         "packages/x86_64-linux/mini",
+        "packages/x86_64-linux/mini-broken-meta",
       ])
       expect(summary.files).toContain("self:flake.nix")
       expect(summary.htmlBytes).toBe(Buffer.byteLength(html))

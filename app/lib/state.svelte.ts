@@ -275,10 +275,23 @@ class AppState {
     } else if (sel?.kind === "file") {
       this.revealFile(sel.fileId)
     } else if (sel?.kind === "output") {
-      // Deep links (#/o/…) land here too — extract on cold-load, same as a click.
+      // Deep links (#/o/…) land here too — expand the left tree and extract
+      // on cold-load, same as clicking down to the leaf would.
+      this.revealOutput(sel.path)
       const ref = this.manifest?.packages.find((p) => samePath(p.path, sel.path))
       if (ref) void this.loadPackage(ref.id)
     }
+  }
+
+  /**
+   * Expand the left outputs-tree ancestor chain leading to an output-tree
+   * leaf — mirrors revealFile below, but for the OutputsTree/OutputBranch
+   * `out:<dot.joined.path>` keys rather than the file tree's ids. Clicking
+   * down through the tree expands each ancestor as you go; a URL-driven
+   * selection (deep link, back/forward) needs to do the same in one shot.
+   */
+  revealOutput(path: string[]) {
+    for (let i = 1; i < path.length; i++) this.expanded.add(`out:${path.slice(0, i).join(".")}`)
   }
 
   /** Expand the right-pane folder chain leading to a file. */

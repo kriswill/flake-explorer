@@ -159,6 +159,33 @@ describe("loadPackage", () => {
     await Bun.sleep(0)
     expect(Object.keys(app.packages)).toEqual([])
   })
+
+  test("#followSelection expands the left tree's ancestor chain for any output selection", () => {
+    // Not package-specific: revealOutput expands the generic OutputBranch/
+    // OutputsTree `out:<dot.joined.prefix>` keys for ANY output-tree leaf, a
+    // deep link's equivalent of clicking down through each ancestor.
+    app.select({ kind: "output", path: ["packages", "x86_64-linux", "hello"] })
+    expect(app.expanded.has("out:packages")).toBe(true)
+    expect(app.expanded.has("out:packages.x86_64-linux")).toBe(true)
+    // The leaf itself never gets its own expand key (nothing to expand into).
+    expect(app.expanded.has("out:packages.x86_64-linux.hello")).toBe(false)
+
+    app.expanded.clear()
+    app.select({ kind: "output", path: ["lib", "greeting"] })
+    expect(app.expanded.has("out:lib")).toBe(true)
+
+    app.expanded.clear()
+    // formatter.<system> is depth 2 (no name level) — one ancestor to expand.
+    app.select({ kind: "output", path: ["formatter", "x86_64-linux"] })
+    expect(app.expanded.has("out:formatter")).toBe(true)
+  })
+
+  test("applyHash (a real deep link / back-forward) expands the tree the same way select() does", () => {
+    app.applyHash("#/o/packages.x86_64-linux.hello")
+    expect(app.selection).toEqual({ kind: "output", path: ["packages", "x86_64-linux", "hello"] })
+    expect(app.expanded.has("out:packages")).toBe(true)
+    expect(app.expanded.has("out:packages.x86_64-linux")).toBe(true)
+  })
 })
 
 describe("loadFileContent", () => {

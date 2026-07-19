@@ -79,6 +79,7 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
     expect(new Set(m.packages.map((p) => p.id))).toEqual(
       new Set([
         "packages/x86_64-linux/mini",
+        "packages/x86_64-linux/mini-broken-meta",
         "devShells/x86_64-linux/default",
         "checks/x86_64-linux/mini-check",
         "formatter/x86_64-linux",
@@ -239,6 +240,25 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
         expect(r.data.builder).toBe("unknown")
         expect(r.data.outputs[0]?.outPath).toContain("/nix/store/")
       }
+    } finally {
+      await rm(outDir, { recursive: true, force: true })
+    }
+  })
+
+  test("a package whose meta throws (unfree/broken) degrades to a warning, not a failure", async () => {
+    const outDir = await mkdtemp(join(tmpdir(), "mini-extract-broken-meta-"))
+    try {
+      const m = await buildManifest(FIXTURE, { timeoutMs: 60_000 })
+      const ref = m.packages.find((p) => p.id === "packages/x86_64-linux/mini-broken-meta")!
+      const r = await extractAndPersistPackage(outDir, FIXTURE, m.flake.narHash, ref, {
+        timeoutMs: 60_000,
+      })
+      applyExtractedPackage(ref, r)
+      expect(ref.status).toBe("ok") // meta failing is a warning, not an extraction failure
+      expect(r.data.pname).toBe("mini-broken-meta")
+      expect(r.data.pkgVersion).toBe("0.1.0")
+      expect(r.data.meta).toBeUndefined()
+      expect(r.warnings.some((w) => w.includes("meta unavailable"))).toBe(true)
     } finally {
       await rm(outDir, { recursive: true, force: true })
     }

@@ -1,11 +1,10 @@
-// PackageDetail.svelte (loading/error/retry/loaded sections) and Stage.svelte's
-// dispatch to it for "output" selections that match a PackageRef, vs the
-// generic leaf fallback for everything else.
+// PackageDetail.svelte: loading/error/retry/loaded sections. Stage.svelte's
+// dispatch to it (and the generic leaf fallback for non-package outputs) is
+// covered in stage.test.ts alongside Stage's other selection-kind branches.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { flushSync, mount, unmount } from "svelte"
 import PackageDetail from "../app/components/PackageDetail.svelte"
-import Stage from "../app/components/Stage.svelte"
 import { buildFlakeIndexes } from "../app/lib/indexes"
 import { app } from "../app/lib/state.svelte"
 import type { PackageData } from "../src/schema"
@@ -196,21 +195,53 @@ describe("PackageDetail", () => {
       expect(host.textContent).toContain("/nix/store/other-source/default.nix:1")
     })
   })
-})
 
-describe("Stage dispatch", () => {
-  test("an output selection matching a PackageRef renders PackageDetail", () => {
-    app.selection = { kind: "output", path: ["packages", "x86_64-linux", "hello"] }
-    withMount(Stage, {}, (host) => {
-      expect(host.textContent).toContain("Evaluating package")
+  test("a minimal package (no meta/src/drv/runtime) renders without those sections", () => {
+    const data: PackageData = {
+      version: 1,
+      id: PKG_ID,
+      path: ["packages", "x86_64-linux", "hello"],
+      builder: "unknown",
+      outputs: [{ name: "out" }],
+      deps: { nativeBuildInputs: [], buildInputs: [], propagatedBuildInputs: [] },
+      warnings: [],
+    }
+    app.packages = { [PKG_ID]: { data } }
+    withMount(PackageDetail, { refId: PKG_ID }, (host) => {
+      expect(host.querySelector("h2")?.textContent).toBe("hello") // falls back to the last path segment
+      expect(host.textContent).not.toContain("Metadata")
+      expect(host.textContent).not.toContain("Source")
+      expect(host.textContent).not.toContain("Build")
+      expect(host.textContent).toContain("No declared build inputs.")
+      expect(host.textContent).not.toContain("Runtime closure")
+      // The lone output has no outPath — no "in store" badge, no dash detail.
+      expect(host.querySelector(".outs li")?.textContent?.trim()).toBe("out")
     })
   })
 
-  test("an output selection NOT matching a PackageRef keeps the generic leaf markup", () => {
-    app.selection = { kind: "output", path: ["nixosConfigurations", "test"] }
-    withMount(Stage, {}, (host) => {
-      expect(host.textContent).toContain("NixOS configuration")
-      expect(host.textContent).not.toContain("Evaluating package")
+  test("broken and unfree flags render as their own rows", () => {
+    const data = { ...samplePackage(), meta: { ...samplePackage().meta, broken: true, unfree: true } }
+    app.packages = { [PKG_ID]: { data } }
+    withMount(PackageDetail, { refId: PKG_ID }, (host) => {
+      const dtdd = (label: string) => {
+        const dt = [...host.querySelectorAll("dt")].find((d) => d.textContent === label)
+        return dt?.nextElementSibling
+      }
+      expect(dtdd("broken")?.textContent).toBe("true")
+      expect(dtdd("broken")?.classList.contains("err")).toBe(true)
+      expect(dtdd("unfree")?.textContent).toBe("true")
+    })
+  })
+
+  test("warnings render in a collapsed details block", () => {
+    const data = { ...samplePackage(), warnings: ["meta unavailable for hello (broken/unfree package?)"] }
+    app.packages = { [PKG_ID]: { data } }
+    withMount(PackageDetail, { refId: PKG_ID }, (host) => {
+      const summary = [...host.querySelectorAll("details summary")].find((s) =>
+        s.textContent?.includes("extraction warnings"),
+      )
+      expect(summary?.textContent).toContain("1 extraction warnings")
+      expect(host.textContent).toContain("meta unavailable for hello")
     })
   })
 })
