@@ -7,6 +7,7 @@ import FileList from "../app/components/FileList.svelte"
 import ModuleDetail from "../app/components/ModuleDetail.svelte"
 import OutputsTree from "../app/components/OutputsTree.svelte"
 import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
+import { prefs } from "../app/lib/prefs.svelte"
 import { app } from "../app/lib/state.svelte"
 import { fixtureConfig, fixtureManifest } from "./fixtures/data"
 
@@ -107,64 +108,64 @@ describe("ModuleDetail", () => {
 
 describe("font scale", () => {
   test("adjusts, clamps, persists to localStorage, and restores", () => {
-    app.setFontScale(1)
-    app.adjustFontScale(0.1)
-    expect(app.fontScale).toBe(1.1)
+    prefs.setFontScale(1)
+    prefs.adjustFontScale(0.1)
+    expect(prefs.fontScale).toBe(1.1)
     expect(localStorage.getItem("flake-explorer:font-scale@2")).toBe("1.1")
     // 100% == 22.4px base (the old 140%), so 1.1 => 24.64px
     expect(document.documentElement.style.fontSize).toBe("24.64px")
 
-    app.setFontScale(99)
-    expect(app.fontScale).toBe(1.5) // clamped
+    prefs.setFontScale(99)
+    expect(prefs.fontScale).toBe(1.5) // clamped
 
-    app.fontScale = 0 // simulate a fresh session
-    app.initFontScale() // restores the clamped saved value
-    expect(app.fontScale).toBe(1.5)
+    prefs.fontScale = 0 // simulate a fresh session
+    prefs.initFontScale() // restores the clamped saved value
+    expect(prefs.fontScale).toBe(1.5)
 
     localStorage.removeItem("flake-explorer:font-scale@2")
-    app.initFontScale()
-    expect(app.fontScale).toBe(1)
+    prefs.initFontScale()
+    expect(prefs.fontScale).toBe(1)
   })
 })
 
 describe("theme", () => {
   test("persists the chosen theme; saved choice beats the OS preference", () => {
-    app.setTheme(1)
-    expect(app.themeIndex).toBe(1)
+    prefs.setTheme(1)
+    expect(prefs.themeIndex).toBe(1)
     expect(localStorage.getItem("flake-explorer:theme@1")).toBe("1")
     expect(document.documentElement.style.getPropertyValue("color-scheme")).toBe("dark")
 
-    app.themeIndex = 0 // simulate a fresh session
-    app.initTheme(false) // OS prefers light, but the saved choice wins
-    expect(app.themeIndex).toBe(1)
+    prefs.themeIndex = 0 // simulate a fresh session
+    prefs.initTheme(false) // OS prefers light, but the saved choice wins
+    expect(prefs.themeIndex).toBe(1)
 
-    app.setTheme(99) // out of bounds — ignored
-    expect(app.themeIndex).toBe(1)
+    prefs.setTheme(99) // out of bounds — ignored
+    expect(prefs.themeIndex).toBe(1)
 
     localStorage.removeItem("flake-explorer:theme@1")
-    app.initTheme(false) // nothing saved — falls back to the OS preference
-    expect(app.themeIndex).toBe(0)
+    prefs.initTheme(false) // nothing saved — falls back to the OS preference
+    expect(prefs.themeIndex).toBe(0)
   })
 })
 
 describe("pane widths", () => {
   test("clamps, persists on save, and restores", () => {
-    app.resetPanes()
-    app.setPane("left", 5000)
-    expect(app.paneLeft).toBe(640) // clamped to max
-    app.setPane("right", 10)
-    expect(app.paneRight).toBe(200) // clamped to min
-    app.savePanes()
+    prefs.resetPanes()
+    prefs.setPane("left", 5000)
+    expect(prefs.paneLeft).toBe(640) // clamped to max
+    prefs.setPane("right", 10)
+    expect(prefs.paneRight).toBe(200) // clamped to min
+    prefs.savePanes()
 
-    app.paneLeft = 0
-    app.paneRight = 0
-    app.initPanes()
-    expect(app.paneLeft).toBe(640)
-    expect(app.paneRight).toBe(200)
+    prefs.paneLeft = 0
+    prefs.paneRight = 0
+    prefs.initPanes()
+    expect(prefs.paneLeft).toBe(640)
+    expect(prefs.paneRight).toBe(200)
 
-    app.resetPanes()
-    expect(app.paneLeft).toBe(280)
-    expect(app.paneRight).toBe(340)
+    prefs.resetPanes()
+    expect(prefs.paneLeft).toBe(280)
+    expect(prefs.paneRight).toBe(340)
   })
 })
 

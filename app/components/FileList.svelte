@@ -1,12 +1,13 @@
 <script lang="ts">
 import { colorFor } from "../lib/color"
-import { buildFileTree, type FileMeta, type FileTreeNode } from "../lib/indexes"
+import { buildFileTree, type FileMeta, type FileTreeNode, fileTreeMatches } from "../lib/indexes"
+import { prefs } from "../lib/prefs.svelte"
 import { app, loadedConfig } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
 import Dot from "./Dot.svelte"
 import FileTreeBranch from "./FileTreeBranch.svelte"
 
-const gen = $derived(THEMES[app.themeIndex]!.gen)
+const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 
 interface Group {
   key: string
@@ -69,12 +70,7 @@ const groups = $derived.by((): Group[] => {
 })
 
 /** A group hides entirely when the filter matches nothing inside it. */
-function hasMatch(n: FileTreeNode, q: string): boolean {
-  if (q === "") return true
-  if (n.fileId) return n.path.toLowerCase().includes(q)
-  return n.children.some((c) => hasMatch(c, q))
-}
-const visibleGroups = $derived(groups.filter((g) => hasMatch(g.tree, app.q.toLowerCase())))
+const visibleGroups = $derived(groups.filter((g) => fileTreeMatches(g.tree, app.q.toLowerCase())))
 </script>
 
 <div class="files">

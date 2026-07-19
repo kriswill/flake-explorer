@@ -1,16 +1,18 @@
 <script lang="ts">
 import { makeFileId } from "../../src/schema"
 import { colorFor } from "../lib/color"
+import { prefs } from "../lib/prefs.svelte"
 import { segmentLines } from "../lib/segments"
 import { app } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
+import AsyncSlot from "./AsyncSlot.svelte"
 import Dot from "./Dot.svelte"
 import InputProvenance from "./InputProvenance.svelte"
 import SourceView from "./SourceView.svelte"
 
 const { name }: { name: string } = $props()
 
-const gen = $derived(THEMES[app.themeIndex]!.gen)
+const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 const input = $derived(app.manifest?.inputs[name] ?? null)
 
 /** The input's own flake.nix out of the store — same id scheme as option files. */
@@ -49,17 +51,16 @@ const lines = $derived.by(() => {
     <div class="id-body">
       {#if !input.storePath}
         <p class="muted">Source not available (input was not fetched during extraction).</p>
-      {:else if !contentSlot || contentSlot === "loading"}
-        <p class="muted">loading source…</p>
-      {:else if "error" in contentSlot}
-        <p class="muted err">
-          {contentSlot.error.split("\n")[0]}
-          {#if !contentSlot.permanent}
-            <button class="retry" onclick={() => app.retryFileContent(fileId, `${input.storePath}/flake.nix`)}>retry</button>
-          {/if}
-        </p>
       {:else}
-        <SourceView {lines} />
+        <AsyncSlot
+          value={contentSlot}
+          loadingText="loading source…"
+          retry={() => app.retryFileContent(fileId, `${input.storePath}/flake.nix`)}
+        >
+          {#snippet children()}
+            <SourceView {lines} />
+          {/snippet}
+        </AsyncSlot>
       {/if}
     </div>
   {/if}
@@ -116,17 +117,5 @@ const lines = $derived.by(() => {
   .muted {
     color: var(--ink-muted);
     font-size: 0.75rem;
-  }
-  .err {
-    color: var(--err);
-  }
-  .retry {
-    background: none;
-    border: 1px solid var(--grid);
-    border-radius: 4px;
-    color: var(--ink-2);
-    font-size: 0.6875rem;
-    cursor: pointer;
-    margin-left: 6px;
   }
 </style>

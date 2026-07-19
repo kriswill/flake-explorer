@@ -44,6 +44,39 @@ export interface FlakeIndexes {
   importedBy: Map<string, Set<string>>
 }
 
+/**
+ * Shared search filter for every tree in the app: keep a node when its own
+ * text contains the (already-lowercased) query, or any descendant's does.
+ * textOf returns null for nodes with no matchable text of their own (e.g.
+ * file-list folders, which stay visible purely because of what's inside).
+ */
+export function subtreeMatches<T>(
+  node: T,
+  q: string,
+  textOf: (n: T) => string | null,
+  childrenOf: (n: T) => T[],
+): boolean {
+  if (q === "") return true
+  if (textOf(node)?.toLowerCase().includes(q)) return true
+  return childrenOf(node).some((c) => subtreeMatches(c, q, textOf, childrenOf))
+}
+
+/** File-list flavor: files match on their full relPath, folders only via contents. */
+export function fileTreeMatches(n: FileTreeNode, q: string): boolean {
+  return subtreeMatches(
+    n,
+    q,
+    (x) => (x.fileId ? x.path : null),
+    (x) => x.children,
+  )
+}
+
+/** Parse a nixpkgs-style meta.position "file:line"; line absent when there is no trailing :<digits>. */
+export function parsePosition(position: string): { file: string; line?: string } {
+  const m = position.match(/^(.*):(\d+)$/)
+  return m ? { file: m[1]!, line: m[2]! } : { file: position }
+}
+
 export function buildFlakeIndexes(manifest: Manifest): FlakeIndexes {
   const selfByStorePath = new Map(manifest.files.map((f) => [f.storePath, f]))
   const withPaths = Object.values(manifest.inputs).filter((i) => i.storePath)
@@ -143,28 +176,45 @@ export function buildConfigIndexes(
   return { tree, fileToNodes, refsByFile, filesById }
 }
 
-function buildTree(
-  filesById: Map<string, FileMeta>,
-  refsByFile: Map<string, FileOptionRefs>,
-): TreeNode {
-  const root: TreeNode = { id: "root", label: "", children: [], customized: 0, declares: 0 }
-  const dirNodes = new Map<string, TreeNode>()
-
-  const dirFor = (parent: TreeNode, parts: string[], idPrefix: string): TreeNode => {
-    let node = parent
-    let acc = idPrefix
+/**
+ * Shared lazy directory-walk behind both tree builders (buildTree,
+ * buildFileTree): resolve — creating on first sight — the chain of directory
+ * nodes for `parts`, keyed by the accumulated "<keyPrefix>/<p1>/<p2>" path so
+ * a directory reached twice reuses one node. Returns the deepest node.
+ */
+function dirResolver<T extends { children: T[] }>(
+  makeDir: (acc: string, label: string) => T,
+): (from: T, keyPrefix: string, parts: string[]) => T {
+  const dirs = new Map<string, T>()
+  return (from, keyPrefix, parts) => {
+    let node = from
+    let acc = keyPrefix
     for (const part of parts) {
       acc += `/${part}`
-      let child = dirNodes.get(acc)
+      let child = dirs.get(acc)
       if (!child) {
-        child = { id: `dir:${acc}`, label: part, children: [], customized: 0, declares: 0 }
-        dirNodes.set(acc, child)
+        child = makeDir(acc, part)
+        dirs.set(acc, child)
         node.children.push(child)
       }
       node = child
     }
     return node
   }
+}
+
+function buildTree(
+  filesById: Map<string, FileMeta>,
+  refsByFile: Map<string, FileOptionRefs>,
+): TreeNode {
+  const root: TreeNode = { id: "root", label: "", children: [], customized: 0, declares: 0 }
+  const dirFor = dirResolver<TreeNode>((acc, label) => ({
+    id: `dir:${acc}`,
+    label,
+    children: [],
+    customized: 0,
+    declares: 0,
+  }))
 
   const inputRoots = new Map<string, TreeNode>()
   const inputRoot = (input: string): TreeNode => {
@@ -191,20 +241,20 @@ function buildTree(
       root.children.push(leaf)
     } else if (meta.origin.kind === "self") {
       const parts = meta.relPath.split("/")
-      dirFor(root, parts.slice(0, -1), "self").children.push(leaf)
+      dirFor(root, "self", parts.slice(0, -1)).children.push(leaf)
     } else if (meta.origin.kind === "input") {
       const parts = meta.relPath.split("/")
       dirFor(
         inputRoot(meta.origin.input),
-        parts.slice(0, -1),
         `input/${meta.origin.input}`,
+        parts.slice(0, -1),
       ).children.push(leaf)
     } else if (meta.origin.group) {
       const parts = meta.relPath.split("/")
       dirFor(
         inputRoot(meta.origin.group),
-        parts.slice(0, -1),
         `input/${meta.origin.group}`,
+        parts.slice(0, -1),
       ).children.push(leaf)
     } else {
       leaf.label = meta.relPath
@@ -212,17 +262,28 @@ function buildTree(
     }
   }
 
-  // Inputs grouped after self files, alphabetical; nixpkgs last (largest).
-  const inputs = [...inputRoots.values()].sort((a, b) =>
-    a.label === "nixpkgs" ? 1 : b.label === "nixpkgs" ? -1 : a.label.localeCompare(b.label),
-  )
-  root.children.push(...inputs)
-
+  root.children.push(...inputRoots.values())
   sortAndSum(root)
+
+  // Re-pin the input groups AFTER the flake's own entries (sortAndSum just
+  // interleaved everything dirs-first-alphabetically), alphabetical with
+  // nixpkgs last — it dwarfs the others and would bury them.
+  const inputSet = new Set<TreeNode>(inputRoots.values())
+  const inputs = root.children
+    .filter((c) => inputSet.has(c))
+    .sort((a, b) =>
+      a.label === "nixpkgs" ? 1 : b.label === "nixpkgs" ? -1 : a.label.localeCompare(b.label),
+    )
+  root.children = [...root.children.filter((c) => !inputSet.has(c)), ...inputs]
   return root
 }
 
-/** Sort children (dirs first, then leaves, alphabetical) and roll up counts. */
+/**
+ * Sort children (dirs first, then leaves, alphabetical) and roll up counts.
+ * Deliberately the OPPOSITE order of the file list's buildFileTree/sortLevel
+ * (files first): this tree reads as a namespace, containers leading; the
+ * file list keeps a group's root files (flake.nix) visible above its folders.
+ */
 function sortAndSum(node: TreeNode): void {
   for (const c of node.children) sortAndSum(c)
   node.children.sort((a, b) => {
@@ -261,31 +322,16 @@ export function buildFileTree(
     colorKey: groupKey,
     children: [],
   }
-  const dirs = new Map<string, FileTreeNode>([["", root]])
-  const dirFor = (parts: string[]): FileTreeNode => {
-    let path = ""
-    let node = root
-    for (const part of parts) {
-      path = path ? `${path}/${part}` : part
-      let child = dirs.get(path)
-      if (!child) {
-        child = {
-          id: `fdir:${groupKey}/${path}`,
-          label: part,
-          path,
-          colorKey: groupKey,
-          children: [],
-        }
-        dirs.set(path, child)
-        node.children.push(child)
-      }
-      node = child
-    }
-    return node
-  }
+  const dirFor = dirResolver<FileTreeNode>((acc, label) => ({
+    id: `fdir:${groupKey}${acc}`,
+    label,
+    path: acc.slice(1),
+    colorKey: groupKey,
+    children: [],
+  }))
   for (const f of files) {
     const parts = f.relPath.split("/")
-    dirFor(parts.slice(0, -1)).children.push({
+    dirFor(root, "", parts.slice(0, -1)).children.push({
       id: f.id,
       label: parts[parts.length - 1]!,
       path: f.relPath,
@@ -294,6 +340,8 @@ export function buildFileTree(
       children: [],
     })
   }
+  // Files before folders — deliberately the opposite of the module tree's
+  // sortAndSum (dirs first); see the comment there for why each fits its pane.
   const sortLevel = (n: FileTreeNode) => {
     n.children.sort(
       (a, b) => (a.fileId ? 0 : 1) - (b.fileId ? 0 : 1) || a.label.localeCompare(b.label),

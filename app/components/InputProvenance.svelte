@@ -1,13 +1,13 @@
 <script lang="ts">
 import type { InputInfo } from "../../src/schema"
 import { colorFor } from "../lib/color"
-import { app } from "../lib/state.svelte"
+import { prefs } from "../lib/prefs.svelte"
 import { THEMES } from "../lib/themes"
 import { commitUrl, webUrl } from "../lib/url"
 import Dot from "./Dot.svelte"
 
 const { input }: { input: InputInfo } = $props()
-const gen = $derived(THEMES[app.themeIndex]!.gen)
+const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 const date = $derived(
   input.lastModified ? new Date(input.lastModified * 1000).toISOString().slice(0, 10) : null,
 )

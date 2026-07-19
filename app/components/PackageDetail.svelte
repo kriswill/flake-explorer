@@ -1,10 +1,12 @@
 <script lang="ts">
 import { colorFor } from "../lib/color"
-import { resolveFile } from "../lib/indexes"
+import { parsePosition, resolveFile } from "../lib/indexes"
+import { prefs } from "../lib/prefs.svelte"
 import { segmentLines } from "../lib/segments"
-import { app, loadedPackage, packageError } from "../lib/state.svelte"
+import { app, loadedPackage } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
 import { webUrl } from "../lib/url"
+import AsyncSlot from "./AsyncSlot.svelte"
 import Dot from "./Dot.svelte"
 import HeaderChip from "./HeaderChip.svelte"
 import SourceView from "./SourceView.svelte"
@@ -14,11 +16,10 @@ interface Props {
 }
 const { refId }: Props = $props()
 
-const gen = $derived(THEMES[app.themeIndex]!.gen)
+const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 const ref = $derived(app.manifest?.packages.find((p) => p.id === refId) ?? null)
 const slot = $derived(app.packages[refId])
 const loaded = $derived(loadedPackage(slot))
-const err = $derived(packageError(slot))
 const data = $derived(loaded?.data ?? null)
 
 const colorKey = $derived(ref?.path[0] ?? refId)
@@ -51,9 +52,7 @@ function humanBytes(n: number): string {
 const positionInfo = $derived.by(() => {
   const position = data?.meta?.position
   if (!position || !app.manifest || !app.flakeIndexes) return null
-  const m = position.match(/^(.*):(\d+)$/)
-  const file = m ? m[1]! : position
-  const line = m ? m[2] : undefined
+  const { file, line } = parsePosition(position)
   if (!file.startsWith(`${app.manifest.flake.path}/`)) return { file, line, fileId: null }
   const meta = resolveFile(file, app.manifest, app.flakeIndexes)
   return { file, line, fileId: meta.id }
@@ -62,16 +61,14 @@ const positionInfo = $derived.by(() => {
 
 {#if !ref}
   <p class="muted">Unknown package.</p>
-{:else if !slot || slot === "loading"}
-  <p class="muted">Evaluating package… (first run takes a few seconds)</p>
-{:else if err}
-  <p class="err">
-    {err.error.split("\n")[0]}
-    {#if !err.permanent}
-      <button class="retry" onclick={() => app.retryPackage(refId)}>retry</button>
-    {/if}
-  </p>
-{:else if data}
+{:else}
+<AsyncSlot
+  value={slot}
+  loadingText="Evaluating package… (first run takes a few seconds)"
+  retry={() => app.retryPackage(refId)}
+>
+{#snippet children()}
+{#if data}
   <div class="head" style="--c:{colorFor(colorKey, gen)}">
     <Dot />
     <h2 class="mono">{title}</h2>
@@ -282,6 +279,9 @@ const positionInfo = $derived.by(() => {
     </details>
   {/if}
 {/if}
+{/snippet}
+</AsyncSlot>
+{/if}
 
 <style>
   .head {
@@ -331,15 +331,6 @@ const positionInfo = $derived.by(() => {
   .badge.instore {
     margin-left: 6px;
     color: var(--ok, var(--ink-2));
-  }
-  .retry {
-    background: none;
-    border: 1px solid var(--grid);
-    border-radius: 4px;
-    color: var(--ink-2);
-    font-size: 0.6875rem;
-    cursor: pointer;
-    margin-left: 6px;
   }
   section {
     border-top: 1px solid var(--grid);

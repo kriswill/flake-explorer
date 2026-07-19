@@ -172,9 +172,10 @@ function detectLocalCheckout(flakeRef: string, meta: FlakeMetadataJson): string 
  * Flatten the recursive inputs tree (eval side: store paths) against the
  * lock graph (metadata side: provenance), breadth-first so direct inputs
  * claim plain names; a transitive input gets "parent/child" unless its lock
- * node was already covered (follows dedup).
+ * node was already covered (follows dedup). Exported for unit tests only —
+ * production callers go through buildManifest.
  */
-function inputInfos(
+export function inputInfos(
   meta: FlakeMetadataJson,
   ev: ManifestEval,
   warnings: string[],

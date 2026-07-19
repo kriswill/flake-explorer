@@ -1,5 +1,6 @@
 <script lang="ts">
 import { colorFor } from "../lib/color"
+import { prefs } from "../lib/prefs.svelte"
 import { app } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
 import Dot from "./Dot.svelte"
@@ -12,7 +13,7 @@ interface Props {
 }
 const { configId, moduleId }: Props = $props()
 
-const gen = $derived(THEMES[app.themeIndex]!.gen)
+const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 const cfg = $derived(app.activeConfig)
 const meta = $derived(cfg?.indexes.filesById.get(moduleId) ?? null)
 const refs = $derived(cfg?.indexes.refsByFile.get(moduleId) ?? null)
