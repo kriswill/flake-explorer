@@ -137,9 +137,14 @@ function makePackageRef(path: string[]): PackageRef {
 
 /**
  * Config names are arbitrary Nix attr names — quoted attrs may contain "/",
- * enough to escape the data dir through join(outDir, dataFile). Names in the
- * serve route's charset pass through; anything else becomes a slug plus a
- * short collision hash (still matching /^[\w@%.+-]+$/, so it stays fetchable).
+ * enough to escape the data dir through join(outDir, dataFile). Names matching
+ * /^[\w@+.-]+$/ pass through; anything else becomes a slug plus a short
+ * collision hash. "%" is deliberately excluded from the passthrough charset
+ * even though the serve route's charset allows it: the route runs
+ * decodeURIComponent() on the request path, so a literal "%" in a dataFile
+ * name would be reinterpreted as a URL escape (the same mechanism behind the
+ * previously-closed "..%2F" traversal). Slugifying "%" away keeps names
+ * unambiguous after percent-decoding; the result still stays fetchable.
  */
 export function safeName(name: string): string {
   if (/^[\w@+.-]+$/.test(name)) return name
