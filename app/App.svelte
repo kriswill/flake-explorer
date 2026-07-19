@@ -6,6 +6,7 @@ import OutputsTree from "./components/OutputsTree.svelte"
 import Splitter from "./components/Splitter.svelte"
 import Stage from "./components/Stage.svelte"
 import Tooltip from "./components/Tooltip.svelte"
+import { prefs } from "./lib/prefs.svelte"
 import { app } from "./lib/state.svelte"
 </script>
 
@@ -19,7 +20,7 @@ import { app } from "./lib/state.svelte"
   {:else if !app.manifest}
     <div class="err"><p class="muted">Loading flake data…</p></div>
   {:else}
-    <main style="grid-template-columns: {app.paneLeft}px 6px 1fr 6px {app.paneRight}px">
+    <main style="grid-template-columns: {prefs.paneLeft}px 6px 1fr 6px {prefs.paneRight}px">
       <nav class="pane left"><OutputsTree /></nav>
       <Splitter side="left" />
       <section class="pane stage"><Stage /></section>

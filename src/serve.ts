@@ -30,7 +30,10 @@ export interface ServeFlags {
   dev?: boolean
 }
 
-export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> {
+export async function serve(
+  flakeRef: string,
+  flags: ServeFlags,
+): Promise<ReturnType<typeof Bun.serve>> {
   await checkNix()
   const outDir = flags.out
   mkdirSync(join(outDir, "config"), { recursive: true })
@@ -66,7 +69,7 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
       timer = setTimeout(async () => {
         try {
           const t0 = Date.now()
-          page = pageHtml(await buildApp(true), title, { dev: true })
+          page = pageHtml(await buildApp(true, { fresh: true }), title, { dev: true })
           console.log(`dev: UI rebuilt in ${Date.now() - t0}ms — reloading clients`)
           devNotify()
         } catch (e) {
@@ -203,7 +206,13 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
             ? manifest.packages.find((p) => p.dataFile === rel)
             : manifest.configurations.find((c) => c.dataFile === rel)
         const ref = findRef()
-        if (ref && ref.status !== "ok") {
+        // No manifest ref claims this dataFile → 404 before touching disk.
+        // This is what keeps sidecar .meta.json files private and stops an
+        // encoded ..%2F traversal (the regex admits "%" against the encoded
+        // pathname; decodeURIComponent would re-introduce "/") from serving
+        // files outside the data dir — only ref-listed blobs are readable.
+        if (!ref) return new Response("not found", { status: 404 })
+        if (ref.status !== "ok") {
           if (isPackage) await extractPackageOnDemand(ref.id)
           else await extractConfig(ref.id)
           // Re-resolve: extraction settles onto the ref in the manifest that
@@ -258,4 +267,5 @@ export async function serve(flakeRef: string, flags: ServeFlags): Promise<void> 
   })
 
   console.log(`flake-explorer serving ${flakeRef} at http://localhost:${server.port}`)
+  return server
 }

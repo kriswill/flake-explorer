@@ -1,10 +1,14 @@
 <script lang="ts" module>
-import { inputNameOf, type TreeNode as Node } from "../lib/indexes"
+import { inputNameOf, subtreeMatches as matchesBy, type TreeNode as Node } from "../lib/indexes"
 
-/** Search filter: keep subtrees containing a label match. */
+/** Search filter: keep subtrees containing a label match (dirs included). */
 export function subtreeMatches(n: Node, q: string): boolean {
-  if (n.label.toLowerCase().includes(q)) return true
-  return n.children.some((c) => subtreeMatches(c, q))
+  return matchesBy(
+    n,
+    q,
+    (x) => x.label,
+    (x) => x.children,
+  )
 }
 
 /** Color key: input subtrees color by input name, everything else by node id. */
@@ -14,6 +18,7 @@ export function nodeColorKey(n: Node): string {
 </script>
 
 <script lang="ts">
+  import { prefs } from "../lib/prefs.svelte";
   import { app } from "../lib/state.svelte";
   import { colorFor } from "../lib/color";
   import { THEMES } from "../lib/themes";
@@ -33,7 +38,7 @@ export function nodeColorKey(n: Node): string {
   }
   const { node, configId, depth, rail = null }: Props = $props();
 
-  const gen = $derived(THEMES[app.themeIndex]!.gen);
+  const gen = $derived(THEMES[prefs.themeIndex]!.gen);
   const isDir = $derived(node.children.length > 0);
   const expanded = $derived(app.expanded.has(node.id));
   const highlighted = $derived(app.highlightedNodes.has(node.id));

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { normalizeShow } from "../src/extract/manifest"
+import { normalizeShow, safeName } from "../src/extract/manifest"
 import type { OutputNode } from "../src/schema"
 
 // Captured from real `nix flake show --json path:<flake>` under Determinate
@@ -153,5 +153,14 @@ describe("normalizeShow (classic)", () => {
     expect(normalizeShow(null)).toEqual({ kind: "unknown" })
     expect(normalizeShow("nope")).toEqual({ kind: "unknown" })
     expect(normalizeShow(42)).toEqual({ kind: "unknown" })
+  })
+})
+
+describe("safeName", () => {
+  test("a name containing % is slugified, not passed through", () => {
+    // "%" must never survive into a dataFile name: the serve route
+    // percent-decodes request paths, so a literal "%" would be reinterpreted
+    // as a URL escape (e.g. "..%2F" traversal).
+    expect(safeName("foo%2Fbar")).toMatch(/^foo_2Fbar-[0-9a-z]{1,8}$/)
   })
 })
