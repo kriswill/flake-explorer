@@ -44,7 +44,7 @@ describe("classifyBuilder", () => {
 })
 
 describe("normalizeDerivationShow", () => {
-  test("newer nix: {derivations:{...}} wrapper, nested inputs.drvs", () => {
+  test("newer nix: {derivations:{...}} wrapper, nested inputs.drvs", async () => {
     const raw = {
       derivations: {
         "4zsdqwbpxpa6k66shvx0zdqcvka7gwqx-mini-0.1.0.drv": {
@@ -61,7 +61,7 @@ describe("normalizeDerivationShow", () => {
       },
       version: 4,
     }
-    const drv = normalizeDerivationShow(raw)
+    const drv = await normalizeDerivationShow(raw)
     expect(drv?.drvPath).toBe("/nix/store/4zsdqwbpxpa6k66shvx0zdqcvka7gwqx-mini-0.1.0.drv")
     expect(drv?.system).toBe("x86_64-linux")
     expect(drv?.builderPath).toBe("/bin/sh")
@@ -72,13 +72,15 @@ describe("normalizeDerivationShow", () => {
         outputs: ["out"],
       },
     ])
-    expect(drv?.phases).toEqual([{ name: "buildPhase", script: "make" }])
+    expect(drv?.phases.map(({ name, script }) => ({ name, script }))).toEqual([
+      { name: "buildPhase", script: "make" },
+    ])
     expect(drv?.doCheck).toBe(true)
     expect(drv?.structuredAttrs).toBe(false)
     expect(drv?.strictDeps).toBeUndefined() // key absent from env -> field absent
   })
 
-  test("older nix: bare drv map at the top level, flat inputDrvs", () => {
+  test("older nix: bare drv map at the top level, flat inputDrvs", async () => {
     const raw = {
       "aaaa1111111111111111111111111111-foo.drv": {
         name: "foo",
@@ -88,7 +90,7 @@ describe("normalizeDerivationShow", () => {
         inputDrvs: { "bbbb2222222222222222222222222222-bar.drv": { outputs: ["out", "dev"] } },
       },
     }
-    const drv = normalizeDerivationShow(raw)
+    const drv = await normalizeDerivationShow(raw)
     expect(drv?.drvPath).toBe("/nix/store/aaaa1111111111111111111111111111-foo.drv")
     expect(drv?.system).toBe("aarch64-darwin")
     expect(drv?.inputDrvs).toEqual([
@@ -101,7 +103,7 @@ describe("normalizeDerivationShow", () => {
     expect(drv?.phases).toEqual([])
   })
 
-  test("phases follow the fixed order with pre/post hooks interleaved per phase", () => {
+  test("phases follow the fixed order with pre/post hooks interleaved per phase", async () => {
     const raw = {
       derivations: {
         "cccc3333333333333333333333333333-x.drv": {
@@ -117,7 +119,7 @@ describe("normalizeDerivationShow", () => {
         },
       },
     }
-    const drv = normalizeDerivationShow(raw)
+    const drv = await normalizeDerivationShow(raw)
     expect(drv?.phases.map((p) => p.name)).toEqual([
       "preUnpack",
       "postUnpack",
@@ -126,7 +128,7 @@ describe("normalizeDerivationShow", () => {
     ])
   })
 
-  test("a long phase script is capped", () => {
+  test("a long phase script is capped", async () => {
     const script = "x".repeat(5000)
     const raw = {
       derivations: {
@@ -138,16 +140,16 @@ describe("normalizeDerivationShow", () => {
         },
       },
     }
-    const drv = normalizeDerivationShow(raw)
+    const drv = await normalizeDerivationShow(raw)
     expect(drv?.phases[0]?.script.length).toBeLessThan(script.length)
     expect(drv?.phases[0]?.script).toContain("truncated")
   })
 
-  test("empty/malformed input returns null instead of throwing", () => {
-    expect(normalizeDerivationShow(null)).toBeNull()
-    expect(normalizeDerivationShow({})).toBeNull()
-    expect(normalizeDerivationShow({ derivations: {} })).toBeNull()
-    expect(normalizeDerivationShow("not an object")).toBeNull()
+  test("empty/malformed input returns null instead of throwing", async () => {
+    expect(await normalizeDerivationShow(null)).toBeNull()
+    expect(await normalizeDerivationShow({})).toBeNull()
+    expect(await normalizeDerivationShow({ derivations: {} })).toBeNull()
+    expect(await normalizeDerivationShow("not an object")).toBeNull()
   })
 })
 

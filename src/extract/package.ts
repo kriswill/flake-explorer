@@ -19,6 +19,7 @@ import {
   type RuntimeInfo,
   SCHEMA_VERSION,
 } from "../schema"
+import { tokenizeBash } from "./highlight"
 import { derivationShow, evalExtract, type PackageEval, pathInfo } from "./run-nix"
 
 export interface PackageResult {
@@ -52,7 +53,7 @@ export async function extractPackage(
   let drv: DrvInfo | undefined
   try {
     const raw = await derivationShow(flakeRef, ref.path, opts.timeoutMs)
-    drv = normalizeDerivationShow(raw) ?? undefined
+    drv = (await normalizeDerivationShow(raw)) ?? undefined
     if (!drv) warnings.push(`${ref.id}: derivation show returned no entry`)
   } catch (e) {
     warnings.push(`${ref.id}: derivation show failed: ${String(e).split("\n")[0]}`)
@@ -155,12 +156,12 @@ const PHASE_ORDER: { key: string; pre?: string; post?: string }[] = [
   { key: "buildCommand" },
 ]
 
-function phasesFromEnv(env: Record<string, string>): DrvPhase[] {
-  const phases: DrvPhase[] = []
+async function phasesFromEnv(env: Record<string, string>): Promise<DrvPhase[]> {
+  const scripts: { name: string; script: string }[] = []
   const pushIfPresent = (name: string) => {
     const script = env[name]
     if (typeof script === "string" && script.length > 0) {
-      phases.push({
+      scripts.push({
         name,
         script: script.length > PHASE_CAP ? `${script.slice(0, PHASE_CAP)}\n… truncated` : script,
       })
@@ -171,7 +172,7 @@ function phasesFromEnv(env: Record<string, string>): DrvPhase[] {
     pushIfPresent(p.key)
     if (p.post) pushIfPresent(p.post)
   }
-  return phases
+  return Promise.all(scripts.map(async (s) => ({ ...s, tokens: await tokenizeBash(s.script) })))
 }
 
 const DRV_BASENAME_RE = /^[a-z0-9]{32}-(.+)\.drv$/
@@ -189,7 +190,7 @@ function nameFromDrvBasename(basename: string): string {
  * level. Newer nix also nests input drvs under `inputs.drvs`; older nix may
  * put them directly at `inputDrvs`. Both dimensions normalized here.
  */
-export function normalizeDerivationShow(raw: unknown): DrvInfo | null {
+export async function normalizeDerivationShow(raw: unknown): Promise<DrvInfo | null> {
   if (!raw || typeof raw !== "object") return null
   const r = raw as Record<string, unknown>
   const container = (
@@ -218,7 +219,7 @@ export function normalizeDerivationShow(raw: unknown): DrvInfo | null {
     system: typeof e.system === "string" ? e.system : "",
     builderPath: typeof e.builder === "string" ? e.builder : "",
     inputDrvs,
-    phases: phasesFromEnv(env),
+    phases: await phasesFromEnv(env),
     doCheck: "doCheck" in env ? env.doCheck === "1" : undefined,
     strictDeps: "strictDeps" in env ? env.strictDeps === "1" : undefined,
     structuredAttrs: "__structuredAttrs" in env ? env.__structuredAttrs === "1" : undefined,

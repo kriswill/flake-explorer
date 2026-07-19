@@ -64,7 +64,7 @@ const samplePackage = (): PackageData => ({
     system: "x86_64-linux",
     builderPath: "/nix/store/bash/bin/bash",
     inputDrvs: [{ drvPath: "/nix/store/zzz-gcc.drv", name: "gcc", outputs: ["out"] }],
-    phases: [{ name: "buildPhase", script: "make" }],
+    phases: [{ name: "buildPhase", script: "make", tokens: [] }],
     doCheck: true,
   },
   runtime: {
@@ -169,14 +169,15 @@ describe("PackageDetail", () => {
     })
   })
 
-  test("position under the flake's own path renders a clickable file chip", () => {
+  test("position under the flake's own path renders a clickable header chip", () => {
     const data = {
       ...samplePackage(),
       meta: { ...samplePackage().meta, position: `${SELF}/pkgs/hello/default.nix:42` },
     }
     app.packages = { [PKG_ID]: { data } }
     withMount(PackageDetail, { refId: PKG_ID }, (host) => {
-      const chip = buttonsWithText(host, "default.nix:42")[0]
+      expect(host.textContent).toContain("default.nix:42")
+      const chip = buttonsWithText(host, "file")[0]
       expect(chip).not.toBeUndefined()
       chip!.click()
       flushSync()
@@ -184,14 +185,14 @@ describe("PackageDetail", () => {
     })
   })
 
-  test("position outside the flake's own path renders as plain text", () => {
+  test("position outside the flake's own path renders as plain text, no chip", () => {
     const data = {
       ...samplePackage(),
       meta: { ...samplePackage().meta, position: "/nix/store/other-source/default.nix:1" },
     }
     app.packages = { [PKG_ID]: { data } }
     withMount(PackageDetail, { refId: PKG_ID }, (host) => {
-      expect(buttonsWithText(host, "default.nix:1").length).toBe(0)
+      expect(buttonsWithText(host, "file").length).toBe(0)
       expect(host.textContent).toContain("/nix/store/other-source/default.nix:1")
     })
   })

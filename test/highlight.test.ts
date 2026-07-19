@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { tokenizeNix } from "../src/extract/highlight"
+import { tokenizeBash, tokenizeNix } from "../src/extract/highlight"
 import type { TokenRun } from "../src/schema"
 
 // tokenizeNix runs the vendored tree-sitter-nix WASM under plain bun — no nix
@@ -57,5 +57,44 @@ describe("tokenizeNix", () => {
 
   test("empty input yields no runs", async () => {
     expect(await tokenizeNix("")).toEqual([])
+  })
+})
+
+describe("tokenizeBash", () => {
+  test("produces sorted, non-overlapping, in-bounds runs", async () => {
+    const text = 'runHook preInstall\nmkdir -p "$out/bin" # make it\ncp -R . "$out"\n'
+    const runs = await tokenizeBash(text)
+    expect(runs.length).toBeGreaterThan(0)
+    expectWellFormed(runs, text)
+  })
+
+  test("captures strings, comments, and keywords with the expected names", async () => {
+    const text = 'if [ -z "$out" ]; then\n  echo "s" # c\nfi\n'
+    const runs = await tokenizeBash(text)
+    const str = runFor(runs, text, '"s"')
+    expect(str).toBeDefined()
+    expect(str!.name).toStartWith("string")
+    const comment = runFor(runs, text, "# c")
+    expect(comment).toBeDefined()
+    expect(comment!.name).toStartWith("comment")
+    const kw = runFor(runs, text, "if")
+    expect(kw).toBeDefined()
+    expect(kw!.name).toBe("keyword")
+  })
+
+  test("offsets stay aligned to JS string indices after multi-byte chars", async () => {
+    const text = '# émoji 🎉\necho "a"\n'
+    const runs = await tokenizeBash(text)
+    expectWellFormed(runs, text)
+    const comment = runs.find((r) => r.name.startsWith("comment"))
+    expect(comment).toBeDefined()
+    expect(text.slice(comment!.start, comment!.end)).toBe("# émoji 🎉")
+    const str = runFor(runs, text, '"a"')
+    expect(str).toBeDefined()
+    expect(str!.name).toStartWith("string")
+  })
+
+  test("empty input yields no runs", async () => {
+    expect(await tokenizeBash("")).toEqual([])
   })
 })

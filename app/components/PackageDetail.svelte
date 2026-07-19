@@ -1,10 +1,13 @@
 <script lang="ts">
 import { colorFor } from "../lib/color"
 import { resolveFile } from "../lib/indexes"
+import { segmentLines } from "../lib/segments"
 import { app, loadedPackage, packageError } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
 import { webUrl } from "../lib/url"
 import Dot from "./Dot.svelte"
+import HeaderChip from "./HeaderChip.svelte"
+import SourceView from "./SourceView.svelte"
 
 interface Props {
   refId: string
@@ -73,6 +76,24 @@ const positionInfo = $derived.by(() => {
     <Dot />
     <h2 class="mono">{title}</h2>
     <span class="badge builder">{data.builder}</span>
+    {#if positionInfo?.fileId}
+      {@const fileId = positionInfo.fileId}
+      <HeaderChip label="file" onclick={() => app.select({ kind: "file", fileId })}>
+        {#snippet icon()}
+          <!-- source file: a page with a folded corner -->
+          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+            <path
+              d="M4 1.5h5l3 3v9.5H4z M9 1.5v3h3"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        {/snippet}
+      </HeaderChip>
+    {/if}
   </div>
   <p class="path mono muted">{ref.path.join(".")}</p>
 
@@ -137,18 +158,7 @@ const positionInfo = $derived.by(() => {
         {/if}
         {#if positionInfo}
           <dt>position</dt>
-          <dd>
-            {#if positionInfo.fileId}
-              {@const fileId = positionInfo.fileId}
-              <button class="filechip mono" onclick={() => app.select({ kind: "file", fileId })}>
-                {positionInfo.file.split("/").pop()}{positionInfo.line ? `:${positionInfo.line}` : ""}
-              </button>
-            {:else}
-              <span class="mono"
-                >{positionInfo.file}{positionInfo.line ? `:${positionInfo.line}` : ""}</span
-              >
-            {/if}
-          </dd>
+          <dd class="mono">{positionInfo.file}{positionInfo.line ? `:${positionInfo.line}` : ""}</dd>
         {/if}
         {#if data.meta.broken}
           <dt>broken</dt>
@@ -192,7 +202,9 @@ const positionInfo = $derived.by(() => {
         {#each drv.phases as phase (phase.name)}
           <details>
             <summary class="mono">{phase.name}</summary>
-            <pre class="mono">{phase.script}</pre>
+            <div class="phase-src">
+              <SourceView lines={segmentLines(phase.script, phase.tokens)} />
+            </div>
           </details>
         {/each}
       {:else}
@@ -367,21 +379,6 @@ const positionInfo = $derived.by(() => {
     color: var(--ink-muted);
     margin-right: 6px;
   }
-  .filechip {
-    display: inline-flex;
-    align-items: center;
-    background: var(--surface-1);
-    border: 1px solid var(--grid);
-    border-radius: 7px;
-    color: var(--ink-2);
-    font-size: 0.75rem;
-    padding: 2px 8px;
-    cursor: pointer;
-  }
-  .filechip:hover {
-    border-color: var(--c);
-    color: var(--c);
-  }
   .urltag {
     color: var(--ink-2);
     text-decoration: none;
@@ -399,16 +396,13 @@ const positionInfo = $derived.by(() => {
     cursor: pointer;
     color: var(--ink-2);
   }
-  pre {
+  .phase-src {
     max-height: 260px;
     overflow: auto;
     background: var(--page);
     border: 1px solid var(--grid);
     border-radius: 6px;
     padding: 8px;
-    font-size: 0.75rem;
-    white-space: pre-wrap;
-    word-break: break-all;
   }
   .outs,
   .drvs,
