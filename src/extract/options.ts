@@ -12,6 +12,7 @@ import { cpus } from "node:os"
 import {
   type ConfigData,
   type ConfigKind,
+  type DefinitionRef,
   type FileOptionRefs,
   type OptionEntry,
   PRIO,
@@ -194,10 +195,46 @@ export function splitVia(file: string): [string, string | undefined] {
   return i < 0 ? [file, undefined] : [file.slice(0, i), file.slice(i + ", via option ".length)]
 }
 
-export function unwrap(v: ValueEnvelope): { value?: unknown; valueError?: true } {
+export function unwrap(v: ValueEnvelope): {
+  value?: unknown
+  valueError?: true
+  valueSkipped?: true
+} {
   if (v && typeof v === "object" && "ok" in v) return { value: v.ok }
   if (v && typeof v === "object" && "err" in v) return { valueError: true }
-  return {} // null (absent) or {skipped} — no value to show
+  if (v && typeof v === "object" && "skipped" in v) return { valueSkipped: true }
+  return {} // null — the option has no value at all
+}
+
+/**
+ * Definition values are pre-merge, so scrub's {mkOverride, content} envelope
+ * (a mkForce/mkDefault/mkOverride wrapper) survives here — lift it into a
+ * first-class per-definition priority instead of presenting the envelope as
+ * the value. Only the outermost wrapper is lifted; nested overrides are
+ * pathological and keep their inner envelope.
+ */
+function toDefinition(d: RawOption["definitions"][number]): DefinitionRef {
+  // Definition files can carry a ", via option <path>" suffix (module-system
+  // provenance annotation) — strip it so file matching works.
+  const ref: DefinitionRef = { file: splitVia(d.file)[0]! }
+  const u = unwrap(d.value)
+  if (u.valueError) ref.valueError = true
+  if (u.valueSkipped) ref.valueSkipped = true
+  let v = u.value
+  if (
+    v !== null &&
+    typeof v === "object" &&
+    !Array.isArray(v) &&
+    "mkOverride" in v &&
+    "content" in v &&
+    Object.keys(v).length === 2
+  ) {
+    const w = v as { mkOverride: unknown; content: unknown }
+    if (typeof w.mkOverride === "number") ref.prio = w.mkOverride
+    v = w.content
+  }
+  if (v !== undefined) ref.value = v
+  return ref
 }
 
 export function toEntry(o: RawOption): OptionEntry {
@@ -213,12 +250,15 @@ export function toEntry(o: RawOption): OptionEntry {
     customized: o.isDefined && o.highestPrio !== null && o.highestPrio < PRIO.optionDefault,
     value: val.value,
     valueError: val.valueError,
+    valueSkipped: val.valueSkipped,
     default: def.value,
     defaultText: o.defaultText ?? undefined,
-    declarations: o.declarations.map((file) => ({ file })),
-    // Definition files can carry a ", via option <path>" suffix (module-system
-    // provenance annotation) — strip it so file matching works.
-    definitions: o.definitions.map((d) => ({ file: splitVia(d.file)[0], ...unwrap(d.value) })),
+    declarations: o.declarations.map((d) => ({
+      file: d.file,
+      ...(d.line !== null ? { line: d.line } : {}),
+      ...(d.column !== null ? { column: d.column } : {}),
+    })),
+    definitions: o.definitions.map(toDefinition),
   }
 }
 

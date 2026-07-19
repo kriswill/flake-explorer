@@ -30,6 +30,7 @@
           description ? null,
           default ? null,
           declarations,
+          declarationPositions ? [ ],
           definitionsWithLocations ? [ ],
         }:
         let
@@ -50,7 +51,7 @@
           inherit default;
           value = if isDefined then (builtins.elemAt definitionsWithLocations 0).value else default;
           declarations = map toString declarations;
-          declarationPositions = [ ];
+          declarationPositions = map (p: p // { file = toString p.file; }) declarationPositions;
           inherit definitionsWithLocations;
         };
 

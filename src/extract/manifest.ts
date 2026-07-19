@@ -16,6 +16,7 @@ import {
 import { extractorFingerprint } from "./fingerprint"
 import { lastCommits, repoPrefix } from "./git"
 import { importGraph } from "./imports"
+import { canonicalInputNames, scanInputRefs } from "./input-refs"
 import {
   evalExtract,
   type FlakeMetadataJson,
@@ -52,10 +53,17 @@ export async function buildManifest(
   const files = await fileEntries(ev, localCheckout, warnings)
   const selfFiles = files.filter((f) => f.origin.kind === "self")
   const read = (relPath: string) => Bun.file(`${ev.self}/${relPath}`).text()
+  const selfId = (relPath: string) => makeFileId({ kind: "self" }, relPath)
   const importEdges = await importGraph(
     selfFiles.map((f) => f.relPath),
     read,
-    (relPath) => makeFileId({ kind: "self" }, relPath),
+    selfId,
+  )
+  const inputRefs = await scanInputRefs(
+    selfFiles.map((f) => f.relPath),
+    canonicalInputNames(inputs),
+    read,
+    selfId,
   )
 
   const outputs: OutputNode = showJson ? normalizeShow(showJson) : { kind: "attrset", children: {} }
@@ -75,6 +83,7 @@ export async function buildManifest(
     inputs,
     files,
     importEdges,
+    inputRefs,
     configurations: ev.configurations.map(({ kind, n }) => ({
       id: `${kind}/${n}`,
       kind,

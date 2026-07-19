@@ -73,9 +73,9 @@ describe("unwrap", () => {
     expect(unwrap({ err: true })).toEqual({ valueError: true })
   })
 
-  test("null (absent) and skipped yield nothing", () => {
+  test("null (absent) yields nothing; skipped is flagged", () => {
     expect(unwrap(null)).toEqual({})
-    expect(unwrap({ skipped: true })).toEqual({})
+    expect(unwrap({ skipped: true })).toEqual({ valueSkipped: true })
   })
 })
 
@@ -126,7 +126,7 @@ describe("toEntry", () => {
   test("declarations map to file objects; definitions strip via and unwrap values", () => {
     const e = toEntry(
       raw({
-        declarations: ["/f/decl.nix"],
+        declarations: [{ file: "/f/decl.nix", line: 12, column: 3 }],
         definitions: [
           { file: "/f/def.nix, via option a.b", value: { ok: 1 } },
           { file: "/f/bad.nix", value: { err: true } },
@@ -134,12 +134,57 @@ describe("toEntry", () => {
         ],
       }),
     )
-    expect(e.declarations).toEqual([{ file: "/f/decl.nix" }])
+    expect(e.declarations).toEqual([{ file: "/f/decl.nix", line: 12, column: 3 }])
     expect(e.definitions).toEqual([
       { file: "/f/def.nix", value: 1 },
       { file: "/f/bad.nix", valueError: true },
-      { file: "/f/skip.nix" },
+      { file: "/f/skip.nix", valueSkipped: true },
     ])
+  })
+
+  test("declarations without positions carry no line/column keys", () => {
+    const e = toEntry(raw({ declarations: [{ file: "/f/decl.nix", line: null, column: null }] }))
+    expect(e.declarations).toEqual([{ file: "/f/decl.nix" }])
+    expect("line" in e.declarations[0]!).toBe(false)
+  })
+
+  test("a definition's {mkOverride, content} envelope lifts into prio + value", () => {
+    const e = toEntry(
+      raw({
+        definitions: [
+          { file: "/f/force.nix", value: { ok: { mkOverride: PRIO.mkForce, content: "forced" } } },
+          { file: "/f/soft.nix", value: { ok: { mkOverride: PRIO.mkDefault, content: false } } },
+          { file: "/f/plain.nix", value: { ok: "plain" } },
+        ],
+      }),
+    )
+    expect(e.definitions).toEqual([
+      { file: "/f/force.nix", prio: PRIO.mkForce, value: "forced" },
+      { file: "/f/soft.nix", prio: PRIO.mkDefault, value: false },
+      { file: "/f/plain.nix", value: "plain" },
+    ])
+  })
+
+  test("mkOverride lifting is shape-strict: extra keys or non-numeric prio stay as values", () => {
+    const notEnvelope = { mkOverride: 50, content: 1, extra: true }
+    const nullPrio = { mkOverride: null, content: "x" }
+    const e = toEntry(
+      raw({
+        definitions: [
+          { file: "/f/a.nix", value: { ok: notEnvelope } },
+          { file: "/f/b.nix", value: { ok: nullPrio } },
+        ],
+      }),
+    )
+    // Extra keys: not scrub's envelope — passed through untouched.
+    expect(e.definitions[0]).toEqual({ file: "/f/a.nix", value: notEnvelope })
+    // Null priority (scrub's `v.priority or null`): content lifted, no prio.
+    expect(e.definitions[1]).toEqual({ file: "/f/b.nix", value: "x" })
+  })
+
+  test("value skip flag threads through to the entry", () => {
+    expect(toEntry(raw({ value: { skipped: true } })).valueSkipped).toBe(true)
+    expect(toEntry(raw({ value: { ok: 1 } })).valueSkipped).toBeUndefined()
   })
 
   test("null raw fields become undefined; envelopes fill value/default", () => {

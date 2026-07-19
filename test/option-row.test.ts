@@ -56,10 +56,24 @@ describe("value preview", () => {
 
   test("errors, skipped values, and default text each have a distinct preview", () => {
     expect(previewOf({ customized: true, valueError: true })).toBe("⚠ value failed to evaluate")
-    expect(previewOf({ customized: true })).toBe("(value skipped)")
+    expect(previewOf({ customized: true, valueSkipped: true })).toBe("(value skipped)")
+    // No value and no skip flag: fall back to default text — a customized
+    // option no longer fakes "(value skipped)" without the extractor's say-so.
+    expect(previewOf({ customized: true, defaultText: "pkgs.hello" })).toBe("pkgs.hello")
     expect(previewOf({ defaultText: "pkgs.hello" })).toBe("pkgs.hello")
     expect(previewOf({})).toBe("—")
     expect(previewOf({ value: { p: 1 } })).toBe('{"p":1}')
+  })
+
+  test("own definition's valueSkipped wins over a merged value", () => {
+    const entry = opt(["a"], {
+      customized: true,
+      value: 42,
+      definitions: [{ file: HL, valueSkipped: true }],
+    })
+    mountRow(entry, (host) => {
+      expect(host.querySelector(".val")?.textContent).toBe("(value skipped)")
+    })
   })
 
   test("prefers this file's own definition over the merged value", () => {
@@ -105,7 +119,7 @@ describe("expanded value", () => {
   })
 
   test("valueless entries expand to the preview text", () => {
-    mountRow(opt(["a"], { customized: true }), (host) => {
+    mountRow(opt(["a"], { customized: true, valueSkipped: true }), (host) => {
       host.querySelector("button")!.click()
       flushSync()
       expect(host.querySelector("pre")?.textContent).toBe("(value skipped)")

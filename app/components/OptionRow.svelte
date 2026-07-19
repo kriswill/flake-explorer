@@ -33,12 +33,12 @@ const prioChip = $derived.by(() => {
 const ownDefinition = $derived(entry.definitions.find((d) => d.file === highlightFile))
 const shownValue = $derived(ownDefinition ? ownDefinition.value : entry.value)
 const shownValueError = $derived(ownDefinition ? ownDefinition.valueError : entry.valueError)
+const shownValueSkipped = $derived(ownDefinition ? ownDefinition.valueSkipped : entry.valueSkipped)
 
 const preview = $derived.by(() => {
   if (shownValueError) return "⚠ value failed to evaluate"
-  if (shownValue === undefined) {
-    return entry.customized ? "(value skipped)" : (entry.defaultText ?? "—")
-  }
+  if (shownValueSkipped) return "(value skipped)"
+  if (shownValue === undefined) return entry.defaultText ?? "—"
   const s = JSON.stringify(shownValue)
   return s === undefined ? "—" : s
 })

@@ -91,7 +91,7 @@ const raw = (loc: string[], value?: unknown): RawOption => ({
   defaultText: null,
   default: { ok: "the-default" },
   value: value === undefined ? null : { ok: value },
-  declarations: [`/nix/store/src-${loc[0]}/module.nix`],
+  declarations: [{ file: `/nix/store/src-${loc[0]}/module.nix`, line: 7, column: 3 }],
   definitions: [
     {
       file: `/nix/store/src-${loc[0]}/module.nix`,
@@ -136,6 +136,10 @@ test("happy path: every namespace chunk succeeds at full detail", async () => {
   ])
   expect(byLoc(r, "networking.hostName")?.value).toBe("nebula")
   expect(byLoc(r, "networking.hostName")?.customized).toBe(true) // plain prio < optionDefault
+  // Declarer position survives the round trip through the shim + toEntry.
+  expect(byLoc(r, "networking.hostName")?.declarations).toEqual([
+    { file: "/nix/store/src-networking/module.nix", line: 7, column: 3 },
+  ])
 
   // fileIndex is built and points back at the right option indices.
   const i = r.data.options.findIndex((o) => o.loc[0] === "boot")

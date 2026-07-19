@@ -52,6 +52,10 @@ classDiagram
     from
     to
   }
+  class InputRef {
+    file
+    input
+  }
   class ConfigRef {
     id
     kind
@@ -79,11 +83,15 @@ classDiagram
   }
   class DeclarationRef {
     file
+    line
+    column
   }
   class DefinitionRef {
     file
     value
     valueError
+    valueSkipped
+    prio
   }
   class FileOptionRefs {
     defines
@@ -93,6 +101,7 @@ classDiagram
   Manifest --> "many" InputInfo : inputs
   Manifest --> "many" FileEntry : files
   Manifest --> "many" ImportEdge : importEdges
+  Manifest --> "many" InputRef : inputRefs
   Manifest --> "many" ConfigRef : configurations
   Manifest --> "many" GraftInfo : grafts
   ConfigData --> "many" OptionEntry : options
@@ -121,6 +130,13 @@ classDiagram
 | `optionDefault` | 1500 | The option's own declared default (`lib.mkOptionDefault`) |
 
 An option is **customized** when `isDefined && highestPrio !== null && highestPrio < PRIO.optionDefault` (see `toEntry` in [`src/extract/options.ts`](../src/extract/options.ts)) — a real definition beat the declared default. `fileIndex.defines` only counts customized definitions, because every defaulted option carries a `mkOptionDefault` definition pointing at its declaring module, which would otherwise make nixpkgs "define" everything.
+
+Besides the option-level `highestPrio`, a `DefinitionRef` may carry its own `prio`, lifted by `toEntry` from a `{mkOverride, content}` envelope (scrub's rendering of a `lib.mkOverride` wrapper) in the raw definition value. On the real module system this rarely fires: `lib.filterOverrides` strips the wrapper *and drops losing-priority definitions entirely* before `definitionsWithLocations` is exposed, so every listed definition merged at the option's `highestPrio` and absent `prio` means exactly that. The lift matters on module systems that expose raw definition values (hand-rolled fixtures, older lib versions). Skipped definitions (package-typed options, degraded chunks) carry `valueSkipped` instead of a value.
+
+## Declaration positions and skip flags
+
+- `DeclarationRef.line`/`column` come from the module system's `declarationPositions` (nixpkgs ≥ 23.11, 1-based); on older module systems only `file` is present.
+- `valueSkipped` (on `OptionEntry` and `DefinitionRef`) distinguishes "the extractor deliberately skipped this value" (package-typed/derivation-typed options, or a chunk that degraded down the ladder) from "there is no value" — previously both arrived as an absent `value`.
 
 ## Sentinels and grafts
 
