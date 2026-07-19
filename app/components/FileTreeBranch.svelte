@@ -35,10 +35,15 @@ function toggle(n: FileTreeNode) {
 const isModSel = (fileId: string) =>
   app.selection?.kind === "module" && app.selection.moduleId === fileId
 
-/** Scroll the auto-highlighted row into view when a module gets selected. */
+const isFileSel = (fileId: string) =>
+  app.selection?.kind === "file" && app.selection.fileId === fileId
+
+/** Scroll the auto-highlighted row into view when it becomes selected —
+    either directly (a file link elsewhere in the app) or as a config's
+    module (the left tree's module selection mirrored here). */
 function reveal(el: HTMLElement, fileId: string) {
   $effect(() => {
-    if (isModSel(fileId)) el.scrollIntoView?.({ block: "nearest" })
+    if (isModSel(fileId) || isFileSel(fileId)) el.scrollIntoView?.({ block: "nearest" })
   })
 }
 </script>
@@ -61,7 +66,7 @@ function reveal(el: HTMLElement, fileId: string) {
       {#if child.fileId}
         <button
           class="row file"
-          class:sel={app.selection?.kind === "file" && app.selection.fileId === child.fileId}
+          class:sel={isFileSel(child.fileId)}
           class:rel={app.highlightedFiles.has(child.fileId)}
           class:hov={app.hover?.kind === "module" && app.hover.fileId === child.fileId}
           class:modsel={isModSel(child.fileId)}
