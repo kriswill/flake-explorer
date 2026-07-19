@@ -7,6 +7,7 @@
 //   #/o/<output.path.dots>            outputs-tree selection (non-module)
 //   #/c/<configId>                    configuration selection
 //   #/c/<configId>/m/<moduleId>       module within a configuration
+//   #/c/<configId>/opt/<loc.dots>     option within a configuration
 //   #/f/<fileId>                      file selection
 //   #/i/<inputName>                   flake input selection
 // filters: ?q=<search>&all=1 (option filter "all" instead of "customized")
@@ -15,6 +16,7 @@ export type Selection =
   | { kind: "output"; path: string[] }
   | { kind: "config"; configId: string }
   | { kind: "module"; configId: string; moduleId: string }
+  | { kind: "option"; configId: string; loc: string[] }
   | { kind: "file"; fileId: string }
   | { kind: "input"; name: string }
 
@@ -44,6 +46,10 @@ function encodeSel(sel: Selection | null): string {
       return `/c/${enc(sel.configId)}`
     case "module":
       return `/c/${enc(sel.configId)}/m/${enc(sel.moduleId)}`
+    case "option":
+      // '.' separates loc segments (same per-segment escaping as "output":
+      // quoted Nix attrs may contain dots).
+      return `/c/${enc(sel.configId)}/opt/${sel.loc.map((s) => enc(s).replace(/\./g, "%2E")).join(".")}`
     case "file":
       return `/f/${enc(sel.fileId)}`
     case "input":
@@ -85,6 +91,8 @@ function decodeSel(path: string): Selection | null {
   if (tag === "o" && a) return { kind: "output", path: a.split(".").map(seg).filter(Boolean) }
   if (tag === "c" && a && tag2 === "m" && b)
     return { kind: "module", configId: seg(a), moduleId: seg(b) }
+  if (tag === "c" && a && tag2 === "opt" && b)
+    return { kind: "option", configId: seg(a), loc: b.split(".").map(seg).filter(Boolean) }
   if (tag === "c" && a) return { kind: "config", configId: seg(a) }
   if (tag === "f" && a) return { kind: "file", fileId: seg(a) }
   if (tag === "i" && a) return { kind: "input", name: seg(a) }

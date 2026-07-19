@@ -18,6 +18,7 @@ import {
   type FlakeIndexes,
   fileTreeAncestorIds,
   groupKeyOf,
+  resolveFile,
 } from "./indexes"
 
 /** permanent: the document is simply absent from a static export — a retry
@@ -93,7 +94,9 @@ class AppState {
 
   /** Config whose module tree/details are active (from selection). */
   activeConfigId = $derived(
-    this.selection?.kind === "config" || this.selection?.kind === "module"
+    this.selection?.kind === "config" ||
+      this.selection?.kind === "module" ||
+      this.selection?.kind === "option"
       ? this.selection.configId
       : null,
   )
@@ -261,6 +264,8 @@ class AppState {
         this.revealFile(sel.moduleId)
         void p.then(() => this.revealFile(sel.moduleId))
       }
+    } else if (sel?.kind === "option") {
+      void this.loadConfig(sel.configId).then(() => this.#revealOptionDeclarer(sel))
     } else if (sel?.kind === "file") {
       this.revealFile(sel.fileId)
     } else if (sel?.kind === "output") {
@@ -270,6 +275,16 @@ class AppState {
       const ref = this.manifest?.packages.find((p) => samePath(p.path, sel.path))
       if (ref) void this.loadPackage(ref.id)
     }
+  }
+
+  /** Reveal an option's first declaring file in the right tree (post-load). */
+  #revealOptionDeclarer(sel: Extract<Selection, { kind: "option" }>) {
+    const loaded = loadedConfig(this.configs[sel.configId])
+    if (!loaded || !this.manifest || !this.flakeIndexes) return
+    const i = loaded.indexes.optionsByLoc.get(sel.loc.join("."))
+    const decl = i === undefined ? undefined : loaded.data.options[i]!.declarations[0]
+    if (!decl) return
+    this.revealFile(resolveFile(decl.file, this.manifest, this.flakeIndexes).id)
   }
 
   /**

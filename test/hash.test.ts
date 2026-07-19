@@ -16,6 +16,7 @@ describe("hash codec", () => {
       { kind: "output", path: ["packages", "x86_64-linux", "flake-explorer"] },
       { kind: "config", configId: "nixos/nebula" },
       { kind: "module", configId: "darwin/k", moduleId: "self:modules/darwin/git.nix" },
+      { kind: "option", configId: "nixos/nebula", loc: ["programs", "zsh", "histSize"] },
       { kind: "file", fileId: "input:sops-nix:modules/sops/default.nix" },
       { kind: "input", name: "home-manager/nixpkgs" },
     ]
@@ -42,6 +43,24 @@ describe("hash codec", () => {
   test("ids containing slashes and percents survive", () => {
     const sel: Selection = { kind: "file", fileId: "self:flakes/100%/weird?.nix" }
     expect(roundTrip(sel).sel).toEqual(sel)
+  })
+
+  test("option loc segments containing dots round-trip", () => {
+    // Quoted Nix attrs may contain '.': environment.etc."resolv.conf".text.
+    const sel: Selection = {
+      kind: "option",
+      configId: "nixos/nebula",
+      loc: ["environment", "etc", "resolv.conf", "text"],
+    }
+    expect(roundTrip(sel).sel).toEqual(sel)
+  })
+
+  test("option URLs stay readable for typical locs", () => {
+    const hash = encodeHash({
+      sel: { kind: "option", configId: "nixos/nebula", loc: ["programs", "zsh", "histSize"] },
+      filters: { q: "", all: false },
+    })
+    expect(hash).toBe("/c/nixos%2Fnebula/opt/programs.zsh.histSize")
   })
 
   test("empty and garbage hashes decode to null selection", () => {

@@ -24,11 +24,12 @@ Loading is modeled as slots: a `ConfigSlot` is `"loading"`, an error object, or 
 | `#/o/<output.path.dots>` | outputs-tree node (non-module) |
 | `#/c/<configId>` | configuration |
 | `#/c/<configId>/m/<moduleId>` | module within a configuration |
+| `#/c/<configId>/opt/<loc.dots>` | option within a configuration ([`OptionDetail`](../app/components/OptionDetail.svelte)) |
 | `#/f/<fileId>` | file |
 | `#/i/<inputName>` | flake input |
 | `?q=<search>&all=1` | filters: search text, "all options" toggle |
 
-`%`, `?`, and `/` are escaped in every segment; output-path segments additionally escape `.` because it is the path separator there. History semantics live in [`state.svelte.ts`](../app/lib/state.svelte.ts): `select()` compares old and new selection with `sameSelection()` — a genuine selection change calls `pushState`, while filter-only changes (and `setFilters`) call `replaceState`, so Back walks selections without replaying keystrokes. `initRouting()` applies the hash at startup and on `hashchange`; a deep link decoded before the manifest arrives is re-followed once `loadManifest()` completes.
+`%`, `?`, and `/` are escaped in every segment; output-path and option-loc segments additionally escape `.` because it is the path separator there. History semantics live in [`state.svelte.ts`](../app/lib/state.svelte.ts): `select()` compares old and new selection with `sameSelection()` — a genuine selection change calls `pushState`, while filter-only changes (and `setFilters`) call `replaceState`, so Back walks selections without replaying keystrokes. `initRouting()` applies the hash at startup and on `hashchange`; a deep link decoded before the manifest arrives is re-followed once `loadManifest()` completes.
 
 ## Supporting modules
 
