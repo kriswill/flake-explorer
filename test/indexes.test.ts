@@ -6,6 +6,7 @@ import {
   fileTreeAncestorIds,
   fileTreeMatches,
   groupKeyOf,
+  inputLabel,
   inputNameOf,
   parsePosition,
   resolveFile,
@@ -299,6 +300,21 @@ describe("inputNameOf", () => {
     expect(inputNameOf("input:sops-nix:modules/x.nix")).toBe("sops-nix")
     expect(inputNameOf("self:a.nix")).toBeNull()
     expect(inputNameOf("dir:self/modules")).toBeNull()
+  })
+})
+
+describe("inputLabel", () => {
+  test("plain input is just its name; aliases render as 'alias → name'", () => {
+    expect(inputLabel({ name: "nixpkgs", nodeKey: "np", type: "github" })).toBe("nixpkgs")
+    expect(inputLabel({ name: "nixpkgs", nodeKey: "np", type: "github", aliases: [] })).toBe(
+      "nixpkgs",
+    )
+    expect(
+      inputLabel({ name: "nixpkgs", nodeKey: "np", type: "github", aliases: ["stable"] }),
+    ).toBe("stable → nixpkgs")
+    expect(
+      inputLabel({ name: "nixpkgs", nodeKey: "np", type: "github", aliases: ["a", "b"] }),
+    ).toBe("a, b → nixpkgs")
   })
 })
 

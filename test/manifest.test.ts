@@ -264,18 +264,66 @@ describe("inputInfos", () => {
     expect(out["B/n"]).toBeUndefined()
   })
 
-  test('root-level follows entry sets follows: "A" on the resulting info', () => {
-    // x is listed before A so its BFS item claims a_lock first — that is the
-    // only ordering in which the follows-annotated entry survives dedup.
+  test("root-level alias of a real input: ONE entry, real name primary, alias recorded", () => {
+    // `inputs.stable.follows = "nixpkgs"` next to a real `nixpkgs` input:
+    // both root names resolve to the same lock node. The real input must
+    // keep its name in BOTH lock-file iteration orders (no order lottery),
+    // with the alias carried in `aliases`.
+    const orderings: Record<string, string | string[]>[] = [
+      { stable: ["nixpkgs"], nixpkgs: "np_lock" }, // alias first
+      { nixpkgs: "np_lock", stable: ["nixpkgs"] }, // real input first
+    ]
+    for (const inputs of orderings) {
+      const meta = makeMeta({
+        root: { inputs },
+        np_lock: { locked: { type: "github", owner: "NixOS", repo: "nixpkgs" } },
+      })
+      const ev = makeEv({ nixpkgs: { path: "/nix/store/np", inputs: {} } })
+      const out = inputInfos(meta, ev, [])
+
+      expect(Object.keys(out)).toEqual(["nixpkgs"])
+      expect(out.nixpkgs).toMatchObject({
+        name: "nixpkgs",
+        nodeKey: "np_lock",
+        aliases: ["stable"],
+        storePath: "/nix/store/np",
+      })
+      // The primary is the real input, so it carries no follows itself.
+      expect(out.nixpkgs!.follows).toBeUndefined()
+      expect(out.nixpkgs!.transitive).toBeUndefined()
+      expect(out.stable).toBeUndefined()
+    }
+  })
+
+  test("multiple root aliases merge into one sorted aliases list", () => {
     const meta = makeMeta({
-      root: { inputs: { x: ["A"], A: "a_lock" } },
-      a_lock: { locked: { type: "github", owner: "o", repo: "a" } },
+      root: { inputs: { unstable: ["nixpkgs"], nixpkgs: "np_lock", pinned: ["nixpkgs"] } },
+      np_lock: { locked: { type: "github", owner: "NixOS", repo: "nixpkgs" } },
+    })
+    // Only an alias has an eval store path — the entry still picks it up.
+    const ev = makeEv({ pinned: { path: "/nix/store/np", inputs: {} } })
+    const out = inputInfos(meta, ev, [])
+
+    expect(Object.keys(out)).toEqual(["nixpkgs"])
+    expect(out.nixpkgs!.aliases).toEqual(["pinned", "unstable"])
+    expect(out.nixpkgs!.storePath).toBe("/nix/store/np")
+  })
+
+  test('root follows of a TRANSITIVE input keeps its own name and follows: "A/nixpkgs"', () => {
+    // x aliases a node that is not itself a direct input; x is the only
+    // root name for that node, so it stays primary with follows set, and
+    // the transitive "A/nixpkgs" traversal dedups against it.
+    const meta = makeMeta({
+      root: { inputs: { A: "a_lock", x: ["A", "nixpkgs"] } },
+      a_lock: { inputs: { nixpkgs: "np_lock" }, locked: { type: "github", owner: "o", repo: "a" } },
+      np_lock: { locked: { type: "github", owner: "NixOS", repo: "nixpkgs" } },
     })
     const out = inputInfos(meta, makeEv(), [])
 
-    expect(out.x).toMatchObject({ name: "x", nodeKey: "a_lock", follows: "A" })
-    // The plain "A" entry lost the race for the shared lock node.
-    expect(out.A).toBeUndefined()
+    expect(Object.keys(out).sort()).toEqual(["A", "x"])
+    expect(out.x).toMatchObject({ name: "x", nodeKey: "np_lock", follows: "A/nixpkgs" })
+    expect(out.x!.aliases).toBeUndefined()
+    expect(out["A/nixpkgs"]).toBeUndefined()
   })
 
   test("diamond: two parents sharing a lock node yield one entry, BFS-first name", () => {

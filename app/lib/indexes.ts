@@ -3,7 +3,14 @@
 // Built once per (manifest, config) load and cached OUTSIDE runes state —
 // these are big, immutable structures.
 
-import type { ConfigData, FileEntry, FileOptionRefs, FileOrigin, Manifest } from "../../src/schema"
+import type {
+  ConfigData,
+  FileEntry,
+  FileOptionRefs,
+  FileOrigin,
+  InputInfo,
+  Manifest,
+} from "../../src/schema"
 import { makeFileId, UNKNOWN_FILE } from "../../src/schema"
 
 export interface FileMeta {
@@ -359,6 +366,11 @@ export function buildFileTree(
  */
 export function inputNameOf(id: string): string | null {
   return id.startsWith("input:") ? id.slice("input:".length).split(":")[0]! : null
+}
+
+/** Display label for an input: "stable → nixpkgs" when root-level aliases follow it. */
+export function inputLabel(i: InputInfo): string {
+  return i.aliases?.length ? `${i.aliases.join(", ")} → ${i.name}` : i.name
 }
 
 /** File-list group a file belongs to ("self" | "input:<name>"), null if none. */

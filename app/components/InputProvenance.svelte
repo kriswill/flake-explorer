@@ -62,6 +62,7 @@ const revLink = $derived(commitUrl(input.url, input.rev))
     {#if input.narHash}<dt>narHash</dt><dd class="mono">{input.narHash}</dd>{/if}
     {#if date}<dt>locked</dt><dd>{date}</dd>{/if}
     {#if input.follows}<dt>follows</dt><dd class="mono">{input.follows}</dd>{/if}
+    {#if input.aliases?.length}<dt>aliases</dt><dd class="mono">{input.aliases.join(", ")} → {input.name}</dd>{/if}
   </dl>
 </div>
 

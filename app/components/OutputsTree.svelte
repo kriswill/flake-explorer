@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { GraftInfo, InputInfo, OutputNode } from "../../src/schema"
 import { colorFor } from "../lib/color"
+import { inputLabel } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
 import { app, loadedConfig } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
@@ -106,7 +107,7 @@ const pathName = $derived.by(() => {
             onclick={() => app.select({ kind: "input", name: inp.name })}
           >
             <Dot />
-            <span class="label">{inp.name}</span>
+            <span class="label">{inputLabel(inp)}</span>
             <span class="badge mono">{shortPin(inp)}</span>
           </button>
         </li>

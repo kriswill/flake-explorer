@@ -177,7 +177,10 @@ function detectLocalCheckout(flakeRef: string, meta: FlakeMetadataJson): string 
  * Flatten the recursive inputs tree (eval side: store paths) against the
  * lock graph (metadata side: provenance), breadth-first so direct inputs
  * claim plain names; a transitive input gets "parent/child" unless its lock
- * node was already covered (follows dedup). Exported for unit tests only —
+ * node was already covered (follows dedup). Root input names that share a
+ * lock node (a real input plus `inputs.<alias>.follows = "<input>"`) merge
+ * into ONE entry named after the real input, alias names in `aliases` — not
+ * a flake.lock-iteration-order lottery. Exported for unit tests only —
  * production callers go through buildManifest.
  */
 export function inputInfos(
@@ -193,16 +196,47 @@ export function inputInfos(
     evNode: InputsTreeNode | undefined
     depth: number
     follows?: string
+    aliases?: string[]
   }
   const queue: Item[] = []
   const rootNode = meta.locks.nodes[meta.locks.root]
+  // Group root inputs by resolved lock node before queueing, so aliases
+  // merge deterministically. Unresolvable refs stay ungrouped: each queues
+  // as-is so the loop's per-input warning path still fires.
+  interface RootEntry {
+    name: string
+    ref: string | string[]
+    nodeKey: string | null
+  }
+  const byNode = new Map<string, RootEntry[]>()
   for (const [name, ref] of Object.entries(rootNode?.inputs ?? {})) {
+    const nodeKey = Array.isArray(ref) ? resolveFollows(meta, ref) : ref
+    if (nodeKey === null) {
+      queue.push({ name, nodeKey, evNode: ev.inputs[name], depth: 0 })
+      continue
+    }
+    const group = byNode.get(nodeKey)
+    if (group) group.push({ name, ref, nodeKey })
+    else byNode.set(nodeKey, [{ name, ref, nodeKey }])
+  }
+  for (const [nodeKey, group] of byNode) {
+    // The real (non-follows) input names the entry; follows-only groups
+    // (root alias of a transitive input) fall back to their first name.
+    const primary = group.find((e) => !Array.isArray(e.ref)) ?? group[0]!
+    const aliases = group
+      .filter((e) => e !== primary)
+      .map((e) => e.name)
+      .sort()
     queue.push({
-      name,
-      nodeKey: Array.isArray(ref) ? resolveFollows(meta, ref) : ref,
-      evNode: ev.inputs[name],
+      name: primary.name,
+      nodeKey,
+      // Same store path either way; prefer the primary's eval node.
+      evNode: [primary, ...group.filter((e) => e !== primary)]
+        .map((e) => ev.inputs[e.name])
+        .find((n) => n !== undefined),
       depth: 0,
-      follows: Array.isArray(ref) ? ref.join("/") : undefined,
+      follows: Array.isArray(primary.ref) ? primary.ref.join("/") : undefined,
+      ...(aliases.length ? { aliases } : {}),
     })
   }
   while (queue.length) {
@@ -226,6 +260,7 @@ export function inputInfos(
       lastModified: node.locked?.lastModified,
       storePath: item.evNode?.path ?? undefined,
       follows: item.follows,
+      ...(item.aliases ? { aliases: item.aliases } : {}),
     }
     for (const [childName, childRef] of Object.entries(node.inputs ?? {})) {
       queue.push({

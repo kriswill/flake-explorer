@@ -76,6 +76,12 @@ export interface InputInfo {
   nodeKey: string
   /** Present on inputs-of-inputs; the UI legend shows direct inputs only. */
   transitive?: true
+  /**
+   * Other ROOT-level input names that follow this same lock node (e.g.
+   * "stable" for `inputs.stable.follows = "nixpkgs"`). The entry keeps the
+   * real (non-follows) input's name; aliases are sorted for determinism.
+   */
+  aliases?: string[]
   type: string
   url?: string
   ref?: string
