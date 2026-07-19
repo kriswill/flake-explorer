@@ -3,7 +3,7 @@
 // categorized dropdown over options/packages/files/inputs.
 
 import { beforeEach, describe, expect, test } from "bun:test"
-import { flushSync } from "svelte"
+import { flushSync, mount, unmount } from "svelte"
 import SearchBox from "../app/components/SearchBox.svelte"
 import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
 import { app } from "../app/lib/state.svelte"
@@ -124,5 +124,80 @@ describe("SearchBox", () => {
       type(host, "zzzz-no-such-thing")
       expect(host.textContent).toContain("no configuration loaded yet")
     })
+  })
+
+  test("focusing with an existing query reopens the dropdown", () => {
+    loadTestConfig()
+    app.q = "enable"
+    withMount(SearchBox, {}, (host) => {
+      expect(host.querySelector(".results")).toBeNull()
+      host.querySelector("input")!.dispatchEvent(new FocusEvent("focus"))
+      flushSync()
+      expect(host.querySelector(".results")).not.toBeNull()
+    })
+  })
+
+  test("focus leaving the widget closes the dropdown", () => {
+    loadTestConfig()
+    withMount(SearchBox, {}, (host) => {
+      type(host, "enable")
+      expect(host.querySelector(".results")).not.toBeNull()
+      const outside = document.createElement("button")
+      document.body.appendChild(outside)
+      try {
+        host
+          .querySelector(".wrap")!
+          .dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: outside }))
+        flushSync()
+        expect(host.querySelector(".results")).toBeNull()
+      } finally {
+        outside.remove()
+      }
+    })
+  })
+
+  test("ArrowUp from the top wraps to the last hit", () => {
+    loadTestConfig()
+    withMount(SearchBox, {}, (host) => {
+      type(host, "services.x")
+      const count = host.querySelectorAll(".hit").length
+      expect(count).toBeGreaterThan(1)
+      keydown(host, "ArrowUp")
+      const rows = [...host.querySelectorAll(".hit")]
+      expect(rows[rows.length - 1]!.classList.contains("active")).toBe(true)
+    })
+  })
+
+  test("static export: first search focus auto-loads embedded config blobs", async () => {
+    // An embedded manifest tag is THE static-mode signal (isStatic), and the
+    // config blob resolves from its own embedded tag — no fetch, no server.
+    const inject = (name: string, value: unknown) => {
+      const el = document.createElement("script")
+      el.type = "application/json"
+      el.id = `data:${name}`
+      el.textContent = JSON.stringify(value)
+      document.head.appendChild(el)
+      return el
+    }
+    const tags = [
+      inject("manifest.json", app.manifest),
+      inject("config/nixos.test.json", fixtureConfig()),
+    ]
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const instance = mount(SearchBox, { target: host, props: {} })
+    try {
+      flushSync()
+      host.querySelector("input")!.dispatchEvent(new FocusEvent("focus"))
+      await Bun.sleep(0) // loadJson resolves embedded tags asynchronously
+      flushSync()
+      type(host, "enable")
+      expect(host.textContent).toContain("services.x.enable")
+      expect(host.textContent).not.toContain("loads on demand")
+    } finally {
+      void unmount(instance)
+      host.remove()
+      for (const t of tags) t.remove()
+    }
   })
 })
