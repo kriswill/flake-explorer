@@ -208,6 +208,8 @@ export interface ExtractArgs {
   skipInvisible?: boolean
   withValues?: boolean
   withDescriptions?: boolean
+  /** manifest mode: depth of the inputs-of-inputs walk (see extract.nix). */
+  inputsDepth?: number
 }
 
 // Shapes of the raw nix JSON we consume (subset).
