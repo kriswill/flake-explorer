@@ -8,7 +8,7 @@ import SearchBox from "../app/components/SearchBox.svelte"
 import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
 import { app } from "../app/lib/state.svelte"
 import { fixtureConfig, fixtureManifest } from "./fixtures/data"
-import { withMount } from "./helpers"
+import { buttonsWithText, withMount } from "./helpers"
 
 function seed() {
   const m = fixtureManifest()
@@ -115,7 +115,48 @@ describe("SearchBox", () => {
     app.configs = { "nixos/test": "loading" }
     withMount(SearchBox, {}, (host) => {
       type(host, "enable")
-      expect(host.textContent).toContain("loading nixos/test…")
+      expect(host.textContent).not.toContain("loads on demand")
+      expect(host.textContent).toContain("loading options…")
+    })
+  })
+
+  test("footer: a failed config load shows the error with a retry that recovers", async () => {
+    // Dead-end guard: loadConfig no-ops on an occupied slot, so the plain
+    // load button must never render for an errored config (see PR #38's fix).
+    app.configs = { "nixos/test": { error: "extraction failed: boom" } }
+    const el = document.createElement("script")
+    el.type = "application/json"
+    el.id = "data:config/nixos.test.json"
+    el.textContent = JSON.stringify(fixtureConfig())
+    document.head.appendChild(el)
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const instance = mount(SearchBox, { target: host, props: {} })
+    try {
+      flushSync()
+      type(host, "enable")
+      expect(host.textContent).not.toContain("loads on demand")
+      expect(host.textContent).toContain("extraction failed: boom")
+      buttonsWithText(host, "retry")[0]!.click()
+      await Bun.sleep(0) // loadJson resolves embedded tags asynchronously
+      flushSync()
+      expect(host.textContent).toContain("services.x.enable")
+    } finally {
+      void unmount(instance)
+      host.remove()
+      el.remove()
+    }
+  })
+
+  test("footer: a permanent error (static export) hides retry", () => {
+    app.configs = {
+      "nixos/test": { error: "configuration not included in this export", permanent: true },
+    }
+    withMount(SearchBox, {}, (host) => {
+      type(host, "enable")
+      expect(host.textContent).not.toContain("loads on demand")
+      expect(host.textContent).toContain("configuration not included in this export")
+      expect(buttonsWithText(host, "retry").length).toBe(0)
     })
   })
 

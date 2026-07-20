@@ -2,6 +2,7 @@
 import { isStatic } from "../lib/data"
 import { flatHits, type OptionSource, searchAll } from "../lib/search"
 import { app, loadedConfig } from "../lib/state.svelte"
+import AsyncSlot from "./AsyncSlot.svelte"
 
 let open = $state(false)
 let active = $state(0)
@@ -138,12 +139,22 @@ function baseIndex(catIndex: number): number {
       {#if unloaded.length}
         <div class="foot">
           {#each unloaded as c (c.id)}
-            {#if app.configs[c.id] === "loading"}
-              <span class="muted">loading {c.id}…</span>
-            {:else}
+            {#if !app.configs[c.id]}
               <button class="loadlink" onclick={() => void app.loadConfig(c.id)}>
                 search options in {c.id} (loads on demand)
               </button>
+            {:else}
+              <!-- Only ever loading/errored here: a loaded slot leaves `unloaded`. -->
+              <div class="slotrow">
+                <span class="muted mono">{c.id}</span>
+                <AsyncSlot
+                  value={app.configs[c.id]}
+                  loadingText="loading options…"
+                  retry={() => app.retryConfig(c.id)}
+                >
+                  {#snippet children()}{/snippet}
+                </AsyncSlot>
+              </div>
             {/if}
           {/each}
         </div>
@@ -247,6 +258,14 @@ function baseIndex(catIndex: number): number {
     display: flex;
     flex-direction: column;
     gap: 3px;
+  }
+  .slotrow {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .slotrow :global(.slot-note) {
+    margin: 0;
   }
   .loadlink {
     background: none;
