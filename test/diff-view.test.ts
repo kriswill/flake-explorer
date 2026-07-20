@@ -171,6 +171,59 @@ describe("navigation", () => {
     })
   })
 
+  test("a B-only row links into config B", () => {
+    load(A, [set("shared", { value: 1 })])
+    load(B, [set("shared", { value: 1 }), set("b.only", { value: true })])
+    mountDiff((host) => {
+      const link = [...host.querySelectorAll<HTMLButtonElement>("tbody button")].find(
+        (b) => b.textContent === "b.only",
+      )!
+      link.click()
+      flushSync()
+      expect(app.selection).toEqual({ kind: "option", configId: B, loc: ["b", "only"] })
+    })
+  })
+
+  test("the load button asks state to load that side", () => {
+    // No manifest entry can resolve here (configs are pending), so the call is
+    // inert — what matters is that the click reaches loadConfig at all.
+    mountDiff((host) => {
+      const btn = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+        (b) => b.textContent === "load (may extract)",
+      )!
+      btn.click()
+      flushSync()
+      expect(app.configs[A]).toBeDefined()
+    })
+  })
+
+  test("retry on an errored side evicts the slot and retries", () => {
+    load(A, [set("x")])
+    app.configs = { ...app.configs, [B]: { error: "boom" } }
+    mountDiff((host) => {
+      const retry = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+        (b) => b.textContent === "retry",
+      )!
+      retry.click()
+      flushSync()
+      // retryConfig evicts the error slot and starts a fresh load, so the
+      // stale message can't linger behind a load already under way.
+      expect(app.configs[B]).toBe("loading")
+    })
+  })
+
+  test("more rows than the cap renders the cap with an honest overflow note", () => {
+    const many = Array.from({ length: 520 }, (_, i) =>
+      set(`opt.n${String(i).padStart(4, "0")}`, { value: i }),
+    )
+    load(A, many)
+    load(B, []) // every row is only-in-A
+    mountDiff((host) => {
+      expect(host.querySelectorAll("tbody tr").length).toBe(500)
+      expect(host.textContent).toContain("Showing 500 of 520 rows")
+    })
+  })
+
   test("the header links to each configuration's page", () => {
     loadBoth()
     mountDiff((host) => {
