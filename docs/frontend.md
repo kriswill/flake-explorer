@@ -31,6 +31,10 @@ Loading is modeled as slots: a `ConfigSlot` is `"loading"`, an error object, or 
 
 `%`, `?`, and `/` are escaped in every segment; output-path and option-loc segments additionally escape `.` because it is the path separator there. History semantics live in [`state.svelte.ts`](../app/lib/state.svelte.ts): `select()` compares old and new selection with `sameSelection()` — a genuine selection change calls `pushState`, while filter-only changes (and `setFilters`) call `replaceState`, so Back walks selections without replaying keystrokes. `initRouting()` applies the hash at startup and on `hashchange`; a deep link decoded before the manifest arrives is re-followed once `loadManifest()` completes.
 
+## Search
+
+The header box does two things at once: the query keeps live-filtering both trees (`subtreeMatches` label matching, unchanged), and [`SearchBox`](../app/components/SearchBox.svelte) additionally opens a categorized dropdown (Options / Packages / Files / Inputs) built by [`app/lib/search.ts`](../app/lib/search.ts) — pure, unit-tested corpus + ranking (`rankMatch`: exact > exact segment > segment prefix > substring; customized options first). Packages, files, and inputs come from the manifest; options come from *loaded* config blobs (`ConfigIndexes.optionLocsLower`), because they are on-demand documents — the dropdown's footer lists unloaded configurations with a load-in-place button (loading/errored slots render through `AsyncSlot` — error + retry — since `loadConfig` no-ops on an occupied slot). A static export auto-loads every embedded config on first search focus (the blobs are local, so a complete corpus is free); the dynamic server never auto-triggers extraction.
+
 ## Supporting modules
 
 | Module | Role |
@@ -47,7 +51,7 @@ Loading is modeled as slots: a `ConfigSlot` is `"loading"`, an error object, or 
 
 | Area | Components |
 |---|---|
-| Chrome | [`Header`](../app/components/Header.svelte), [`Splitter`](../app/components/Splitter.svelte), [`Tooltip`](../app/components/Tooltip.svelte) (option hover card), [`AboutModal`](../app/components/AboutModal.svelte) |
+| Chrome | [`Header`](../app/components/Header.svelte), [`SearchBox`](../app/components/SearchBox.svelte) (tree filter + unified results dropdown), [`Splitter`](../app/components/Splitter.svelte), [`Tooltip`](../app/components/Tooltip.svelte) (option hover card), [`AboutModal`](../app/components/AboutModal.svelte) |
 | Left pane | [`OutputsTree`](../app/components/OutputsTree.svelte) → [`OutputBranch`](../app/components/OutputBranch.svelte) (generic outputs), [`TreeNode`](../app/components/TreeNode.svelte) (module trees of nixos/darwin configurations) |
 | Center pane | [`Stage`](../app/components/Stage.svelte) switches on the selection → [`ModuleDetail`](../app/components/ModuleDetail.svelte), [`FileDetail`](../app/components/FileDetail.svelte), [`InputDetail`](../app/components/InputDetail.svelte), with [`Legend`](../app/components/Legend.svelte) as the no-selection view; shared pieces [`OptionRow`](../app/components/OptionRow.svelte), [`SourceView`](../app/components/SourceView.svelte), [`InputProvenance`](../app/components/InputProvenance.svelte) |
 | Right pane | [`FileList`](../app/components/FileList.svelte) → [`FileTreeBranch`](../app/components/FileTreeBranch.svelte) |
