@@ -14,6 +14,7 @@
 // filters: ?q=<search>&all=1 (option filter "all" instead of "customized")
 //          &L=<line> (scroll the source view to a line; replace-state like
 //          the other filters — Back walks selections, not line jumps)
+//          &contrib=1 (file list shows only files a loaded config uses)
 
 export type Selection =
   | { kind: "output"; path: string[] }
@@ -30,6 +31,8 @@ export interface Filters {
   all: boolean
   /** 1-based source line to scroll to (file/module source views). */
   line: number | null
+  /** Restrict the file list to files that contribute to a loaded configuration. */
+  contrib: boolean
 }
 
 export interface ViewState {
@@ -70,6 +73,7 @@ export function encodeHash(view: ViewState): string {
   if (view.filters.q) p.set("q", view.filters.q)
   if (view.filters.all) p.set("all", "1")
   if (view.filters.line) p.set("L", String(view.filters.line))
+  if (view.filters.contrib) p.set("contrib", "1")
   const qs = p.toString()
   return encodeSel(view.sel) + (qs ? `?${qs}` : "")
 }
@@ -83,7 +87,12 @@ export function decodeHash(raw: string): ViewState {
   const line = lineRaw && /^\d+$/.test(lineRaw) ? Number(lineRaw) : null
   return {
     sel: decodeSel(selPart),
-    filters: { q: p.get("q") ?? "", all: p.get("all") === "1", line: line || null },
+    filters: {
+      q: p.get("q") ?? "",
+      all: p.get("all") === "1",
+      line: line || null,
+      contrib: p.get("contrib") === "1",
+    },
   }
 }
 

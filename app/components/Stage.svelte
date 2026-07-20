@@ -1,5 +1,6 @@
 <script lang="ts">
 import { app, configError } from "../lib/state.svelte"
+import ConfigSummary from "./ConfigSummary.svelte"
 import DiffView from "./DiffView.svelte"
 import FileDetail from "./FileDetail.svelte"
 import InputDetail from "./InputDetail.svelte"
@@ -73,32 +74,17 @@ const packageRef = $derived.by(() => {
   {:else if app.selection?.kind === "config" && app.activeConfigId}
     {@const configId = app.activeConfigId}
     {@const ref = app.manifest?.configurations.find((c) => c.id === configId)}
-    <h2 class="mono">{configId}</h2>
     {#if app.activeConfig}
-      {@const opts = app.activeConfig.data.options}
-      <p>
-        {opts.length} options, {opts.filter((o) => o.customized).length} customized,
-        {app.activeConfig.indexes.filesById.size} contributing files.
-      </p>
-      <p class="muted">Expand the configuration on the left and select a module to inspect its options.</p>
-      {@const siblings = (app.manifest?.configurations ?? []).filter((c) => c.id !== configId)}
-      {#if siblings.length}
-        <p class="compare">
-          compare with
-          {#each siblings as s (s.id)}
-            <button
-              class="link mono"
-              onclick={() => app.select({ kind: "diff", a: configId, b: s.id })}
-            >{s.id}</button>
-          {/each}
-        </p>
-      {/if}
-    {:else if app.configs[configId] === "loading"}
+      <ConfigSummary {configId} />
+    {:else}
+    <h2 class="mono">{configId}</h2>
+    {#if app.configs[configId] === "loading"}
       <p class="muted">Extracting / loading options… (first run can take a minute or two)</p>
     {:else if configError(app.configs[configId])}
       <p class="err">{configError(app.configs[configId])?.error}</p>
     {:else if ref?.status === "error"}
       <p class="err">{ref.error}</p>
+    {/if}
     {/if}
   {:else if app.manifest}
     <h2>{app.manifest.flake.description ?? app.manifest.flake.ref}</h2>
@@ -150,24 +136,6 @@ const packageRef = $derived.by(() => {
   .k {
     color: var(--ink-muted);
     margin-right: 6px;
-  }
-  .compare {
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 8px;
-    color: var(--ink-muted);
-  }
-  .link {
-    background: none;
-    border: none;
-    padding: 0;
-    color: var(--link);
-    font-size: 0.8125rem;
-    cursor: pointer;
-  }
-  .link:hover {
-    text-decoration: underline;
   }
   p {
     margin: 4px 0;

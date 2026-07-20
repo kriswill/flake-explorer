@@ -17,14 +17,32 @@ interface Group {
   count: number
 }
 
+/**
+ * Files any loaded configuration actually uses. The input groups below are
+ * built from exactly this set already; only the self group lists everything,
+ * so the contributing-only toggle is really "trim the self group".
+ */
+const contributingIds = $derived.by(() => {
+  const ids = new Set<string>()
+  for (const s of Object.values(app.configs)) {
+    const slot = loadedConfig(s)
+    if (slot) for (const id of slot.indexes.filesById.keys()) ids.add(id)
+  }
+  return ids
+})
+
+const anyConfigLoaded = $derived(contributingIds.size > 0)
+
 const groups = $derived.by((): Group[] => {
   if (!app.manifest) return []
 
-  const selfFiles = app.manifest.files.map((f) => ({
-    id: f.id,
-    relPath: f.relPath,
-    colorKey: f.id,
-  }))
+  const selfFiles = app.manifest.files
+    .filter((f) => !app.contribOnly || !anyConfigLoaded || contributingIds.has(f.id))
+    .map((f) => ({
+      id: f.id,
+      relPath: f.relPath,
+      colorKey: f.id,
+    }))
 
   // Input files appear once a configuration referencing them is loaded.
   const inputFiles = new Map<string, FileMeta[]>()
@@ -74,6 +92,17 @@ const visibleGroups = $derived(groups.filter((g) => fileTreeMatches(g.tree, app.
 </script>
 
 <div class="files">
+  <label class="contrib" class:off={!anyConfigLoaded}>
+    <input
+      type="checkbox"
+      checked={app.contribOnly}
+      disabled={!anyConfigLoaded}
+      onchange={(e) => app.setFilters({ contrib: e.currentTarget.checked })}
+    />
+    only contributing files
+    {#if !anyConfigLoaded}<span class="hint">— load a configuration first</span>{/if}
+  </label>
+
   {#each visibleGroups as group (group.key)}
     <section class="group" style="--c:{colorFor(group.colorKey, gen)}">
       <div class="ghead">
@@ -91,6 +120,22 @@ const visibleGroups = $derived(groups.filter((g) => fileTreeMatches(g.tree, app.
 <style>
   .files {
     padding: 8px;
+  }
+  .contrib {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin: 0 0 8px 2px;
+    font-size: 0.6875rem;
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+  .contrib.off {
+    color: var(--ink-muted);
+    cursor: default;
+  }
+  .hint {
+    color: var(--ink-muted);
   }
   .group {
     border: 1px solid color-mix(in srgb, var(--c) 30%, var(--grid));

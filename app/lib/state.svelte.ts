@@ -93,6 +93,8 @@ class AppState {
   showAll = $state(false)
   /** 1-based line the source view scrolls to (?L= filter); cleared on selection change. */
   line = $state<number | null>(null)
+  /** File list shows only files contributing to a loaded configuration (?contrib=). */
+  contribOnly = $state(false)
 
   /** Config whose module tree/details are active (from selection). */
   activeConfigId = $derived(
@@ -378,6 +380,7 @@ class AppState {
     if (f.q !== undefined) this.q = f.q
     if (f.all !== undefined) this.showAll = f.all
     if (f.line !== undefined) this.line = f.line
+    if (f.contrib !== undefined) this.contribOnly = f.contrib
     this.#writeHash(true)
   }
 
@@ -385,7 +388,7 @@ class AppState {
     if (this.#applyingHash || typeof window === "undefined") return
     const hash = `#${encodeHash({
       sel: this.selection,
-      filters: { q: this.q, all: this.showAll, line: this.line },
+      filters: { q: this.q, all: this.showAll, line: this.line, contrib: this.contribOnly },
     })}`
     if (window.location.hash === hash) return
     if (replace) window.history.replaceState(null, "", hash)
@@ -400,6 +403,7 @@ class AppState {
       this.q = view.filters.q
       this.showAll = view.filters.all
       this.line = view.filters.line
+      this.contribOnly = view.filters.contrib
       this.#followSelection(view.sel)
     } finally {
       this.#applyingHash = false

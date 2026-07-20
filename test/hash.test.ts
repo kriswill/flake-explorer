@@ -2,17 +2,23 @@ import { describe, expect, test } from "bun:test"
 import {
   decodeHash,
   encodeHash,
+  type Filters,
   type Selection,
   sameSelection,
   type ViewState,
 } from "../app/lib/hash"
 
-const roundTrip = (
-  sel: Selection | null,
-  q = "",
-  all = false,
-  line: number | null = null,
-): ViewState => decodeHash(`#${encodeHash({ sel, filters: { q, all, line } })}`)
+/** All-default filters with the given overrides — one place to touch when a filter is added. */
+const filters = (over: Partial<Filters> = {}): Filters => ({
+  q: "",
+  all: false,
+  line: null,
+  contrib: false,
+  ...over,
+})
+
+const roundTrip = (sel: Selection | null, over: Partial<Filters> = {}): ViewState =>
+  decodeHash(`#${encodeHash({ sel, filters: filters(over) })}`)
 
 describe("hash codec", () => {
   test("round-trips every selection kind", () => {
@@ -31,23 +37,24 @@ describe("hash codec", () => {
   })
 
   test("round-trips filters", () => {
-    const v = roundTrip({ kind: "config", configId: "nixos/nebula" }, "nginx & friends?", true)
-    expect(v.filters).toEqual({ q: "nginx & friends?", all: true, line: null })
+    const v = roundTrip(
+      { kind: "config", configId: "nixos/nebula" },
+      { q: "nginx & friends?", all: true, contrib: true },
+    )
+    expect(v.filters).toEqual(filters({ q: "nginx & friends?", all: true, contrib: true }))
   })
 
   test("the ?L= line anchor round-trips; junk and zero decode to null", () => {
     const sel: Selection = { kind: "file", fileId: "self:modules/zsh.nix" }
-    expect(roundTrip(sel, "", false, 108).filters.line).toBe(108)
-    expect(encodeHash({ sel, filters: { q: "", all: false, line: 108 } })).toBe(
+    expect(roundTrip(sel, { line: 108 }).filters.line).toBe(108)
+    expect(encodeHash({ sel, filters: filters({ line: 108 }) })).toBe(
       "/f/self:modules%2Fzsh.nix?L=108",
     )
     expect(decodeHash("#/f/x?L=abc").filters.line).toBeNull()
     expect(decodeHash("#/f/x?L=-3").filters.line).toBeNull()
     expect(decodeHash("#/f/x?L=0").filters.line).toBeNull()
     // Absent line writes no param at all.
-    expect(encodeHash({ sel, filters: { q: "", all: false, line: null } })).toBe(
-      "/f/self:modules%2Fzsh.nix",
-    )
+    expect(encodeHash({ sel, filters: filters() })).toBe("/f/self:modules%2Fzsh.nix")
   })
 
   test("output attr names containing dots round-trip", () => {
@@ -78,16 +85,25 @@ describe("hash codec", () => {
   test("option URLs stay readable for typical locs", () => {
     const hash = encodeHash({
       sel: { kind: "option", configId: "nixos/nebula", loc: ["programs", "zsh", "histSize"] },
-      filters: { q: "", all: false, line: null },
+      filters: filters(),
     })
     expect(hash).toBe("/c/nixos%2Fnebula/opt/programs.zsh.histSize")
+  })
+
+  test("the contributing-files toggle round-trips as ?contrib=1", () => {
+    const sel: Selection = { kind: "config", configId: "nixos/nebula" }
+    expect(encodeHash({ sel, filters: filters({ contrib: true }) })).toBe(
+      "/c/nixos%2Fnebula?contrib=1",
+    )
+    expect(decodeHash("#/c/x?contrib=1").filters.contrib).toBe(true)
+    expect(decodeHash("#/c/x").filters.contrib).toBe(false)
   })
 
   test("a diff URL stays readable and needs both sides", () => {
     expect(
       encodeHash({
         sel: { kind: "diff", a: "nixos/nebula", b: "darwin/mini" },
-        filters: { q: "", all: false, line: null },
+        filters: filters(),
       }),
     ).toBe("/diff/nixos%2Fnebula/darwin%2Fmini")
     // A half-written diff link is not a selection.
