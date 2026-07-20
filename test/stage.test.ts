@@ -70,6 +70,24 @@ describe("Stage", () => {
     })
   })
 
+  test("output selection under overlays renders OverlayDetail", () => {
+    app.manifest = { ...app.manifest!, overlayDefs: [{ name: "demo", file: "self:lib/c.nix" }] }
+    app.flakeIndexes = buildFlakeIndexes(app.manifest)
+    app.selection = { kind: "output", path: ["overlays", "demo"] }
+    withMount(Stage, {}, (host) => {
+      expect(host.querySelector("h2")?.textContent).toBe("overlays.demo")
+      expect(host.textContent).toContain("Defined in")
+    })
+  })
+
+  test("output selection under a module category renders ModuleOutputDetail", () => {
+    app.selection = { kind: "output", path: ["modules", "nixos", "demo"] }
+    withMount(Stage, {}, (host) => {
+      expect(host.querySelector("h2")?.textContent).toBe("modules.nixos.demo")
+      expect(host.textContent).toContain("Used by configurations")
+    })
+  })
+
   test("output selection, generic leaf: shows type/name/description", () => {
     app.selection = { kind: "output", path: ["nixosConfigurations", "test"] }
     withMount(Stage, {}, (host) => {

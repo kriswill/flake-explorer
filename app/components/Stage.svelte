@@ -4,8 +4,20 @@ import FileDetail from "./FileDetail.svelte"
 import InputDetail from "./InputDetail.svelte"
 import Legend from "./Legend.svelte"
 import ModuleDetail from "./ModuleDetail.svelte"
+import ModuleOutputDetail from "./ModuleOutputDetail.svelte"
 import OptionDetail from "./OptionDetail.svelte"
+import OverlayDetail from "./OverlayDetail.svelte"
 import PackageDetail from "./PackageDetail.svelte"
+
+/** Module-flavored output categories routed to ModuleOutputDetail. */
+const MODULE_OUTPUTS = new Set([
+  "modules",
+  "nixosModules",
+  "darwinModules",
+  "homeModules",
+  "homeManagerModules",
+  "flakeModules",
+])
 
 const outputLeaf = $derived.by(() => {
   if (app.selection?.kind !== "output" || !app.manifest) return null
@@ -40,6 +52,10 @@ const packageRef = $derived.by(() => {
     <InputDetail name={app.selection.name} />
   {:else if app.selection?.kind === "output" && packageRef}
     <PackageDetail refId={packageRef.id} />
+  {:else if app.selection?.kind === "output" && app.selection.path[0] === "overlays"}
+    <OverlayDetail path={app.selection.path} leaf={outputLeaf} />
+  {:else if app.selection?.kind === "output" && MODULE_OUTPUTS.has(app.selection.path[0] ?? "")}
+    <ModuleOutputDetail path={app.selection.path} leaf={outputLeaf} />
   {:else if app.selection?.kind === "output"}
     <h2 class="mono">{app.selection.path.join(".")}</h2>
     {#if outputLeaf?.kind === "leaf"}

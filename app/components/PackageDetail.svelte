@@ -25,6 +25,14 @@ const data = $derived(loaded?.data ?? null)
 const colorKey = $derived(ref?.path[0] ?? refId)
 const title = $derived(data?.pname ?? data?.name ?? ref?.path.at(-1) ?? refId)
 
+/** Non-package categories get a role badge — "check"/"dev shell"/"formatter". */
+const ROLES: Record<string, string> = {
+  checks: "check",
+  devShells: "dev shell",
+  formatter: "formatter",
+}
+const roleBadge = $derived(ROLES[ref?.path[0] ?? ""] ?? null)
+
 const depGroups = $derived(
   data
     ? ([
@@ -72,6 +80,7 @@ const positionInfo = $derived.by(() => {
   <div class="head" style="--c:{colorFor(colorKey, gen)}">
     <Dot />
     <h2 class="mono">{title}</h2>
+    {#if roleBadge}<span class="badge builder">{roleBadge}</span>{/if}
     <span class="badge builder">{data.builder}</span>
     {#if positionInfo?.fileId}
       {@const fileId = positionInfo.fileId}
