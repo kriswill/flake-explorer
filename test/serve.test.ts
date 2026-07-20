@@ -470,9 +470,9 @@ describe("serve routing + on-demand extraction (shimmed nix)", () => {
   })
 
   test("traversal out of an allowed root is refused after normalization", async () => {
-    const escape = `${SELF}/../../etc/hostname`
+    const climbing = `${SELF}/../../etc/hostname`
     const res = await httpFetch(
-      `${base}/data/file/${encodeURIComponent("self:x.nix")}?storePath=${encodeURIComponent(escape)}`,
+      `${base}/data/file/${encodeURIComponent("self:x.nix")}?storePath=${encodeURIComponent(climbing)}`,
     )
     expect(res.status).toBe(403)
   })
