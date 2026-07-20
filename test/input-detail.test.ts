@@ -133,6 +133,46 @@ describe("InputDetail", () => {
     })
   })
 
+  test("modules contributed: loading and errored configs don't show a dead load button", async () => {
+    seedSource("sops-nix")
+    app.configs = { "nixos/test": "loading" }
+    withMount(InputDetail, { name: "sops-nix" }, (host) => {
+      expect(host.textContent).not.toContain("load to see contributed modules")
+      expect(host.textContent).toContain("loading modules…")
+    })
+
+    // Failed load: error text + a retry that actually recovers (loadConfig
+    // no-ops on an occupied slot, so the plain load button never could).
+    app.configs = { "nixos/test": { error: "extraction failed: boom" } }
+    injectData("config/nixos.test.json", fixtureConfig())
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const instance = mount(InputDetail, { target: host, props: { name: "sops-nix" } })
+    try {
+      expect(host.textContent).not.toContain("load to see contributed modules")
+      expect(host.textContent).toContain("extraction failed: boom")
+      buttonsWithText(host, "retry")[0]!.click()
+      await Bun.sleep(0)
+      flushSync()
+      expect(host.textContent).toContain("1 modules")
+    } finally {
+      void unmount(instance)
+      host.remove()
+    }
+  })
+
+  test("modules contributed: a permanent error (static export) hides retry", () => {
+    seedSource("sops-nix")
+    app.configs = {
+      "nixos/test": { error: "configuration not included in this export", permanent: true },
+    }
+    withMount(InputDetail, { name: "sops-nix" }, (host) => {
+      expect(host.textContent).not.toContain("load to see contributed modules")
+      expect(host.textContent).toContain("configuration not included in this export")
+      expect(buttonsWithText(host, "retry").length).toBe(0)
+    })
+  })
+
   test("grafted outputs link back to the output node", () => {
     app.manifest = {
       ...app.manifest!,
