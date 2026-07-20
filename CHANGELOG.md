@@ -17,12 +17,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime closure size when the output is already in the local store.
   Extracted on demand, same lifecycle as configuration options; new
   `--packages id,...` CLI flag (`--all` now covers packages too).
+- Packages appear on the page of the file that defines them (reverse lookup
+  from `meta.position`), with two-way title-row chips linking a package and
+  its defining file. Build-phase scripts are syntax-highlighted through a
+  vendored tree-sitter-bash grammar.
+- Options have a first-class page — `#/c/<config>/opt/<option.path>` —
+  showing type, priority, description, declared-in with `file:line`,
+  definitions in merge order with priority chips, the final merged value,
+  and the same option across other configurations. Option names link there
+  from module pages, file pages, and search.
+- Richer option provenance in the extracted data: declaration line/column
+  (via the module system's `declarationPositions`), per-definition
+  priority, an explicit "(value skipped)" marker instead of inference, and
+  a scan of which self files reference each input.
+- Input pages answer "where is this consumed?": files referencing the
+  input, modules it contributes per configuration (with load-in-place
+  buttons), outputs grafted from it (`lib = nixpkgs.lib.extend …`), and its
+  own inputs — including follows edges the lock-graph dedup previously
+  dropped. The landing page splits the input count into direct +
+  transitive.
+- Unified search: the header box still live-filters both trees, and now
+  also opens a categorized dropdown (Options / Packages / Files / Inputs)
+  with keyboard navigation and ranked matches (exact > exact segment >
+  segment prefix > substring; customized options first). Options come from
+  loaded configurations — the footer lists unloaded ones with a
+  load-in-place button, and static exports auto-load their embedded
+  configs on first search focus.
 
 ### Changed
 
-- Bumped `EXTRACTOR_VERSION` to `0.3.0` for the new package data shape —
-  invalidates existing cached config sidecars once (re-extracted
-  automatically on next access).
+- The extraction cache key is now fully content-derived: a SHA-256
+  fingerprint over the extractor sources replaces the hand-bumped
+  `EXTRACTOR_VERSION`, the flake identity falls back to the self store
+  path for dirty checkouts (source edits now invalidate), and an
+  order-independent hash of the resolved input set catches input drift.
+  Existing cached sidecars re-extract once on next access.
+
+### Fixed
+
+- The serve blob route now 404s data files the manifest doesn't claim:
+  previously sidecar metadata was served verbatim, and an encoded `../`
+  could escape the data directory (read-only, `.json`-limited).
+- The left tree's documented input ordering (self entries first, nixpkgs
+  last) was being discarded by a later alphabetical sort; it now renders
+  as documented.
+
+### Infrastructure
+
+- Hermetic test coverage for the extraction pipeline's core (manifest
+  lock-graph traversal, options chunk-split ladder, serve routes) via a
+  scripted `nix` PATH shim; the suite grew from 294 to 422 tests.
 
 ## [0.1.3] — 2026-07-12
 
