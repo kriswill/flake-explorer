@@ -47,6 +47,13 @@ case "$*" in
     if [ -e "$NIX_SHIM_DIR/fail-optionNames" ]; then echo "error: shim optionNames refused" >&2; exit 1; fi
     cat "$NIX_SHIM_DIR/option-names.json" ;;
   *'mode\\":\\"options'*) log options; sleep 0.3; cat "$NIX_SHIM_DIR/options-eval.json" ;;
+  *'mode\\":\\"package'*)
+    log package
+    if [ -e "$NIX_SHIM_DIR/fail-package" ]; then echo "error: shim package refused" >&2; exit 1; fi
+    sleep 0.3
+    cat "$NIX_SHIM_DIR/package-eval.json" ;;
+  *"derivation show"*) log derivationShow; echo '{}' ;;
+  *"path-info"*) log pathInfo; echo "error: shim path-info: not valid" >&2; exit 1 ;;
   *"builtins.readFile"*)
     log readFile
     if [ -e "$NIX_SHIM_DIR/input-file.nix" ]; then cat "$NIX_SHIM_DIR/input-file.nix"; else echo "error: shim input file gone" >&2; exit 1; fi ;;
@@ -83,10 +90,35 @@ const METADATA = {
   },
 }
 
-// nix flake show --json (classic format): one nixosConfiguration, no
-// packages/devShells/checks/formatter — so derivation show / path-info
-// never fire and packageRefs stays empty.
-const SHOW = { nixosConfigurations: { test: { type: "nixos-configuration" } } }
+// nix flake show --json (classic format): one nixosConfiguration plus one
+// derivation-typed output, so packageRefs yields exactly one PackageRef and
+// the on-demand package route is reachable. packageRefs does no host-system
+// filtering, so x86_64-linux is fine on any machine.
+const SHOW = {
+  nixosConfigurations: { test: { type: "nixos-configuration" } },
+  packages: { "x86_64-linux": { demo: { type: "derivation", name: "demo-1.0" } } },
+}
+
+const PKG_ID = "packages/x86_64-linux/demo"
+const PKG_DATA_FILE = "package/packages.x86_64-linux.demo.json"
+
+// extract.nix mode=package: the minimum extractPackage needs to build a
+// PackageData (isDrv + one output); `nix derivation show` / `path-info`
+// answers come from their own shim branches.
+const PACKAGE_EVAL = {
+  isDrv: true,
+  name: "demo-1.0",
+  pname: "demo",
+  pkgVersion: "1.0",
+  stdenv: "stdenv-linux",
+  system: "x86_64-linux",
+  markers: { cargoDeps: false, goModules: false, npmDeps: false, buildCommand: false },
+  outputs: [{ name: "out", path: "/nix/store/dddddddddddddddddddddddddddddddd-demo-1.0" }],
+  meta: { description: "shim demo package" },
+  metaError: false,
+  src: null,
+  deps: { nativeBuildInputs: [], buildInputs: [], propagatedBuildInputs: [] },
+}
 
 // extract.nix mode=manifest: empty files list keeps importGraph trivial.
 const MANIFEST_EVAL = {
@@ -145,6 +177,8 @@ const resetShimLog = () => Bun.write(logFile, "")
 
 const blobPath = () => join(dataDir, "config/nixos.test.json")
 const sidecarPath = () => join(dataDir, "config/nixos.test.meta.json")
+const pkgBlobPath = () => join(dataDir, PKG_DATA_FILE)
+const pkgSidecarPath = () => join(dataDir, PKG_DATA_FILE.replace(/\.json$/, ".meta.json"))
 
 const getManifest = async (): Promise<Manifest> =>
   (await (await httpFetch(`${base}/data/manifest.json`)).json()) as Manifest
@@ -168,6 +202,7 @@ beforeAll(async () => {
   await Bun.write(join(shimDir, "manifest-eval.json"), JSON.stringify(MANIFEST_EVAL))
   await Bun.write(join(shimDir, "option-names.json"), JSON.stringify(OPTION_NAMES))
   await Bun.write(join(shimDir, "options-eval.json"), JSON.stringify(OPTIONS_EVAL))
+  await Bun.write(join(shimDir, "package-eval.json"), JSON.stringify(PACKAGE_EVAL))
 
   process.env.PATH = `${shimDir}:${origPath}`
   process.env.NIX_SHIM_DIR = shimDir
@@ -231,7 +266,7 @@ describe("serve routing + on-demand extraction (shimmed nix)", () => {
       status: "pending",
     })
     expect(manifest.flake.narHash).toBe("sha256-selfnarhash=")
-    expect(manifest.packages).toHaveLength(0)
+    expect(manifest.packages.map((p) => p.id)).toEqual([PKG_ID])
     expect(Object.keys(manifest.inputs)).toEqual(["nixpkgs"])
   })
 
@@ -301,6 +336,79 @@ describe("serve routing + on-demand extraction (shimmed nix)", () => {
     expect(blob.status).toBe(200)
     expect(await shimCounts()).toEqual({})
   })
+
+  test("GET /data/package/<file> is held open until the package extracts", async () => {
+    await resetShimLog()
+    const t0 = performance.now()
+    const res = await httpFetch(`${base}/data/${PKG_DATA_FILE}`)
+    expect(res.status).toBe(200)
+    // The shim's package eval sleeps 300ms — arriving sooner would mean the
+    // request wasn't actually held open for the extraction.
+    expect(performance.now() - t0).toBeGreaterThan(250)
+
+    const data = (await res.json()) as { id: string; pname?: string }
+    expect(data.id).toBe(PKG_ID)
+    expect(data.pname).toBe("demo")
+
+    expect(await Bun.file(pkgBlobPath()).exists()).toBe(true)
+    expect(await Bun.file(pkgSidecarPath()).exists()).toBe(true)
+    const manifest = await getManifest()
+    expect(manifest.packages[0]!.status).toBe("ok")
+
+    // Baseline for single-flight below: one extraction is one package eval.
+    expect((await shimCounts()).package).toBe(1)
+  }, 15_000)
+
+  test("an already-extracted package re-serves the blob without re-evaluating", async () => {
+    await resetShimLog()
+    const res = await httpFetch(`${base}/data/${PKG_DATA_FILE}`)
+    expect(res.status).toBe(200)
+    // status === "ok" short-circuits before the single-flight map.
+    expect(await shimCounts()).toEqual({})
+  })
+
+  test("single-flight: two concurrent package requests extract once", async () => {
+    await unlink(pkgBlobPath())
+    await unlink(pkgSidecarPath())
+    await httpFetch(`${base}/api/refresh`, { method: "POST" })
+    expect((await getManifest()).packages[0]!.status).toBe("pending")
+
+    await resetShimLog()
+    const [a, b] = await Promise.all([
+      httpFetch(`${base}/data/${PKG_DATA_FILE}`),
+      httpFetch(`${base}/data/${PKG_DATA_FILE}`),
+    ])
+    expect(a.status).toBe(200)
+    expect(b.status).toBe(200)
+    expect(await a.json()).toEqual(await b.json())
+    // The "pkg:" key rode one in-flight promise instead of evaluating twice.
+    expect((await shimCounts()).package).toBe(1)
+  }, 15_000)
+
+  test("a failing package extraction marks the ref error and 500s the request", async () => {
+    await unlink(pkgBlobPath())
+    await unlink(pkgSidecarPath())
+    await httpFetch(`${base}/api/refresh`, { method: "POST" })
+    await Bun.write(join(shimDir, "fail-package"), "")
+    try {
+      const res = await httpFetch(`${base}/data/${PKG_DATA_FILE}`)
+      expect(res.status).toBe(500)
+      const manifest = await getManifest()
+      expect(manifest.packages[0]!.status).toBe("error")
+      // The message is truncated to its first lines, not a whole nix trace.
+      expect(manifest.packages[0]!.error).toContain("shim package refused")
+      expect(manifest.packages[0]!.error!.split("\n").length).toBeLessThanOrEqual(3)
+    } finally {
+      await unlink(join(shimDir, "fail-package"))
+    }
+  }, 15_000)
+
+  test("the next request retries an errored package and recovers", async () => {
+    await resetShimLog()
+    const res = await httpFetch(`${base}/data/${PKG_DATA_FILE}`)
+    expect(res.status).toBe(200)
+    expect((await getManifest()).packages[0]!.status).toBe("ok")
+  }, 15_000)
 
   test("route guards: unknown /data paths 404", async () => {
     // fetch/URL normalize a literal "/data/config/../evil.json" to
