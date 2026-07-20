@@ -10,6 +10,7 @@
 //   #/c/<configId>/opt/<loc.dots>     option within a configuration
 //   #/f/<fileId>                      file selection
 //   #/i/<inputName>                   flake input selection
+//   #/diff/<configA>/<configB>        two-configuration option diff
 // filters: ?q=<search>&all=1 (option filter "all" instead of "customized")
 //          &L=<line> (scroll the source view to a line; replace-state like
 //          the other filters — Back walks selections, not line jumps)
@@ -21,6 +22,7 @@ export type Selection =
   | { kind: "option"; configId: string; loc: string[] }
   | { kind: "file"; fileId: string }
   | { kind: "input"; name: string }
+  | { kind: "diff"; a: string; b: string }
 
 export interface Filters {
   q: string
@@ -58,6 +60,8 @@ function encodeSel(sel: Selection | null): string {
       return `/f/${enc(sel.fileId)}`
     case "input":
       return `/i/${enc(sel.name)}`
+    case "diff":
+      return `/diff/${enc(sel.a)}/${enc(sel.b)}`
   }
 }
 
@@ -95,6 +99,7 @@ function decodeSel(path: string): Selection | null {
   const parts = path.split("/").filter(Boolean)
   if (parts.length === 0) return null
   const [tag, a, tag2, b] = parts
+  if (tag === "diff" && a && tag2) return { kind: "diff", a: seg(a), b: seg(tag2) }
   if (tag === "o" && a) return { kind: "output", path: a.split(".").map(seg).filter(Boolean) }
   if (tag === "c" && a && tag2 === "m" && b)
     return { kind: "module", configId: seg(a), moduleId: seg(b) }

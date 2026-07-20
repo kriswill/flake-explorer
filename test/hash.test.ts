@@ -23,6 +23,7 @@ describe("hash codec", () => {
       { kind: "option", configId: "nixos/nebula", loc: ["programs", "zsh", "histSize"] },
       { kind: "file", fileId: "input:sops-nix:modules/sops/default.nix" },
       { kind: "input", name: "home-manager/nixpkgs" },
+      { kind: "diff", a: "nixos/nebula", b: "darwin/mini" },
     ]
     for (const sel of cases) {
       expect(roundTrip(sel).sel).toEqual(sel)
@@ -80,6 +81,17 @@ describe("hash codec", () => {
       filters: { q: "", all: false, line: null },
     })
     expect(hash).toBe("/c/nixos%2Fnebula/opt/programs.zsh.histSize")
+  })
+
+  test("a diff URL stays readable and needs both sides", () => {
+    expect(
+      encodeHash({
+        sel: { kind: "diff", a: "nixos/nebula", b: "darwin/mini" },
+        filters: { q: "", all: false, line: null },
+      }),
+    ).toBe("/diff/nixos%2Fnebula/darwin%2Fmini")
+    // A half-written diff link is not a selection.
+    expect(decodeHash("#/diff/nixos%2Fnebula").sel).toBeNull()
   })
 
   test("empty and garbage hashes decode to null selection", () => {

@@ -287,6 +287,11 @@ class AppState {
       void this.loadConfig(sel.configId).then(() => this.#revealOptionDeclarer(sel))
     } else if (sel?.kind === "file") {
       this.revealFile(sel.fileId)
+    } else if (sel?.kind === "diff") {
+      // Both sides must be resident for the comparison; each loads (or
+      // reports) independently, and DiffView offers load-in-place meanwhile.
+      void this.loadConfig(sel.a)
+      void this.loadConfig(sel.b)
     } else if (sel?.kind === "output") {
       // Deep links (#/o/…) land here too — expand the left tree and extract
       // on cold-load, same as clicking down to the leaf would.

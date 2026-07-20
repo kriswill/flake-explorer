@@ -1,5 +1,6 @@
 <script lang="ts">
 import { app, configError } from "../lib/state.svelte"
+import DiffView from "./DiffView.svelte"
 import FileDetail from "./FileDetail.svelte"
 import InputDetail from "./InputDetail.svelte"
 import Legend from "./Legend.svelte"
@@ -50,6 +51,8 @@ const packageRef = $derived.by(() => {
     <FileDetail fileId={app.selection.fileId} />
   {:else if app.selection?.kind === "input"}
     <InputDetail name={app.selection.name} />
+  {:else if app.selection?.kind === "diff"}
+    <DiffView a={app.selection.a} b={app.selection.b} />
   {:else if app.selection?.kind === "output" && packageRef}
     <PackageDetail refId={packageRef.id} />
   {:else if app.selection?.kind === "output" && app.selection.path[0] === "overlays"}
@@ -78,6 +81,18 @@ const packageRef = $derived.by(() => {
         {app.activeConfig.indexes.filesById.size} contributing files.
       </p>
       <p class="muted">Expand the configuration on the left and select a module to inspect its options.</p>
+      {@const siblings = (app.manifest?.configurations ?? []).filter((c) => c.id !== configId)}
+      {#if siblings.length}
+        <p class="compare">
+          compare with
+          {#each siblings as s (s.id)}
+            <button
+              class="link mono"
+              onclick={() => app.select({ kind: "diff", a: configId, b: s.id })}
+            >{s.id}</button>
+          {/each}
+        </p>
+      {/if}
     {:else if app.configs[configId] === "loading"}
       <p class="muted">Extracting / loading options… (first run can take a minute or two)</p>
     {:else if configError(app.configs[configId])}
@@ -135,6 +150,24 @@ const packageRef = $derived.by(() => {
   .k {
     color: var(--ink-muted);
     margin-right: 6px;
+  }
+  .compare {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: var(--ink-muted);
+  }
+  .link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--link);
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+  .link:hover {
+    text-decoration: underline;
   }
   p {
     margin: 4px 0;

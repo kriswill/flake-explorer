@@ -213,6 +213,10 @@ const presenceIn = (id: string): string | null => {
               onclick={() => app.select({ kind: "option", configId: c.id, loc })}
             >{c.id}</button>
             {#if presenceIn(c.id)}<span class="muted">{presenceIn(c.id)}</span>{/if}
+            <button
+              class="link diff"
+              onclick={() => app.select({ kind: "diff", a: configId, b: c.id })}
+            >diff</button>
           </li>
         {/each}
       </ul>
@@ -228,6 +232,10 @@ const presenceIn = (id: string): string | null => {
   }
   .lineno {
     margin-left: -6px;
+  }
+  .diff {
+    margin-left: auto;
+    font-size: 0.75rem;
   }
   .mono {
     font-family: ui-monospace, monospace;
