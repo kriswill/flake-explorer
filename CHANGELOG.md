@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Package- and derivation-typed options no longer skip their value
+  wholesale: a names-only forcing path extracts each derivation's name
+  (merged value, default, and per-definition), so
+  `environment.systemPackages` finally answers "what does this module
+  install?". Names render in option rows and option pages, capped with an
+  honest overflow marker. The module system's ", via option <path>"
+  provenance is captured as structured data instead of being discarded,
+  and a definition-site scan records where each `overlays.<name>` is
+  defined.
+- Overlays and `flake.modules.*` outputs have real pages instead of
+  dead-ending: an overlay page shows its type, defining file, and who
+  imports that file; module-output pages route through the via-provenance
+  stamps to the files that consume the module in each configuration, with
+  declared/set option counts and load-in-place for unloaded
+  configurations. Checks, devShells, and the formatter get a role badge
+  next to the builder badge on their package pages.
+- Deep links restore context, not just content: the left module tree now
+  expands and scrolls to the selection (previously only the right file
+  tree revealed), breadcrumbs across module/file/option pages, and a
+  `?L=<line>` param links an option's declaration line into the file
+  source view, highlighted and scrolled into view.
+- Two-configuration option diff view at `#/diff/<a>/<b>`: one row per
+  option customized on either side (only-a / only-b / differs / equal /
+  incomparable), package-typed options compared by their drv names,
+  per-side load-in-place, `?q=` filtering, and a 500-row cap with an
+  honest overflow note. Entry points: "compare with" links on the config
+  landing page and per-row "diff" links on option pages.
+- The config landing page shows a summary — most-customized areas,
+  modules by input, compare links — instead of a one-line count. The file
+  list gains an "only contributing files" toggle (`?contrib=1`), and
+  directory nodes in the module tree are labeled with a trailing `/` like
+  the file tree's.
+
+### Changed
+
+- Data ingestion validates blobs at runtime (`isManifest`,
+  `isConfigData`, `isPackageData`) instead of casting: a truncated or
+  foreign blob now fails with a clear error rather than a bare TypeError
+  deep inside index building, while forward-compatible blobs with extra
+  fields still load.
+- The extractor fingerprint changed with the new extraction features, so
+  existing cached config blobs re-extract once on next access.
+
+### Fixed
+
+- A transitive input that cannot be resolved (e.g. a FlakeHub pin whose
+  lock entry url disagrees with what the fetcher returns) no longer takes
+  the whole manifest down: extraction retries with direct inputs only and
+  records a warning naming the nix error. Every input is still listed
+  from the lock graph; only option files living inside a transitive input
+  fall back to the "unknown" bucket.
+- Output deep links (`#/o/…`) scroll the revealed leaf into view.
+- The drv-name extractor's large-attrset bail reports `«attrs:N»` instead
+  of an empty list indistinguishable from "no packages".
+- Consecutive blank source lines no longer collapse into stacked gutter
+  line numbers.
+- `jsonSegments` now matches `JSON.stringify(v, null, 2)` for undefined
+  array slots and undefined-valued object keys, as its contract states.
+
+### Security
+
+- The serve `/data/file/` route accepted any absolute path and returned
+  any file the serving user could open, and the server bound 0.0.0.0 by
+  default. Reads are now confined to the nix store and the flake's own
+  tree (normalized, so `..` cannot climb out and `/nix/store-evil` cannot
+  pass as the store), and the server binds 127.0.0.1 unless `--host` says
+  otherwise.
+
+### Infrastructure
+
+- The test suite grew from 422 to 565 tests: on-demand package
+  extraction, the transitive-input degradation path, the diff view, tree
+  components, and the overlay/input-ref/import scans are now exercised in
+  the sandboxed (shimmed-nix) run.
+
 ## [0.2.0] — 2026-07-20
 
 ### Added
