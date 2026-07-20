@@ -10,6 +10,7 @@ import { buildApp, pageHtml } from "./build-app"
 import {
   applyExtracted,
   applyExtractedPackage,
+  type CacheKey,
   cacheKeyOf,
   extractAndPersist,
   extractAndPersistPackage,
@@ -96,84 +97,99 @@ export async function serve(
 
   const inflight = new Map<string, Promise<void>>()
 
-  async function extractConfig(configId: string): Promise<void> {
-    const ref = manifest.configurations.find((c) => c.id === configId)
-    if (!ref || ref.status === "ok") return
-    let p = inflight.get(configId)
+  /** A ref the on-demand extractor can settle onto. */
+  interface OnDemandRef {
+    status: "pending" | "ok" | "error"
+    error?: string
+  }
+
+  /**
+   * On-demand extraction of one entity (a configuration or a package),
+   * single-flighted so concurrent requests for the same id extract once.
+   *
+   * Configs and packages differ only in which collection they live in and
+   * which extract/apply pair they use; everything subtle here — the
+   * start-time cache key, the settle-onto-the-current-manifest lookup, and
+   * the error stamping — is identical, and was previously duplicated
+   * verbatim in two 40-line closures.
+   */
+  function onDemand<
+    R extends { warnings: string[]; durationMs: number },
+    T extends OnDemandRef,
+  >(spec: {
+    /** Keyspace prefix — a package id must never collide with a config id. */
+    prefix: string
+    id: string
+    /** Re-run against the LIVE manifest, which /api/refresh may have swapped. */
+    find: (id: string) => T | undefined
+    extract: (ref: T, cacheKey: CacheKey) => Promise<R>
+    apply: (ref: T, r: R) => void
+    starting: (id: string) => string
+    finished: (id: string, r: R) => string
+  }): Promise<void> {
+    const ref = spec.find(spec.id)
+    if (!ref || ref.status === "ok") return Promise.resolve()
+    const key = `${spec.prefix}${spec.id}`
+    let p = inflight.get(key)
     if (!p) {
       // Capture the cache key at extraction START: /api/refresh can swap the
       // manifest mid-extraction, and stamping the new key onto data evaluated
       // from the old flake state would poison the sidecar cache.
-      const key = cacheKeyOf(manifest)
+      const cacheKey = cacheKeyOf(manifest)
       p = (async () => {
-        console.log(`extracting options of ${configId} ...`)
-        const r = await extractAndPersist(outDir, flakeRef, key, ref, {
-          timeoutMs: flags.timeout * 1000,
-        })
+        console.log(spec.starting(spec.id))
+        const r = await spec.extract(ref, cacheKey)
         // Settle onto the ref in the CURRENT manifest — /api/refresh may have
         // replaced it while the extraction ran; mutating the stale `ref` would
         // leave the live one pending forever.
-        const cur = manifest.configurations.find((c) => c.id === configId)
+        const cur = spec.find(spec.id)
         if (cur) {
-          applyExtracted(cur, r)
+          spec.apply(cur, r)
           manifest.warnings.push(...r.warnings)
         }
-        console.log(
-          `  ${configId}: ${r.data.options.length} options in ${(r.durationMs / 1000).toFixed(1)}s`,
-        )
+        console.log(spec.finished(spec.id, r))
       })().catch((e) => {
         const msg = String(e).split("\n").slice(0, 3).join(" ")
-        const cur = manifest.configurations.find((c) => c.id === configId)
+        const cur = spec.find(spec.id)
         if (cur) {
           cur.status = "error"
           cur.error = msg
         }
-        console.error(`  ${configId} failed: ${msg}`)
-      })
-      inflight.set(configId, p)
-      void p.finally(() => inflight.delete(configId))
-    }
-    return p
-  }
-
-  // Same single-flight Map as extractConfig above, keyed with a "pkg:" prefix
-  // so a package id can never collide with a config id in `inflight`.
-  async function extractPackageOnDemand(packageId: string): Promise<void> {
-    const ref = manifest.packages.find((p) => p.id === packageId)
-    if (!ref || ref.status === "ok") return
-    const key = `pkg:${packageId}`
-    let p = inflight.get(key)
-    if (!p) {
-      const cacheKey = cacheKeyOf(manifest)
-      p = (async () => {
-        console.log(`extracting package ${packageId} ...`)
-        const r = await extractAndPersistPackage(outDir, flakeRef, cacheKey, ref, {
-          timeoutMs: flags.timeout * 1000,
-        })
-        // Settle onto the ref in the CURRENT manifest — see extractConfig's
-        // comment above, same reasoning applies to /api/refresh races.
-        const cur = manifest.packages.find((p) => p.id === packageId)
-        if (cur) {
-          applyExtractedPackage(cur, r)
-          manifest.warnings.push(...r.warnings)
-        }
-        console.log(
-          `  ${packageId}: builder=${r.data.builder} in ${(r.durationMs / 1000).toFixed(1)}s`,
-        )
-      })().catch((e) => {
-        const msg = String(e).split("\n").slice(0, 3).join(" ")
-        const cur = manifest.packages.find((p) => p.id === packageId)
-        if (cur) {
-          cur.status = "error"
-          cur.error = msg
-        }
-        console.error(`  ${packageId} failed: ${msg}`)
+        console.error(`  ${spec.id} failed: ${msg}`)
       })
       inflight.set(key, p)
       void p.finally(() => inflight.delete(key))
     }
     return p
   }
+
+  const extractConfig = (configId: string): Promise<void> =>
+    onDemand({
+      prefix: "",
+      id: configId,
+      find: (id) => manifest.configurations.find((c) => c.id === id),
+      extract: (ref, cacheKey) =>
+        extractAndPersist(outDir, flakeRef, cacheKey, ref, { timeoutMs: flags.timeout * 1000 }),
+      apply: applyExtracted,
+      starting: (id) => `extracting options of ${id} ...`,
+      finished: (id, r) =>
+        `  ${id}: ${r.data.options.length} options in ${(r.durationMs / 1000).toFixed(1)}s`,
+    })
+
+  const extractPackageOnDemand = (packageId: string): Promise<void> =>
+    onDemand({
+      prefix: "pkg:",
+      id: packageId,
+      find: (id) => manifest.packages.find((p) => p.id === id),
+      extract: (ref, cacheKey) =>
+        extractAndPersistPackage(outDir, flakeRef, cacheKey, ref, {
+          timeoutMs: flags.timeout * 1000,
+        }),
+      apply: applyExtractedPackage,
+      starting: (id) => `extracting package ${id} ...`,
+      finished: (id, r) =>
+        `  ${id}: builder=${r.data.builder} in ${(r.durationMs / 1000).toFixed(1)}s`,
+    })
 
   const server = Bun.serve({
     port: flags.port ?? 4321,

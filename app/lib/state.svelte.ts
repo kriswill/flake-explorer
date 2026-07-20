@@ -6,7 +6,13 @@
 import { SvelteSet } from "svelte/reactivity"
 import type { AboutData } from "../../src/licenses"
 import type { ConfigData, FileSource, Manifest, OptionEntry, PackageData } from "../../src/schema"
-import { parseFileId, SCHEMA_VERSION } from "../../src/schema"
+import {
+  isConfigData,
+  isManifest,
+  isPackageData,
+  parseFileId,
+  SCHEMA_VERSION,
+} from "../../src/schema"
 import { registerSlotKeys } from "./color"
 import { hasEmbedded, isStatic, loadJson } from "./data"
 import { decodeHash, encodeHash, type Filters, type Selection, sameSelection } from "./hash"
@@ -128,9 +134,9 @@ class AppState {
   async loadManifest() {
     this.manifestError = null
     try {
-      const m = await loadJson<Manifest>("manifest.json")
-      if (m.version !== SCHEMA_VERSION)
-        throw new Error(incompatibleData("manifest.json", m.version))
+      const m = await loadJson<unknown>("manifest.json")
+      if (!isManifest(m))
+        throw new Error(incompatibleData("manifest.json", (m as { version?: unknown })?.version))
       this.manifest = m
       this.flakeIndexes = buildFlakeIndexes(m)
       registerSlotKeys(
@@ -162,9 +168,9 @@ class AppState {
     }
     this.configs = { ...this.configs, [configId]: "loading" }
     try {
-      const data = await loadJson<ConfigData>(ref.dataFile)
-      if (data.version !== SCHEMA_VERSION)
-        throw new Error(incompatibleData(ref.dataFile, data.version))
+      const data = await loadJson<unknown>(ref.dataFile)
+      if (!isConfigData(data))
+        throw new Error(incompatibleData(ref.dataFile, (data as { version?: unknown })?.version))
       const indexes = buildConfigIndexes(this.manifest, data, this.flakeIndexes!)
       this.configs = { ...this.configs, [configId]: { data, indexes } }
     } catch (e) {
@@ -193,9 +199,9 @@ class AppState {
     }
     this.packages = { ...this.packages, [packageId]: "loading" }
     try {
-      const data = await loadJson<PackageData>(ref.dataFile)
-      if (data.version !== SCHEMA_VERSION)
-        throw new Error(incompatibleData(ref.dataFile, data.version))
+      const data = await loadJson<unknown>(ref.dataFile)
+      if (!isPackageData(data))
+        throw new Error(incompatibleData(ref.dataFile, (data as { version?: unknown })?.version))
       this.packages = { ...this.packages, [packageId]: { data } }
     } catch (e) {
       this.packages = { ...this.packages, [packageId]: { error: String(e) } }
