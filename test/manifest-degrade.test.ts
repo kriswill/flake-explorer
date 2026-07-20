@@ -14,7 +14,13 @@ import { join } from "node:path"
 import { buildManifest } from "../src/extract/manifest"
 
 const FLAKE_REF = "github:example/degrade-flake"
-const SELF = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-source"
+/**
+ * A REAL temp directory: buildManifest reads self files off disk for the
+ * import/input/overlay scans, so covering that wiring hermetically (this
+ * suite runs in the sandboxed nix check, where the real-nix mini-flake is
+ * skipped) needs somewhere the test can write.
+ */
+const SELF = join(tmpdir(), "fe-degrade-self-fixture")
 const NIXPKGS = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-source"
 
 /**
@@ -71,7 +77,7 @@ const MANIFEST_SHALLOW = {
   description: "degrade test flake",
   inputs: { nixpkgs: { path: NIXPKGS, inputs: {} } },
   configurations: [{ kind: "nixos", n: "test" }],
-  files: [],
+  files: [`${SELF}/flake.nix`, `${SELF}/overlays.nix`],
   grafts: [],
   outputNames: {},
 }
@@ -81,6 +87,16 @@ const origPath = process.env.PATH
 
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), "manifest-degrade-"))
+  // Self files the source scans read: an input reference, a relative import,
+  // and both overlay definition forms.
+  await Bun.write(
+    join(SELF, "flake.nix"),
+    `{ inputs.nixpkgs.url = "github:NixOS/nixpkgs";\n  outputs = _: { imports = [ ./overlays.nix ]; }; }\n`,
+  )
+  await Bun.write(
+    join(SELF, "overlays.nix"),
+    `{ flake.overlays.demo = final: prev: { };\n  overlays.other = final: prev: { }; }\n`,
+  )
   await Bun.write(join(dir, "metadata.json"), JSON.stringify(METADATA))
   await Bun.write(join(dir, "show.json"), JSON.stringify(SHOW))
   await Bun.write(join(dir, "manifest-shallow.json"), JSON.stringify(MANIFEST_SHALLOW))
@@ -94,6 +110,7 @@ afterAll(async () => {
   process.env.PATH = origPath
   delete process.env.NIX_SHIM_DIR
   await rm(dir, { recursive: true, force: true })
+  await rm(SELF, { recursive: true, force: true })
 })
 
 test("an unresolvable transitive input degrades to direct inputs with a warning", async () => {
@@ -115,4 +132,21 @@ test("an unresolvable transitive input degrades to direct inputs with a warning"
   const warning = m.warnings.find((w) => w.includes("transitive inputs could not be resolved"))
   expect(warning).toBeDefined()
   expect(warning).toContain("mismatch in field 'url'")
+})
+
+test("the self-source scans still run over a degraded manifest", async () => {
+  // Degrading the INPUT walk must not quietly drop the file-level scans —
+  // they read self files off disk and never touched the failing eval.
+  const m = await buildManifest(FLAKE_REF, { timeoutMs: 20_000 })
+
+  expect(m.files.map((f) => f.relPath).sort()).toEqual(["flake.nix", "overlays.nix"])
+
+  // Both overlay definition forms, attributed to the file that defines them.
+  expect(m.overlayDefs?.slice().sort((a, b) => a.name.localeCompare(b.name))).toEqual([
+    { name: "demo", file: "self:overlays.nix" },
+    { name: "other", file: "self:overlays.nix" },
+  ])
+
+  expect(m.inputRefs).toEqual([{ file: "self:flake.nix", input: "nixpkgs" }])
+  expect(m.importEdges).toEqual([{ from: "self:flake.nix", to: "self:overlays.nix" }])
 })

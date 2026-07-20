@@ -16,6 +16,7 @@ interface Flags {
   html: string
   sources: "self" | "all"
   port?: number
+  host?: string
   dev: boolean
   positional: string[]
 }
@@ -61,6 +62,7 @@ function parseFlags(argv: string[]): Flags {
       if (v !== "self" && v !== "all") die(`--sources expects self or all, got: ${v}`)
       f.sources = v
     } else if (a === "--port") f.port = num(a, argv[++i])
+    else if (a === "--host") f.host = arg(a, argv[++i])
     else if (a === "--dev") f.dev = true
     else if (a.startsWith("--")) die(`unknown flag: ${a}`)
     else f.positional.push(a)
@@ -125,10 +127,12 @@ commands:
       that works without a server — file://, any CDN, GitHub Pages.
       --sources all also embeds every file the exported configurations
       reference (can be large against nixpkgs).
-  serve <flakeref> [--port N] [--out DIR] [--dev]
+  serve <flakeref> [--port N] [--host ADDR] [--out DIR] [--dev]
       Extract manifest, then serve the explorer UI with on-demand
       per-configuration extraction. --dev watches app/ and live-reloads
       the browser (run under \`bun --watch\` to cover server files too).
+      Binds 127.0.0.1 by default — it serves file contents off local disk,
+      so pass --host 0.0.0.0 only on a network you trust.
 
   --help, -h  Show this help.
 

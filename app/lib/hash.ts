@@ -10,9 +10,11 @@
 //   #/c/<configId>/opt/<loc.dots>     option within a configuration
 //   #/f/<fileId>                      file selection
 //   #/i/<inputName>                   flake input selection
+//   #/diff/<configA>/<configB>        two-configuration option diff
 // filters: ?q=<search>&all=1 (option filter "all" instead of "customized")
 //          &L=<line> (scroll the source view to a line; replace-state like
 //          the other filters — Back walks selections, not line jumps)
+//          &contrib=1 (file list shows only files a loaded config uses)
 
 export type Selection =
   | { kind: "output"; path: string[] }
@@ -21,6 +23,7 @@ export type Selection =
   | { kind: "option"; configId: string; loc: string[] }
   | { kind: "file"; fileId: string }
   | { kind: "input"; name: string }
+  | { kind: "diff"; a: string; b: string }
 
 export interface Filters {
   q: string
@@ -28,6 +31,8 @@ export interface Filters {
   all: boolean
   /** 1-based source line to scroll to (file/module source views). */
   line: number | null
+  /** Restrict the file list to files that contribute to a loaded configuration. */
+  contrib: boolean
 }
 
 export interface ViewState {
@@ -58,6 +63,8 @@ function encodeSel(sel: Selection | null): string {
       return `/f/${enc(sel.fileId)}`
     case "input":
       return `/i/${enc(sel.name)}`
+    case "diff":
+      return `/diff/${enc(sel.a)}/${enc(sel.b)}`
   }
 }
 
@@ -66,6 +73,7 @@ export function encodeHash(view: ViewState): string {
   if (view.filters.q) p.set("q", view.filters.q)
   if (view.filters.all) p.set("all", "1")
   if (view.filters.line) p.set("L", String(view.filters.line))
+  if (view.filters.contrib) p.set("contrib", "1")
   const qs = p.toString()
   return encodeSel(view.sel) + (qs ? `?${qs}` : "")
 }
@@ -79,7 +87,12 @@ export function decodeHash(raw: string): ViewState {
   const line = lineRaw && /^\d+$/.test(lineRaw) ? Number(lineRaw) : null
   return {
     sel: decodeSel(selPart),
-    filters: { q: p.get("q") ?? "", all: p.get("all") === "1", line: line || null },
+    filters: {
+      q: p.get("q") ?? "",
+      all: p.get("all") === "1",
+      line: line || null,
+      contrib: p.get("contrib") === "1",
+    },
   }
 }
 
@@ -95,6 +108,7 @@ function decodeSel(path: string): Selection | null {
   const parts = path.split("/").filter(Boolean)
   if (parts.length === 0) return null
   const [tag, a, tag2, b] = parts
+  if (tag === "diff" && a && tag2) return { kind: "diff", a: seg(a), b: seg(tag2) }
   if (tag === "o" && a) return { kind: "output", path: a.split(".").map(seg).filter(Boolean) }
   if (tag === "c" && a && tag2 === "m" && b)
     return { kind: "module", configId: seg(a), moduleId: seg(b) }

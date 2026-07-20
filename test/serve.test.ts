@@ -5,7 +5,7 @@
 // later tests intentionally depend on state earlier ones created.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { chmod, mkdtemp, rm, unlink } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, rm, unlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
@@ -22,7 +22,13 @@ const httpFetch = (input: string, init?: RequestInit): Promise<Response> =>
   globalThis.fetch(input, init)
 
 const FLAKE_REF = "github:example/shim-flake" // deliberately NOT path-like: keeps git/localCheckout logic off
-const SELF = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-source"
+/**
+ * The flake's own tree. A REAL (temp) directory rather than a fake store
+ * path: the /data/file/ route only reads under the store or the flake root,
+ * so exercising a legitimate read needs somewhere the test can actually
+ * write. Nothing here depends on it being store-shaped.
+ */
+const SELF = join(tmpdir(), "fe-serve-self-fixture")
 
 // Scripted fake nix. Fixture JSON lives in $NIX_SHIM_DIR; every handled call
 // appends its mode to $NIX_SHIM_LOG so tests can count invocations. The
@@ -41,6 +47,13 @@ case "$*" in
     if [ -e "$NIX_SHIM_DIR/fail-optionNames" ]; then echo "error: shim optionNames refused" >&2; exit 1; fi
     cat "$NIX_SHIM_DIR/option-names.json" ;;
   *'mode\\":\\"options'*) log options; sleep 0.3; cat "$NIX_SHIM_DIR/options-eval.json" ;;
+  *'mode\\":\\"package'*)
+    log package
+    if [ -e "$NIX_SHIM_DIR/fail-package" ]; then echo "error: shim package refused" >&2; exit 1; fi
+    sleep 0.3
+    cat "$NIX_SHIM_DIR/package-eval.json" ;;
+  *"derivation show"*) log derivationShow; echo '{}' ;;
+  *"path-info"*) log pathInfo; echo "error: shim path-info: not valid" >&2; exit 1 ;;
   *"builtins.readFile"*)
     log readFile
     if [ -e "$NIX_SHIM_DIR/input-file.nix" ]; then cat "$NIX_SHIM_DIR/input-file.nix"; else echo "error: shim input file gone" >&2; exit 1; fi ;;
@@ -77,10 +90,35 @@ const METADATA = {
   },
 }
 
-// nix flake show --json (classic format): one nixosConfiguration, no
-// packages/devShells/checks/formatter — so derivation show / path-info
-// never fire and packageRefs stays empty.
-const SHOW = { nixosConfigurations: { test: { type: "nixos-configuration" } } }
+// nix flake show --json (classic format): one nixosConfiguration plus one
+// derivation-typed output, so packageRefs yields exactly one PackageRef and
+// the on-demand package route is reachable. packageRefs does no host-system
+// filtering, so x86_64-linux is fine on any machine.
+const SHOW = {
+  nixosConfigurations: { test: { type: "nixos-configuration" } },
+  packages: { "x86_64-linux": { demo: { type: "derivation", name: "demo-1.0" } } },
+}
+
+const PKG_ID = "packages/x86_64-linux/demo"
+const PKG_DATA_FILE = "package/packages.x86_64-linux.demo.json"
+
+// extract.nix mode=package: the minimum extractPackage needs to build a
+// PackageData (isDrv + one output); `nix derivation show` / `path-info`
+// answers come from their own shim branches.
+const PACKAGE_EVAL = {
+  isDrv: true,
+  name: "demo-1.0",
+  pname: "demo",
+  pkgVersion: "1.0",
+  stdenv: "stdenv-linux",
+  system: "x86_64-linux",
+  markers: { cargoDeps: false, goModules: false, npmDeps: false, buildCommand: false },
+  outputs: [{ name: "out", path: "/nix/store/dddddddddddddddddddddddddddddddd-demo-1.0" }],
+  meta: { description: "shim demo package" },
+  metaError: false,
+  src: null,
+  deps: { nativeBuildInputs: [], buildInputs: [], propagatedBuildInputs: [] },
+}
 
 // extract.nix mode=manifest: empty files list keeps importGraph trivial.
 const MANIFEST_EVAL = {
@@ -139,6 +177,8 @@ const resetShimLog = () => Bun.write(logFile, "")
 
 const blobPath = () => join(dataDir, "config/nixos.test.json")
 const sidecarPath = () => join(dataDir, "config/nixos.test.meta.json")
+const pkgBlobPath = () => join(dataDir, PKG_DATA_FILE)
+const pkgSidecarPath = () => join(dataDir, PKG_DATA_FILE.replace(/\.json$/, ".meta.json"))
 
 const getManifest = async (): Promise<Manifest> =>
   (await (await httpFetch(`${base}/data/manifest.json`)).json()) as Manifest
@@ -150,6 +190,7 @@ beforeAll(async () => {
   dataParent = await mkdtemp(join(tmpdir(), "serve-data-"))
   dataDir = join(dataParent, "out")
   logFile = join(shimDir, "calls.log")
+  await mkdir(SELF, { recursive: true }) // the fixture flake's own tree
 
   // A file OUTSIDE the data dir, to probe path-traversal containment.
   await Bun.write(join(dataParent, "outside.json"), '{"leaked":true}')
@@ -161,6 +202,7 @@ beforeAll(async () => {
   await Bun.write(join(shimDir, "manifest-eval.json"), JSON.stringify(MANIFEST_EVAL))
   await Bun.write(join(shimDir, "option-names.json"), JSON.stringify(OPTION_NAMES))
   await Bun.write(join(shimDir, "options-eval.json"), JSON.stringify(OPTIONS_EVAL))
+  await Bun.write(join(shimDir, "package-eval.json"), JSON.stringify(PACKAGE_EVAL))
 
   process.env.PATH = `${shimDir}:${origPath}`
   process.env.NIX_SHIM_DIR = shimDir
@@ -184,6 +226,7 @@ afterAll(async () => {
   delete process.env.NIX_SHIM_LOG
   await rm(shimDir, { recursive: true, force: true })
   await rm(dataParent, { recursive: true, force: true })
+  await rm(SELF, { recursive: true, force: true })
 
   // Restore the DOM environment (and the preload's fallbacks) for any test
   // files that run after this one.
@@ -223,7 +266,7 @@ describe("serve routing + on-demand extraction (shimmed nix)", () => {
       status: "pending",
     })
     expect(manifest.flake.narHash).toBe("sha256-selfnarhash=")
-    expect(manifest.packages).toHaveLength(0)
+    expect(manifest.packages.map((p) => p.id)).toEqual([PKG_ID])
     expect(Object.keys(manifest.inputs)).toEqual(["nixpkgs"])
   })
 
@@ -294,6 +337,79 @@ describe("serve routing + on-demand extraction (shimmed nix)", () => {
     expect(await shimCounts()).toEqual({})
   })
 
+  test("GET /data/package/<file> is held open until the package extracts", async () => {
+    await resetShimLog()
+    const t0 = performance.now()
+    const res = await httpFetch(`${base}/data/${PKG_DATA_FILE}`)
+    expect(res.status).toBe(200)
+    // The shim's package eval sleeps 300ms — arriving sooner would mean the
+    // request wasn't actually held open for the extraction.
+    expect(performance.now() - t0).toBeGreaterThan(250)
+
+    const data = (await res.json()) as { id: string; pname?: string }
+    expect(data.id).toBe(PKG_ID)
+    expect(data.pname).toBe("demo")
+
+    expect(await Bun.file(pkgBlobPath()).exists()).toBe(true)
+    expect(await Bun.file(pkgSidecarPath()).exists()).toBe(true)
+    const manifest = await getManifest()
+    expect(manifest.packages[0]!.status).toBe("ok")
+
+    // Baseline for single-flight below: one extraction is one package eval.
+    expect((await shimCounts()).package).toBe(1)
+  }, 15_000)
+
+  test("an already-extracted package re-serves the blob without re-evaluating", async () => {
+    await resetShimLog()
+    const res = await httpFetch(`${base}/data/${PKG_DATA_FILE}`)
+    expect(res.status).toBe(200)
+    // status === "ok" short-circuits before the single-flight map.
+    expect(await shimCounts()).toEqual({})
+  })
+
+  test("single-flight: two concurrent package requests extract once", async () => {
+    await unlink(pkgBlobPath())
+    await unlink(pkgSidecarPath())
+    await httpFetch(`${base}/api/refresh`, { method: "POST" })
+    expect((await getManifest()).packages[0]!.status).toBe("pending")
+
+    await resetShimLog()
+    const [a, b] = await Promise.all([
+      httpFetch(`${base}/data/${PKG_DATA_FILE}`),
+      httpFetch(`${base}/data/${PKG_DATA_FILE}`),
+    ])
+    expect(a.status).toBe(200)
+    expect(b.status).toBe(200)
+    expect(await a.json()).toEqual(await b.json())
+    // The "pkg:" key rode one in-flight promise instead of evaluating twice.
+    expect((await shimCounts()).package).toBe(1)
+  }, 15_000)
+
+  test("a failing package extraction marks the ref error and 500s the request", async () => {
+    await unlink(pkgBlobPath())
+    await unlink(pkgSidecarPath())
+    await httpFetch(`${base}/api/refresh`, { method: "POST" })
+    await Bun.write(join(shimDir, "fail-package"), "")
+    try {
+      const res = await httpFetch(`${base}/data/${PKG_DATA_FILE}`)
+      expect(res.status).toBe(500)
+      const manifest = await getManifest()
+      expect(manifest.packages[0]!.status).toBe("error")
+      // The message is truncated to its first lines, not a whole nix trace.
+      expect(manifest.packages[0]!.error).toContain("shim package refused")
+      expect(manifest.packages[0]!.error!.split("\n").length).toBeLessThanOrEqual(3)
+    } finally {
+      await unlink(join(shimDir, "fail-package"))
+    }
+  }, 15_000)
+
+  test("the next request retries an errored package and recovers", async () => {
+    await resetShimLog()
+    const res = await httpFetch(`${base}/data/${PKG_DATA_FILE}`)
+    expect(res.status).toBe(200)
+    expect((await getManifest()).packages[0]!.status).toBe("ok")
+  }, 15_000)
+
   test("route guards: unknown /data paths 404", async () => {
     // fetch/URL normalize a literal "/data/config/../evil.json" to
     // "/data/evil.json" before it leaves the client — 404 either way.
@@ -328,10 +444,9 @@ describe("serve routing + on-demand extraction (shimmed nix)", () => {
   })
 
   test("GET /data/file/<id> serves an existing storePath with tokens", async () => {
-    // The route trusts any absolute path (option declarations point into
-    // nixpkgs, not just this flake) — a plain temp file keeps this hermetic.
-    // String + comment guarantee tokenizeNix emits at least one run.
-    const src = join(dataParent, "on-disk.nix")
+    // Under the flake root, so it passes confinement. String + comment
+    // guarantee tokenizeNix emits at least one run.
+    const src = join(SELF, "on-disk.nix")
     await Bun.write(src, '{ demo = "yes"; } # a comment\n')
     const res = await httpFetch(
       `${base}/data/file/${encodeURIComponent("self:on-disk.nix")}?storePath=${encodeURIComponent(src)}`,
@@ -340,6 +455,33 @@ describe("serve routing + on-demand extraction (shimmed nix)", () => {
     const body = (await res.json()) as { text: string; tokens: unknown[] }
     expect(body.text).toContain('demo = "yes"')
     expect(body.tokens.length).toBeGreaterThan(0)
+  })
+
+  test("storePath outside the store and the flake is refused, not read", async () => {
+    // Without confinement this route hands out any file the serving user can
+    // open — and the server is reachable from the network when --host is set.
+    const secret = join(dataParent, "id_rsa")
+    await Bun.write(secret, "PRIVATE KEY MATERIAL\n")
+    const res = await httpFetch(
+      `${base}/data/file/${encodeURIComponent("self:anything.nix")}?storePath=${encodeURIComponent(secret)}`,
+    )
+    expect(res.status).toBe(403)
+    expect(await res.text()).not.toContain("PRIVATE KEY")
+  })
+
+  test("traversal out of an allowed root is refused after normalization", async () => {
+    const climbing = `${SELF}/../../etc/hostname`
+    const res = await httpFetch(
+      `${base}/data/file/${encodeURIComponent("self:x.nix")}?storePath=${encodeURIComponent(climbing)}`,
+    )
+    expect(res.status).toBe(403)
+  })
+
+  test("a sibling directory sharing the store prefix does not pass as the store", async () => {
+    const res = await httpFetch(
+      `${base}/data/file/${encodeURIComponent("self:x.nix")}?storePath=${encodeURIComponent("/nix/store-evil/leak.nix")}`,
+    )
+    expect(res.status).toBe(403)
   })
 
   test("stale storePath on a self file is a 404 (nothing to re-fetch from)", async () => {

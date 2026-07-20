@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { OutputNode } from "../../src/schema"
+import { revealWhen } from "../lib/reveal.svelte"
 import { app } from "../lib/state.svelte"
 import Dot from "./Dot.svelte"
 import OutputBranch from "./OutputBranch.svelte"
@@ -36,10 +37,13 @@ const isSel = (name: string) =>
           <OutputBranch node={child} path={[...path, name]} depth={depth + 1} />
         {/if}
       {:else}
+        <!-- Deep links (#/o/…) expand the ancestor chain; this is what
+             actually brings the selected leaf into view. -->
         <button
           class="row leaf"
           class:dim={child.kind !== "leaf"}
           class:sel={isSel(name)}
+          use:revealWhen={() => isSel(name)}
           onclick={() => app.select({ kind: "output", path: [...path, name] })}
         >
           <Dot hollow={child.kind !== "leaf"} />

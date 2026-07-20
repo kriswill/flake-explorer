@@ -6,7 +6,13 @@
 import { SvelteSet } from "svelte/reactivity"
 import type { AboutData } from "../../src/licenses"
 import type { ConfigData, FileSource, Manifest, OptionEntry, PackageData } from "../../src/schema"
-import { parseFileId, SCHEMA_VERSION } from "../../src/schema"
+import {
+  isConfigData,
+  isManifest,
+  isPackageData,
+  parseFileId,
+  SCHEMA_VERSION,
+} from "../../src/schema"
 import { registerSlotKeys } from "./color"
 import { hasEmbedded, isStatic, loadJson } from "./data"
 import { decodeHash, encodeHash, type Filters, type Selection, sameSelection } from "./hash"
@@ -48,10 +54,9 @@ export function loadedPackage(
   return slot && typeof slot === "object" && "data" in slot ? slot : null
 }
 
-/** Error slot of a failed PackageSlot; null otherwise. */
-export function packageError(slot: PackageSlot | undefined): SlotError | null {
-  return slot && typeof slot === "object" && "error" in slot ? slot : null
-}
+// NB no packageError() counterpart to configError(): package errors reach
+// the UI through AsyncSlot, which does its own narrowing. One existed for
+// symmetry and was never called.
 
 export type FileContentSlot = "loading" | SlotError | FileSource
 
@@ -93,6 +98,8 @@ class AppState {
   showAll = $state(false)
   /** 1-based line the source view scrolls to (?L= filter); cleared on selection change. */
   line = $state<number | null>(null)
+  /** File list shows only files contributing to a loaded configuration (?contrib=). */
+  contribOnly = $state(false)
 
   /** Config whose module tree/details are active (from selection). */
   activeConfigId = $derived(
@@ -127,9 +134,9 @@ class AppState {
   async loadManifest() {
     this.manifestError = null
     try {
-      const m = await loadJson<Manifest>("manifest.json")
-      if (m.version !== SCHEMA_VERSION)
-        throw new Error(incompatibleData("manifest.json", m.version))
+      const m = await loadJson<unknown>("manifest.json")
+      if (!isManifest(m))
+        throw new Error(incompatibleData("manifest.json", (m as { version?: unknown })?.version))
       this.manifest = m
       this.flakeIndexes = buildFlakeIndexes(m)
       registerSlotKeys(
@@ -161,9 +168,9 @@ class AppState {
     }
     this.configs = { ...this.configs, [configId]: "loading" }
     try {
-      const data = await loadJson<ConfigData>(ref.dataFile)
-      if (data.version !== SCHEMA_VERSION)
-        throw new Error(incompatibleData(ref.dataFile, data.version))
+      const data = await loadJson<unknown>(ref.dataFile)
+      if (!isConfigData(data))
+        throw new Error(incompatibleData(ref.dataFile, (data as { version?: unknown })?.version))
       const indexes = buildConfigIndexes(this.manifest, data, this.flakeIndexes!)
       this.configs = { ...this.configs, [configId]: { data, indexes } }
     } catch (e) {
@@ -192,9 +199,9 @@ class AppState {
     }
     this.packages = { ...this.packages, [packageId]: "loading" }
     try {
-      const data = await loadJson<PackageData>(ref.dataFile)
-      if (data.version !== SCHEMA_VERSION)
-        throw new Error(incompatibleData(ref.dataFile, data.version))
+      const data = await loadJson<unknown>(ref.dataFile)
+      if (!isPackageData(data))
+        throw new Error(incompatibleData(ref.dataFile, (data as { version?: unknown })?.version))
       this.packages = { ...this.packages, [packageId]: { data } }
     } catch (e) {
       this.packages = { ...this.packages, [packageId]: { error: String(e) } }
@@ -287,6 +294,11 @@ class AppState {
       void this.loadConfig(sel.configId).then(() => this.#revealOptionDeclarer(sel))
     } else if (sel?.kind === "file") {
       this.revealFile(sel.fileId)
+    } else if (sel?.kind === "diff") {
+      // Both sides must be resident for the comparison; each loads (or
+      // reports) independently, and DiffView offers load-in-place meanwhile.
+      void this.loadConfig(sel.a)
+      void this.loadConfig(sel.b)
     } else if (sel?.kind === "output") {
       // Deep links (#/o/…) land here too — expand the left tree and extract
       // on cold-load, same as clicking down to the leaf would.
@@ -373,6 +385,7 @@ class AppState {
     if (f.q !== undefined) this.q = f.q
     if (f.all !== undefined) this.showAll = f.all
     if (f.line !== undefined) this.line = f.line
+    if (f.contrib !== undefined) this.contribOnly = f.contrib
     this.#writeHash(true)
   }
 
@@ -380,7 +393,7 @@ class AppState {
     if (this.#applyingHash || typeof window === "undefined") return
     const hash = `#${encodeHash({
       sel: this.selection,
-      filters: { q: this.q, all: this.showAll, line: this.line },
+      filters: { q: this.q, all: this.showAll, line: this.line, contrib: this.contribOnly },
     })}`
     if (window.location.hash === hash) return
     if (replace) window.history.replaceState(null, "", hash)
@@ -395,6 +408,7 @@ class AppState {
       this.q = view.filters.q
       this.showAll = view.filters.all
       this.line = view.filters.line
+      this.contribOnly = view.filters.contrib
       this.#followSelection(view.sel)
     } finally {
       this.#applyingHash = false

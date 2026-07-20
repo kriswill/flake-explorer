@@ -5,7 +5,13 @@ export interface JsonSeg {
   cls?: string
 }
 
-/** Walks a parsed JSON value and emits {text, cls} runs, matching JSON.stringify(v, null, 2)'s layout. */
+/**
+ * Walks a parsed JSON value and emits {text, cls} runs whose concatenated
+ * text equals JSON.stringify(v, null, 2). Extractor output is already JSON,
+ * so the unserializable cases (undefined, functions) can't arrive from
+ * there — they are handled anyway so the invariant holds unconditionally
+ * for any caller passing a live JS object.
+ */
 export function jsonSegments(value: unknown, indent: string): JsonSeg[] {
   if (value === null || typeof value === "boolean")
     return [{ text: JSON.stringify(value), cls: "tok-atom" }]
@@ -17,14 +23,20 @@ export function jsonSegments(value: unknown, indent: string): JsonSeg[] {
     if (value.length === 0) return [{ text: "[]" }]
     const segs: JsonSeg[] = [{ text: "[\n" }]
     value.forEach((item, i) => {
-      segs.push({ text: nextIndent }, ...jsonSegments(item, nextIndent))
+      // JSON.stringify turns an unserializable array slot into null rather
+      // than dropping it, because dropping would shift every later index.
+      const item2 = item === undefined || typeof item === "function" ? null : item
+      segs.push({ text: nextIndent }, ...jsonSegments(item2, nextIndent))
       segs.push({ text: i < value.length - 1 ? ",\n" : "\n" })
     })
     segs.push({ text: `${indent}]` })
     return segs
   }
   if (typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>)
+    // ...whereas an unserializable OBJECT value drops its key entirely.
+    const entries = Object.entries(value as Record<string, unknown>).filter(
+      ([, v]) => v !== undefined && typeof v !== "function",
+    )
     if (entries.length === 0) return [{ text: "{}" }]
     const segs: JsonSeg[] = [{ text: "{\n" }]
     entries.forEach(([k, v], i) => {

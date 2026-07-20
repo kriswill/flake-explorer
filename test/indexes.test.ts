@@ -12,7 +12,7 @@ import {
   resolveFile,
   subtreeMatches,
 } from "../app/lib/indexes"
-import type { ConfigData, Manifest, OptionEntry } from "../src/schema"
+import { type ConfigData, type Manifest, type OptionEntry, UNKNOWN_FILE } from "../src/schema"
 
 const SELF = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-source"
 const SOPS = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-source"
@@ -121,6 +121,23 @@ describe("flake indexes", () => {
     expect(unknown.origin.kind).toBe("unknown")
     expect((unknown.origin as { group?: string }).group).toMatch(/^blob@/)
   })
+
+  test("a non-store path falls back to an ungrouped unknown keyed on itself", () => {
+    // The module system reports some declarations under a relative pseudo-path
+    // ("lib/modules.nix" for _module.*), which matches no store-root pattern.
+    const meta = resolveFile("lib/modules.nix", manifest, fx)
+    expect(meta.origin).toEqual({ kind: "unknown" })
+    expect(meta.id).toBe("unknown:lib/modules.nix")
+    expect(meta.relPath).toBe("lib/modules.nix")
+    // No group, so nothing to bucket it under in the file list.
+    expect((meta.origin as { group?: string }).group).toBeUndefined()
+  })
+
+  test("the inline sentinel resolves to its own identity", () => {
+    const meta = resolveFile(UNKNOWN_FILE, manifest, fx)
+    expect(meta.id).toBe("inline")
+    expect(meta.origin).toEqual({ kind: "unknown" })
+  })
 })
 
 describe("config indexes", () => {
@@ -177,6 +194,49 @@ describe("config indexes", () => {
     expect(refs.defines).toEqual([0, 1, 2])
     expect(refs.declares).toEqual([2])
     expect(mi.filesById.size).toBe(1)
+  })
+
+  test("unattributable store roots cluster under a group node in the tree", () => {
+    // A store path belonging to no known input still has siblings — they are
+    // bucketed together under a synthetic "<name>@<hash7>" root rather than
+    // scattered at the tree's top level.
+    const orphaned: ConfigData = {
+      version: 1,
+      id: "nixos/test",
+      options: [opt(["a"], { customized: true }), opt(["b"], { customized: true })],
+      fileIndex: {
+        "/nix/store/ee1ee1ee1ee1ee1ee1ee1ee1ee1ee1ee-blob/lib/one.nix": {
+          defines: [0],
+          declares: [],
+        },
+        "/nix/store/ee1ee1ee1ee1ee1ee1ee1ee1ee1ee1ee-blob/lib/two.nix": {
+          defines: [1],
+          declares: [],
+        },
+      },
+    }
+    const oi = buildConfigIndexes(manifest, orphaned, fx)
+    const group = oi.tree.children.find((c) => c.id.startsWith("input:blob@"))
+    expect(group).toBeDefined()
+    // Both files land in the same group, under their shared "lib" directory.
+    const libDir = group!.children.find((c) => c.label === "lib")
+    expect(libDir?.children.map((c) => c.label).sort()).toEqual(["one.nix", "two.nix"])
+    // Counts roll up through the synthetic root like any other subtree.
+    expect(group!.customized).toBe(2)
+  })
+
+  test("a file with no group at all sits at the tree's top level under its full path", () => {
+    const virtual: ConfigData = {
+      version: 1,
+      id: "nixos/test",
+      options: [opt(["a"], { customized: true })],
+      fileIndex: { "lib/modules.nix": { defines: [0], declares: [] } },
+    }
+    const vi = buildConfigIndexes(manifest, virtual, fx)
+    const leaf = vi.tree.children.find((c) => c.id === "unknown:lib/modules.nix")
+    expect(leaf).toBeDefined()
+    // Labeled with the whole relPath — there is no directory chain to nest it in.
+    expect(leaf!.label).toBe("lib/modules.nix")
   })
 })
 

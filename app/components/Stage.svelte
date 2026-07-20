@@ -1,5 +1,7 @@
 <script lang="ts">
 import { app, configError } from "../lib/state.svelte"
+import ConfigSummary from "./ConfigSummary.svelte"
+import DiffView from "./DiffView.svelte"
 import FileDetail from "./FileDetail.svelte"
 import InputDetail from "./InputDetail.svelte"
 import Legend from "./Legend.svelte"
@@ -50,6 +52,8 @@ const packageRef = $derived.by(() => {
     <FileDetail fileId={app.selection.fileId} />
   {:else if app.selection?.kind === "input"}
     <InputDetail name={app.selection.name} />
+  {:else if app.selection?.kind === "diff"}
+    <DiffView a={app.selection.a} b={app.selection.b} />
   {:else if app.selection?.kind === "output" && packageRef}
     <PackageDetail refId={packageRef.id} />
   {:else if app.selection?.kind === "output" && app.selection.path[0] === "overlays"}
@@ -70,20 +74,17 @@ const packageRef = $derived.by(() => {
   {:else if app.selection?.kind === "config" && app.activeConfigId}
     {@const configId = app.activeConfigId}
     {@const ref = app.manifest?.configurations.find((c) => c.id === configId)}
-    <h2 class="mono">{configId}</h2>
     {#if app.activeConfig}
-      {@const opts = app.activeConfig.data.options}
-      <p>
-        {opts.length} options, {opts.filter((o) => o.customized).length} customized,
-        {app.activeConfig.indexes.filesById.size} contributing files.
-      </p>
-      <p class="muted">Expand the configuration on the left and select a module to inspect its options.</p>
-    {:else if app.configs[configId] === "loading"}
+      <ConfigSummary {configId} />
+    {:else}
+    <h2 class="mono">{configId}</h2>
+    {#if app.configs[configId] === "loading"}
       <p class="muted">Extracting / loading options… (first run can take a minute or two)</p>
     {:else if configError(app.configs[configId])}
       <p class="err">{configError(app.configs[configId])?.error}</p>
     {:else if ref?.status === "error"}
       <p class="err">{ref.error}</p>
+    {/if}
     {/if}
   {:else if app.manifest}
     <h2>{app.manifest.flake.description ?? app.manifest.flake.ref}</h2>

@@ -82,7 +82,10 @@ export function nodeColorKey(n: Node): string {
       onpointerleave={() => node.fileId && (app.hover = null)}
     >
       <Dot dir={isDir} open={isDir && expanded} hollow={node.customized === 0} />
-      <span class="label">{node.label}</span>
+      <!-- Trailing "/" on directory nodes: a dir and a file can be adjacent
+           siblings under the same label (sops-nix's `sops` dir + `sops.nix`)
+           and they behave differently on click. Matches the file tree. -->
+      <span class="label">{node.label}{node.id.startsWith("dir:") ? "/" : ""}</span>
       {#if node.customized > 0}<span class="badge">{node.customized}</span>{/if}
     </button>
     {#if isDir && expanded}

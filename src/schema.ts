@@ -458,3 +458,39 @@ export interface DefinitionRef {
 
 /** Sentinel file string the module system uses for inline/anonymous modules. */
 export const UNKNOWN_FILE = "<unknown-file>"
+
+// ---------------------------------------------------------------------------
+// Runtime shape guards for the SPA's ingestion points.
+//
+// Everything above is compile-time only: the SPA reaches these documents
+// through `JSON.parse(...) as T`, so a blob from an interrupted extractor (or
+// a hand-edited one) that still carries the right `version` sails past the
+// version gate and only fails later, deep inside index-building, as a raw
+// TypeError about something undefined. These check exactly what the index
+// builders and renderers go on to dereference — no more, so a forward-
+// compatible blob carrying extra fields still loads.
+
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v)
+
+export function isManifest(v: unknown): v is Manifest {
+  return (
+    isObj(v) &&
+    v.version === SCHEMA_VERSION &&
+    isObj(v.flake) &&
+    typeof v.flake.path === "string" &&
+    Array.isArray(v.files) &&
+    Array.isArray(v.configurations) &&
+    Array.isArray(v.packages) &&
+    isObj(v.inputs) &&
+    isObj(v.outputs)
+  )
+}
+
+export function isConfigData(v: unknown): v is ConfigData {
+  return isObj(v) && v.version === SCHEMA_VERSION && Array.isArray(v.options) && isObj(v.fileIndex)
+}
+
+export function isPackageData(v: unknown): v is PackageData {
+  return isObj(v) && v.version === SCHEMA_VERSION && Array.isArray(v.outputs) && isObj(v.deps)
+}

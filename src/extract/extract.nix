@@ -341,23 +341,37 @@ let
           let
             ns = builtins.attrNames v;
           in
-          if builtins.length ns > 64 then [ ] else builtins.concatLists (map (n: drvNames (d + 1) v.${n}) ns)
+          # Breadth cap, like scrub's — but say so. Returning a bare [ ] here
+          # renders as "(no packages)", which is indistinguishable from a
+          # genuinely empty list; the marker keeps the truncation honest.
+          if builtins.length ns > 64 then
+            [ "«attrs:${toString (builtins.length ns)}»" ]
+          else
+            builtins.concatLists (map (n: drvNames (d + 1) v.${n}) ns)
       )
     else if builtins.isList v then
-      builtins.concatLists (
-        map (
-          e:
-          let
-            r = builtins.tryEval (
-              let
-                ns = drvNames (d + 1) e;
-              in
-              builtins.deepSeq ns ns
-            );
-          in
-          if r.success then r.value else [ "?" ]
-        ) v
-      )
+      # Deliberately NOT scrub's cap of 64: environment.systemPackages
+      # routinely holds hundreds (nebula: 257), and naming them is the whole
+      # point. This bound exists only to stop a pathological list from
+      # costing one force per element — well above any real package list,
+      # far below "someone spread nixpkgs into an option".
+      if builtins.length v > 512 then
+        [ "«list:${toString (builtins.length v)}»" ]
+      else
+        builtins.concatLists (
+          map (
+            e:
+            let
+              r = builtins.tryEval (
+                let
+                  ns = drvNames (d + 1) e;
+                in
+                builtins.deepSeq ns ns
+              );
+            in
+            if r.success then r.value else [ "?" ]
+          ) v
+        )
     else
       [ ];
 
