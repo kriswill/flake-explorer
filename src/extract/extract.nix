@@ -336,10 +336,7 @@ let
           let
             ns = builtins.attrNames v;
           in
-          if builtins.length ns > 64 then
-            [ ]
-          else
-            builtins.concatLists (map (n: drvNames (d + 1) v.${n}) ns)
+          if builtins.length ns > 64 then [ ] else builtins.concatLists (map (n: drvNames (d + 1) v.${n}) ns)
       )
     else if builtins.isList v then
       builtins.concatLists (
@@ -372,10 +369,7 @@ let
               let
                 ns = drvNames 0 v;
               in
-              if builtins.length ns > 256 then
-                builtins.genList (i: builtins.elemAt ns i) 256 ++ [ "…" ]
-              else
-                ns
+              if builtins.length ns > 256 then builtins.genList (i: builtins.elemAt ns i) 256 ++ [ "…" ] else ns
             )
           )
         )

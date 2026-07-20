@@ -61,7 +61,12 @@
       networking = import ./modules/networking.nix { inherit mkOpt hostFile hostDefs; };
       nginx = import ./modules/nginx.nix { inherit mkOpt hostFile hostDefs; };
       environment = import ./modules/packages.nix {
-        inherit mkOpt hostFile depDrv packageDrv;
+        inherit
+          mkOpt
+          hostFile
+          depDrv
+          packageDrv
+          ;
       };
 
       # Package/devShell/check/formatter fixtures: raw `derivation` builtin
