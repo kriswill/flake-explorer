@@ -60,6 +60,9 @@
 
       networking = import ./modules/networking.nix { inherit mkOpt hostFile hostDefs; };
       nginx = import ./modules/nginx.nix { inherit mkOpt hostFile hostDefs; };
+      environment = import ./modules/packages.nix {
+        inherit mkOpt hostFile depDrv packageDrv;
+      };
 
       # Package/devShell/check/formatter fixtures: raw `derivation` builtin
       # merged with pname/version/meta/nativeBuildInputs via `//` — the merge
@@ -184,6 +187,10 @@
         extras = import ./extras;
       };
 
+      # Exercises the manifest's overlay-definition scan (overlay-refs.ts):
+      # the defining file (this flake.nix) lands in Manifest.overlayDefs.
+      overlays.demo = final: prev: { };
+
       packages.x86_64-linux.mini = packageDrv;
       packages.x86_64-linux.mini-broken-meta = brokenMetaDrv;
       devShells.x86_64-linux.default = devShellDrv;
@@ -207,7 +214,7 @@
           ];
         };
         options = {
-          inherit networking;
+          inherit networking environment;
           services.nginx = nginx;
         };
       };

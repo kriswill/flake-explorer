@@ -37,9 +37,12 @@ const ownDefinition = $derived(entry.definitions.find((d) => d.file === highligh
 const shownValue = $derived(ownDefinition ? ownDefinition.value : entry.value)
 const shownValueError = $derived(ownDefinition ? ownDefinition.valueError : entry.valueError)
 const shownValueSkipped = $derived(ownDefinition ? ownDefinition.valueSkipped : entry.valueSkipped)
+const shownValueNames = $derived(ownDefinition ? ownDefinition.valueNames : entry.valueNames)
 
 const preview = $derived.by(() => {
   if (shownValueError) return "⚠ value failed to evaluate"
+  // Package-typed value: the closure is skipped but the drv names survive.
+  if (shownValueNames) return shownValueNames.length ? shownValueNames.join("  ") : "(no packages)"
   if (shownValueSkipped) return "(value skipped)"
   if (shownValue === undefined) return entry.defaultText ?? "—"
   const s = JSON.stringify(shownValue)
@@ -95,7 +98,7 @@ onDestroy(() => {
     >{preview}</button>
   </div>
   {#if open}
-    <pre class="mono">{#if fullSegments}{#each fullSegments as seg}<span class={seg.cls}>{seg.text}</span>{/each}{:else}{preview}{/if}</pre>
+    <pre class="mono">{#if fullSegments}{#each fullSegments as seg}<span class={seg.cls}>{seg.text}</span>{/each}{:else if shownValueNames?.length}{shownValueNames.join("\n")}{:else}{preview}{/if}</pre>
   {/if}
 </li>
 

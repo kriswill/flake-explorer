@@ -293,6 +293,96 @@ let
     || hasInfix "raw value" t
     || hasInfix "lazy attribute set" t;
 
+  # Package/derivation-typed options never serialize their value (closure
+  # risk) — but forcing just `.name`/`.pname` per derivation is cheap and
+  # answers "what does this module install?" (environment.systemPackages).
+  # raw/lazy stay fully skipped: their thunks are unmerged and hold pkgs.
+  pkgType =
+    o:
+    let
+      r = builtins.tryEval (o.type.description or "");
+      t = if r.success then r.value else "";
+    in
+    hasInfix "package" t || hasInfix "derivation" t;
+
+  # Names of the derivations inside a (possibly wrapped) value. Bounded and
+  # total like scrub; module-system wrappers unwrap the same way. List
+  # elements each force under their own tryEval so one throwing package
+  # degrades to "?" instead of skipping the whole list — but a TYPE error
+  # while forcing an element still poisons the eval (tryEval can't catch it);
+  # namesOf's outer tryEval plus the caller's chunked walk contain that.
+  drvNames =
+    d: v:
+    if d > 6 then
+      [ ]
+    else if builtins.isAttrs v then
+      (
+        if (v.type or null) == "derivation" then
+          [ (str (v.name or v.pname or "?")) ]
+        else if (v._type or null) == "if" then
+          (
+            let
+              c = builtins.tryEval v.condition;
+            in
+            if c.success && c.value == true then drvNames d v.content else [ ]
+          )
+        else if (v._type or null) == "override" || (v._type or null) == "order" then
+          drvNames (d + 1) (v.content or null)
+        else if (v._type or null) == "merge" then
+          builtins.concatLists (map (drvNames (d + 1)) (v.contents or [ ]))
+        else if v ? _type then
+          [ ]
+        else
+          let
+            ns = builtins.attrNames v;
+          in
+          if builtins.length ns > 64 then
+            [ ]
+          else
+            builtins.concatLists (map (n: drvNames (d + 1) v.${n}) ns)
+      )
+    else if builtins.isList v then
+      builtins.concatLists (
+        map (
+          e:
+          let
+            r = builtins.tryEval (
+              let
+                ns = drvNames (d + 1) e;
+              in
+              builtins.deepSeq ns ns
+            );
+          in
+          if r.success then r.value else [ "?" ]
+        ) v
+      )
+    else
+      [ ];
+
+  # deepSafe's shape for the names-only path: { names } | { skipped }.
+  # Total-count cap keeps a pathological attrsOf-package value from bloating
+  # the blob; the "…" marker keeps the truncation honest.
+  namesOf =
+    v:
+    let
+      r = builtins.tryEval (
+        builtins.fromJSON (
+          builtins.unsafeDiscardStringContext (
+            builtins.toJSON (
+              let
+                ns = drvNames 0 v;
+              in
+              if builtins.length ns > 256 then
+                builtins.genList (i: builtins.elemAt ns i) 256 ++ [ "…" ]
+              else
+                ns
+            )
+          )
+        )
+      );
+    in
+    if r.success then { names = r.value; } else { skipped = true; };
+
   optionInfo =
     o:
     let
@@ -300,6 +390,9 @@ let
       isDefined = definedR.success && definedR.value;
       prioR = builtins.tryEval (o.highestPrio or null);
       unsafe = !withValues || unsafeType o;
+      # Skipped-but-nameable: emit { names } instead of { skipped }. Only at
+      # full detail — degraded rungs (withValues=false) must not force anything.
+      nameable = withValues && pkgType o;
       typeR = builtins.tryEval (o.type.description or null);
       descR =
         if !withDescriptions then
@@ -317,7 +410,13 @@ let
       defsR = builtins.tryEval (
         map (d: {
           file = str d.file;
-          value = if unsafe then { skipped = true; } else deepSafe d.value;
+          value =
+            if !unsafe then
+              deepSafe d.value
+            else if nameable then
+              namesOf d.value
+            else
+              { skipped = true; };
         }) (o.definitionsWithLocations or [ ])
       );
     in
@@ -343,13 +442,19 @@ let
           null
         else if !unsafe then
           deepSafe o.default
+        else if nameable then
+          namesOf o.default
         else
           { skipped = true; };
       value =
-        if isDefined && !unsafe then
+        if !isDefined then
+          null
+        else if !unsafe then
           deepSafe o.value
+        else if nameable then
+          namesOf o.value
         else
-          (if isDefined then { skipped = true; } else null);
+          { skipped = true; };
       # declarationPositions (file+line+column) exists since nixpkgs 23.11;
       # older module systems (or ones that fill it with an empty list while
       # declarations is populated) fall back to the bare declarations files.

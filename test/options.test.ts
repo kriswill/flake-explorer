@@ -123,22 +123,30 @@ describe("toEntry", () => {
     expect(at({ isDefined: false, highestPrio: 100 })).toBe(false)
   })
 
-  test("declarations map to file objects; definitions strip via and unwrap values", () => {
+  test("declarations map to file objects; via splits into a clean file + provenance", () => {
     const e = toEntry(
       raw({
-        declarations: [{ file: "/f/decl.nix", line: 12, column: 3 }],
+        declarations: [
+          { file: "/f/decl.nix", line: 12, column: 3 },
+          { file: "/f/via.nix, via option flake.modules.nixos.demo", line: null, column: null },
+        ],
         definitions: [
           { file: "/f/def.nix, via option a.b", value: { ok: 1 } },
           { file: "/f/bad.nix", value: { err: true } },
           { file: "/f/skip.nix", value: { skipped: true } },
+          { file: "/f/names.nix", value: { names: ["hello-2.12"] } },
         ],
       }),
     )
-    expect(e.declarations).toEqual([{ file: "/f/decl.nix", line: 12, column: 3 }])
+    expect(e.declarations).toEqual([
+      { file: "/f/decl.nix", line: 12, column: 3 },
+      { file: "/f/via.nix", via: "flake.modules.nixos.demo" },
+    ])
     expect(e.definitions).toEqual([
-      { file: "/f/def.nix", value: 1 },
+      { file: "/f/def.nix", via: "a.b", value: 1 },
       { file: "/f/bad.nix", valueError: true },
       { file: "/f/skip.nix", valueSkipped: true },
+      { file: "/f/names.nix", valueSkipped: true, valueNames: ["hello-2.12"] },
     ])
   })
 

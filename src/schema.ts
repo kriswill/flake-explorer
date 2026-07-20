@@ -20,6 +20,8 @@ export interface Manifest {
   importEdges: ImportEdge[]
   /** Self files whose source references `inputs.<name>` (regex scan, like importEdges). */
   inputRefs: InputRef[]
+  /** Self files whose source defines `overlays.<name>` (regex scan, like inputRefs). */
+  overlayDefs?: OverlayDef[]
   /** Follows/shared-node edges dropped from `inputs` by dedup (see InputFollow). */
   inputFollows: InputFollow[]
   configurations: ConfigRef[]
@@ -174,6 +176,19 @@ export interface InputRef {
   file: string
   /** Canonical root input name (follows aliases resolved to the real input). */
   input: string
+}
+
+/**
+ * A self file whose source text defines `overlays.<name>` (or flake-parts'
+ * `flake.overlays.<name>`). The only defining-file signal available for
+ * overlays: `nix flake show` reports no position and the extractor never
+ * evaluates overlay bodies.
+ */
+export interface OverlayDef {
+  /** Overlay attr name, e.g. "default". */
+  name: string
+  /** FileEntry.id of the defining file. */
+  file: string
 }
 
 /**
@@ -391,7 +406,15 @@ export interface OptionEntry {
   valueError?: true
   /** True when the extractor skipped the value (package-typed, or a degraded chunk). */
   valueSkipped?: true
+  /**
+   * Derivation names found in a package-typed value whose full value was
+   * skipped (valueSkipped stays true so older UIs degrade honestly). Only
+   * `.name`/`.pname` are forced per element — never the closure.
+   */
+  valueNames?: string[]
   default?: unknown
+  /** Like valueNames, for a skipped package-typed default. */
+  defaultNames?: string[]
   defaultText?: string
   /** Declaring files. */
   declarations: DeclarationRef[]
@@ -404,6 +427,13 @@ export interface DeclarationRef {
   /** 1-based declaration site (option.declarationPositions); absent on older module systems. */
   line?: number
   column?: number
+  /**
+   * Module-system provenance: the file was imported "via option <path>"
+   * (e.g. "flake.modules.nixos.desktop" for dendritic flake-parts modules).
+   * Lifted from the ", via option …" suffix the module system stamps onto
+   * file strings; `file` is always the clean store path.
+   */
+  via?: string
 }
 
 export interface DefinitionRef {
@@ -412,6 +442,10 @@ export interface DefinitionRef {
   valueError?: true
   /** True when the extractor skipped this definition's value. */
   valueSkipped?: true
+  /** Like OptionEntry.valueNames, for this definition's skipped package-typed value. */
+  valueNames?: string[]
+  /** See DeclarationRef.via. */
+  via?: string
   /**
    * mkOverride priority lifted from a wrapper surviving in this definition's
    * raw value. The real module system strips wrappers AND drops losing-prio

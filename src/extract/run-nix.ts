@@ -295,8 +295,13 @@ export interface PackageEval {
   }
 }
 
-/** Envelope from extract.nix deepSafe: value | error | skipped-as-unsafe. */
-export type ValueEnvelope = { ok: unknown } | { err: true } | { skipped: true } | null
+/** Envelope from extract.nix deepSafe/namesOf: value | error | skipped-as-unsafe | drv names only. */
+export type ValueEnvelope =
+  | { ok: unknown }
+  | { err: true }
+  | { skipped: true }
+  | { names: string[] }
+  | null
 
 export interface RawOption {
   loc: string[]

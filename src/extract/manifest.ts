@@ -18,6 +18,7 @@ import { extractorFingerprint } from "./fingerprint"
 import { lastCommits, repoPrefix } from "./git"
 import { importGraph } from "./imports"
 import { canonicalInputNames, scanInputRefs } from "./input-refs"
+import { scanOverlayDefs } from "./overlay-refs"
 import {
   evalExtract,
   type FlakeMetadataJson,
@@ -67,6 +68,11 @@ export async function buildManifest(
     read,
     selfId,
   )
+  const overlayDefs = await scanOverlayDefs(
+    selfFiles.map((f) => f.relPath),
+    read,
+    selfId,
+  )
 
   const outputs: OutputNode = showJson ? normalizeShow(showJson) : { kind: "attrset", children: {} }
 
@@ -86,6 +92,7 @@ export async function buildManifest(
     files,
     importEdges,
     inputRefs,
+    overlayDefs,
     inputFollows,
     configurations: ev.configurations.map(({ kind, n }) => ({
       id: `${kind}/${n}`,

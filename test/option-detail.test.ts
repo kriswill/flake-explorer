@@ -176,6 +176,33 @@ describe("found option", () => {
     })
   })
 
+  test("package-typed names render as chips for value, definitions, and default", () => {
+    const config = fixtureConfig()
+    config.options[0] = opt(["environment", "systemPackages"], {
+      customized: true,
+      highestPrio: PRIO.plain,
+      type: "list of package",
+      valueSkipped: true,
+      valueNames: ["hello-2.12", "rg-14.1"],
+      defaultNames: [],
+      definitions: [
+        { file: `${SELF}/modules/a.nix`, valueSkipped: true, valueNames: ["hello-2.12"] },
+        { file: `${SELF}/modules/sub/b.nix`, valueSkipped: true, valueNames: ["rg-14.1"] },
+      ],
+    })
+    loadTestConfig(config)
+    mountOpt(["environment", "systemPackages"], (host) => {
+      const nameLists = [...host.querySelectorAll(".names")].map((ul) =>
+        [...ul.querySelectorAll("li")].map((li) => li.textContent),
+      )
+      // Two definitions + the final merged value, in document order.
+      expect(nameLists).toEqual([["hello-2.12"], ["rg-14.1"], ["hello-2.12", "rg-14.1"]])
+      // Empty default names say so instead of faking a skip.
+      expect(host.textContent).toContain("(no packages)")
+      expect(host.textContent).not.toContain("(value skipped")
+    })
+  })
+
   test("undefined option says so instead of an empty definitions list", () => {
     const config = fixtureConfig()
     config.options[1] = opt(["services", "x", "port"], {
