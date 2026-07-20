@@ -21,7 +21,8 @@ const referencedBy = $derived([...(app.flakeIndexes?.inputRefsByInput.get(name) 
 
 const MODULE_CAP = 50
 
-/** Module files this input contributes, per configuration; null files = not loaded. */
+/** Module files this input contributes, per configuration; null files = slot
+ *  not loaded — the template branches on the slot itself for absent/loading/errored. */
 const contributed = $derived.by(() => {
   const out: { configId: string; files: FileMeta[] | null }[] = []
   for (const c of app.manifest?.configurations ?? []) {
@@ -121,9 +122,20 @@ const lines = $derived.by(() => {
             <div class="cfg">
               <span class="mono cfgname">{c.configId}</span>
               {#if c.files === null}
-                <button class="link" onclick={() => void app.loadConfig(c.configId)}>
-                  load to see contributed modules (may extract)
-                </button>
+                {#if !app.configs[c.configId]}
+                  <button class="link" onclick={() => void app.loadConfig(c.configId)}>
+                    load to see contributed modules (may extract)
+                  </button>
+                {:else}
+                  <!-- Only ever loading/errored here: a loaded slot means c.files !== null. -->
+                  <AsyncSlot
+                    value={app.configs[c.configId]}
+                    loadingText="loading modules…"
+                    retry={() => app.retryConfig(c.configId)}
+                  >
+                    {#snippet children()}{/snippet}
+                  </AsyncSlot>
+                {/if}
               {:else if c.files.length === 0}
                 <span class="muted">no modules from this input</span>
               {:else}
