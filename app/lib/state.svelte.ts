@@ -48,10 +48,9 @@ export function loadedPackage(
   return slot && typeof slot === "object" && "data" in slot ? slot : null
 }
 
-/** Error slot of a failed PackageSlot; null otherwise. */
-export function packageError(slot: PackageSlot | undefined): SlotError | null {
-  return slot && typeof slot === "object" && "error" in slot ? slot : null
-}
+// NB no packageError() counterpart to configError(): package errors reach
+// the UI through AsyncSlot, which does its own narrowing. One existed for
+// symmetry and was never called.
 
 export type FileContentSlot = "loading" | SlotError | FileSource
 

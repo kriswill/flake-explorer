@@ -178,7 +178,8 @@ export function resolveFile(storePath: string, manifest: Manifest, fx: FlakeInde
       return { id: makeFileId(origin, relPath!), relPath: relPath!, origin, storePath }
     }
     // Unattributable — bucket by store root so siblings at least cluster.
-    const group = `${originalName.replace(/^[a-z0-9]{32}-/, "")}@${root!.slice(0, 7)}`
+    // originalName already had the hash stripped above.
+    const group = `${originalName}@${root!.slice(0, 7)}`
     return {
       id: `unknown:${root}:${relPath}`,
       relPath: relPath!,

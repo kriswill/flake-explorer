@@ -5,7 +5,7 @@
 // manifest pass and re-reconciles the cache.
 
 import { mkdirSync } from "node:fs"
-import { join } from "node:path"
+import { join, normalize } from "node:path"
 import { buildApp, pageHtml } from "./build-app"
 import {
   applyExtracted,
@@ -26,6 +26,12 @@ export interface ServeFlags {
   timeout: number
   positional: string[]
   port?: number
+  /**
+   * Interface to bind. Defaults to loopback: the /data/file/ route serves
+   * file contents off local disk, so the server is only as trustworthy as
+   * everyone who can reach it. Set explicitly (e.g. "0.0.0.0") to expose it.
+   */
+  host?: string
   /** Watch app/ and rebuild+push-reload the UI bundle; pair with `bun --watch`. */
   dev?: boolean
 }
@@ -171,6 +177,7 @@ export async function serve(
 
   const server = Bun.serve({
     port: flags.port ?? 4321,
+    hostname: flags.host ?? "127.0.0.1",
     idleTimeout: 0, // extraction-held requests can exceed any fixed timeout
     async fetch(req) {
       const url = new URL(req.url)
@@ -233,6 +240,14 @@ export async function serve(
         // nixpkgs itself), so the client resolves and sends the real storePath.
         const storePath = url.searchParams.get("storePath")
         if (!storePath?.startsWith("/")) return new Response("storePath required", { status: 400 })
+        // The param names a file to read off local disk, so it must be
+        // confined: without this the route hands out any file the serving
+        // user can open (~/.ssh/id_rsa, ~/.aws/credentials) to anyone who
+        // can reach the port. Legitimate values only ever point into the
+        // store or the flake's own tree, which is what readableRoot checks.
+        if (!underReadableRoot(storePath, manifest.flake.path)) {
+          return new Response("storePath outside the store and flake", { status: 403 })
+        }
         let text: string
         const file = Bun.file(storePath)
         if (await file.exists()) {
@@ -268,4 +283,21 @@ export async function serve(
 
   console.log(`flake-explorer serving ${flakeRef} at http://localhost:${server.port}`)
   return server
+}
+
+/**
+ * Roots the /data/file/ route may read from: the Nix store (where every
+ * option declaration/definition path lives) and the flake's own tree (which
+ * under lazy-trees IS the working directory, not a store copy).
+ *
+ * Compared after normalization so `..` cannot walk out, and with a trailing
+ * separator so a sibling like `/nix/store-evil` can't pass as `/nix/store`.
+ * The flake root is allowed to equal the path itself; the store never is.
+ */
+export function underReadableRoot(candidate: string, flakePath: string): boolean {
+  const path = normalize(candidate)
+  if (path.startsWith("/nix/store/")) return true
+  if (!flakePath) return false
+  const root = normalize(flakePath)
+  return path === root || path.startsWith(root.endsWith("/") ? root : `${root}/`)
 }

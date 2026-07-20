@@ -79,6 +79,29 @@ const samplePackage = (): PackageData => ({
 })
 
 describe("PackageDetail", () => {
+  test("non-package categories carry a role badge; packages carry none", () => {
+    // checks/devShells/formatter all render through PackageDetail (they are
+    // PackageRefs), so without a label the page reads as a plain package.
+    const cases: [string, string[], string | null][] = [
+      ["checks/x86_64-linux/test", ["checks", "x86_64-linux", "test"], "check"],
+      ["devShells/x86_64-linux/default", ["devShells", "x86_64-linux", "default"], "dev shell"],
+      ["formatter/x86_64-linux", ["formatter", "x86_64-linux"], "formatter"],
+      ["packages/x86_64-linux/hello", ["packages", "x86_64-linux", "hello"], null],
+    ]
+    for (const [id, path, role] of cases) {
+      app.packages = { [id]: { data: { ...samplePackage(), id, path } } }
+      withMount(PackageDetail, { refId: id }, (host) => {
+        const badges = [...host.querySelectorAll(".badge")].map((b) => b.textContent)
+        if (role) expect(badges).toContain(role)
+        // The builder badge is always present and never doubles as the role.
+        expect(badges).toContain("stdenv")
+        // A plain package gets no role label at all — the category IS package.
+        const roles = ["check", "dev shell", "formatter"]
+        expect(badges.filter((b) => roles.includes(b ?? ""))).toEqual(role ? [role] : [])
+      })
+    }
+  })
+
   test("unknown ref renders a placeholder", () => {
     withMount(PackageDetail, { refId: "packages/x86_64-linux/nope" }, (host) => {
       expect(host.textContent).toContain("Unknown package")

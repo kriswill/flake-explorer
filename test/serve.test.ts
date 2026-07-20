@@ -5,7 +5,7 @@
 // later tests intentionally depend on state earlier ones created.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { chmod, mkdtemp, rm, unlink } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, rm, unlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
@@ -22,7 +22,13 @@ const httpFetch = (input: string, init?: RequestInit): Promise<Response> =>
   globalThis.fetch(input, init)
 
 const FLAKE_REF = "github:example/shim-flake" // deliberately NOT path-like: keeps git/localCheckout logic off
-const SELF = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-source"
+/**
+ * The flake's own tree. A REAL (temp) directory rather than a fake store
+ * path: the /data/file/ route only reads under the store or the flake root,
+ * so exercising a legitimate read needs somewhere the test can actually
+ * write. Nothing here depends on it being store-shaped.
+ */
+const SELF = join(tmpdir(), "fe-serve-self-fixture")
 
 // Scripted fake nix. Fixture JSON lives in $NIX_SHIM_DIR; every handled call
 // appends its mode to $NIX_SHIM_LOG so tests can count invocations. The
@@ -150,6 +156,7 @@ beforeAll(async () => {
   dataParent = await mkdtemp(join(tmpdir(), "serve-data-"))
   dataDir = join(dataParent, "out")
   logFile = join(shimDir, "calls.log")
+  await mkdir(SELF, { recursive: true }) // the fixture flake's own tree
 
   // A file OUTSIDE the data dir, to probe path-traversal containment.
   await Bun.write(join(dataParent, "outside.json"), '{"leaked":true}')
@@ -184,6 +191,7 @@ afterAll(async () => {
   delete process.env.NIX_SHIM_LOG
   await rm(shimDir, { recursive: true, force: true })
   await rm(dataParent, { recursive: true, force: true })
+  await rm(SELF, { recursive: true, force: true })
 
   // Restore the DOM environment (and the preload's fallbacks) for any test
   // files that run after this one.
@@ -328,10 +336,9 @@ describe("serve routing + on-demand extraction (shimmed nix)", () => {
   })
 
   test("GET /data/file/<id> serves an existing storePath with tokens", async () => {
-    // The route trusts any absolute path (option declarations point into
-    // nixpkgs, not just this flake) — a plain temp file keeps this hermetic.
-    // String + comment guarantee tokenizeNix emits at least one run.
-    const src = join(dataParent, "on-disk.nix")
+    // Under the flake root, so it passes confinement. String + comment
+    // guarantee tokenizeNix emits at least one run.
+    const src = join(SELF, "on-disk.nix")
     await Bun.write(src, '{ demo = "yes"; } # a comment\n')
     const res = await httpFetch(
       `${base}/data/file/${encodeURIComponent("self:on-disk.nix")}?storePath=${encodeURIComponent(src)}`,
@@ -340,6 +347,33 @@ describe("serve routing + on-demand extraction (shimmed nix)", () => {
     const body = (await res.json()) as { text: string; tokens: unknown[] }
     expect(body.text).toContain('demo = "yes"')
     expect(body.tokens.length).toBeGreaterThan(0)
+  })
+
+  test("storePath outside the store and the flake is refused, not read", async () => {
+    // Without confinement this route hands out any file the serving user can
+    // open — and the server is reachable from the network when --host is set.
+    const secret = join(dataParent, "id_rsa")
+    await Bun.write(secret, "PRIVATE KEY MATERIAL\n")
+    const res = await httpFetch(
+      `${base}/data/file/${encodeURIComponent("self:anything.nix")}?storePath=${encodeURIComponent(secret)}`,
+    )
+    expect(res.status).toBe(403)
+    expect(await res.text()).not.toContain("PRIVATE KEY")
+  })
+
+  test("traversal out of an allowed root is refused after normalization", async () => {
+    const escape = `${SELF}/../../etc/hostname`
+    const res = await httpFetch(
+      `${base}/data/file/${encodeURIComponent("self:x.nix")}?storePath=${encodeURIComponent(escape)}`,
+    )
+    expect(res.status).toBe(403)
+  })
+
+  test("a sibling directory sharing the store prefix does not pass as the store", async () => {
+    const res = await httpFetch(
+      `${base}/data/file/${encodeURIComponent("self:x.nix")}?storePath=${encodeURIComponent("/nix/store-evil/leak.nix")}`,
+    )
+    expect(res.status).toBe(403)
   })
 
   test("stale storePath on a self file is a 404 (nothing to re-fetch from)", async () => {
