@@ -28,6 +28,11 @@
   path ? [ ],
   childNames ? null,
   skipInvisible ? true,
+  # manifest mode: how deep to walk inputs-of-inputs. Resolving a transitive
+  # input can fail UNCATCHABLY (a lock whose recorded url disagrees with what
+  # the fetcher returns raises below the Nix exception layer, so not even
+  # tryEval helps) — manifest.ts retries at depth 0 when that happens.
+  inputsDepth ? 3,
   # Degradation ladder for poisoned chunks: withValues=false skips forcing
   # any option/definition values; withDescriptions=false also skips
   # descriptions (which can interpolate config, e.g. "${cfg.package.description}").
@@ -119,7 +124,7 @@ let
           inputs = if depth <= 0 then { } else go (depth - 1) (i.inputs or { });
         }) inps;
     in
-    go 3 (flake.inputs or { });
+    go inputsDepth (flake.inputs or { });
 
   # Outputs that extend an input's same-named namespace (e.g. lib =
   # nixpkgs.lib.extend ...): record only the keys ADDED on top of the
