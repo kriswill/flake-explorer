@@ -79,9 +79,17 @@ const presenceIn = (id: string): string | null => {
   {/if}
 {/snippet}
 
-{#snippet valueBlock(value: unknown, valueError: true | undefined, valueSkipped: true | undefined)}
+{#snippet valueBlock(value: unknown, valueError: true | undefined, valueSkipped: true | undefined, valueNames?: string[])}
   {#if valueError}
     <p class="err">⚠ value failed to evaluate</p>
+  {:else if valueNames}
+    {#if valueNames.length}
+      <ul class="names mono">
+        {#each valueNames as n, i (`${n}#${i}`)}<li>{n}</li>{/each}
+      </ul>
+    {:else}
+      <p class="muted">(no packages)</p>
+    {/if}
   {:else if valueSkipped}
     <p class="muted">(value skipped — package-typed, or from a degraded extraction chunk)</p>
   {:else if value !== undefined}
@@ -140,7 +148,7 @@ const presenceIn = (id: string): string | null => {
     {#if entry.defaultText}
       <pre class="mono">{entry.defaultText}</pre>
     {:else}
-      {@render valueBlock(entry.default, undefined, undefined)}
+      {@render valueBlock(entry.default, undefined, undefined, entry.defaultNames)}
     {/if}
   </section>
 
@@ -161,7 +169,7 @@ const presenceIn = (id: string): string | null => {
                 <span class="chip {chip.cls}">{chip.label}</span>
               {/if}
             </div>
-            {@render valueBlock(d.value, d.valueError, d.valueSkipped)}
+            {@render valueBlock(d.value, d.valueError, d.valueSkipped, d.valueNames)}
           </li>
         {/each}
       </ol>
@@ -169,7 +177,7 @@ const presenceIn = (id: string): string | null => {
 
     <section>
       <h3>Final merged value</h3>
-      {@render valueBlock(entry.value, entry.valueError, entry.valueSkipped)}
+      {@render valueBlock(entry.value, entry.valueError, entry.valueSkipped, entry.valueNames)}
     </section>
   {:else}
     <section>
@@ -310,6 +318,22 @@ const presenceIn = (id: string): string | null => {
     display: flex;
     align-items: baseline;
     gap: 8px;
+  }
+  .names {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    font-size: 0.75rem;
+  }
+  .names li {
+    background: var(--page);
+    border: 1px solid var(--grid);
+    border-radius: 6px;
+    padding: 0 6px;
+    line-height: 1.25rem;
   }
   .link {
     background: none;

@@ -50,6 +50,7 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
       "lib/helper.nix",
       "modules/networking.nix",
       "modules/nginx.nix",
+      "modules/packages.nix",
       "vendor/flake.nix",
       "vendor/modules/extra.nix",
     ])
@@ -62,11 +63,16 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
     expect(m.inputRefs).toEqual([{ file: "self:flake.nix", input: "vendor" }])
     expect(m.inputFollows).toEqual([]) // vendor has no inputs of its own
 
+    // `overlays.demo = final: prev: { };` in flake.nix — the regex scan's
+    // defining-file signal (nix flake show reports no position for overlays).
+    expect(m.overlayDefs).toEqual([{ name: "demo", file: "self:flake.nix" }])
+
     const edges = new Set(m.importEdges.map((e) => `${e.from}->${e.to}`))
     expect(edges.has("self:lib/greeting.nix->self:lib/helper.nix")).toBe(true)
     expect(edges.has("self:lib/greeting.nix->self:extras/default.nix")).toBe(true)
     expect(edges.has("self:flake.nix->self:modules/networking.nix")).toBe(true)
     expect(edges.has("self:flake.nix->self:modules/nginx.nix")).toBe(true)
+    expect(edges.has("self:flake.nix->self:modules/packages.nix")).toBe(true)
     expect(edges.has("self:flake.nix->self:hosts/mini.nix")).toBe(true)
 
     expect(m.configurations).toEqual([
@@ -127,12 +133,38 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
       default: "nginx",
     })
 
+    // Package-typed option: the value is skipped (closure risk) but the drv
+    // names survive — merged, per-definition, and for the empty default.
+    const sysPkgs = byLoc.get("environment.systemPackages")!
+    expect(sysPkgs.value).toBeUndefined()
+    expect(sysPkgs.valueSkipped).toBe(true)
+    expect(sysPkgs.valueNames).toEqual(["mini-dep", "mini-0.1.0"])
+    expect(sysPkgs.defaultNames).toEqual([])
+    // The via-stamped file strings split into a clean path + provenance;
+    // the mkIf-wrapped second definition unwraps before naming.
+    expect(sysPkgs.declarations).toEqual([
+      { file: `${m.flake.path}/modules/packages.nix`, via: "flake.modules.nixos.demo" },
+    ])
+    expect(sysPkgs.definitions).toEqual([
+      {
+        file: `${m.flake.path}/hosts/mini.nix`,
+        via: "flake.modules.nixos.demo",
+        valueSkipped: true,
+        valueNames: ["mini-dep", "mini-0.1.0"],
+      },
+      {
+        file: `${m.flake.path}/modules/packages.nix`,
+        valueSkipped: true,
+        valueNames: ["mini-dep"],
+      },
+    ])
+
     const fx = buildFlakeIndexes(m)
     const indexes = buildConfigIndexes(m, data, fx)
 
     const hostMeta = resolveFile(`${m.flake.path}/hosts/mini.nix`, m, fx)
     const hostRefs = indexes.refsByFile.get(hostMeta.id)!
-    expect(hostRefs.defines.length).toBe(2) // hostName + nginx.enable
+    expect(hostRefs.defines.length).toBe(3) // hostName + nginx.enable + systemPackages
     expect(hostRefs.declares.length).toBe(0)
 
     const nginxMeta = resolveFile(`${m.flake.path}/modules/nginx.nix`, m, fx)
@@ -140,9 +172,13 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
     expect(nginxRefs.declares.length).toBe(2) // enable + package
     expect(nginxRefs.defines.length).toBe(0) // "declares" a customized option, doesn't itself define it
 
-    // The module tree groups both declaring files under a "modules" dir node.
+    // The module tree groups the declaring files under a "modules" dir node.
     const modulesDir = indexes.tree.children.find((n) => n.label === "modules")
-    expect(modulesDir?.children.map((c) => c.label).sort()).toEqual(["networking.nix", "nginx.nix"])
+    expect(modulesDir?.children.map((c) => c.label).sort()).toEqual([
+      "networking.nix",
+      "nginx.nix",
+      "packages.nix",
+    ])
   })
 
   test("nested repos/worktrees inside the flake dir stay out of the file map", async () => {

@@ -199,10 +199,14 @@ export function unwrap(v: ValueEnvelope): {
   value?: unknown
   valueError?: true
   valueSkipped?: true
+  valueNames?: string[]
 } {
   if (v && typeof v === "object" && "ok" in v) return { value: v.ok }
   if (v && typeof v === "object" && "err" in v) return { valueError: true }
   if (v && typeof v === "object" && "skipped" in v) return { valueSkipped: true }
+  // Names-only extraction of a package-typed value: the value is still
+  // skipped (older UIs keep their honest note), but the drv names survive.
+  if (v && typeof v === "object" && "names" in v) return { valueSkipped: true, valueNames: v.names }
   return {} // null — the option has no value at all
 }
 
@@ -215,11 +219,15 @@ export function unwrap(v: ValueEnvelope): {
  */
 function toDefinition(d: RawOption["definitions"][number]): DefinitionRef {
   // Definition files can carry a ", via option <path>" suffix (module-system
-  // provenance annotation) — strip it so file matching works.
-  const ref: DefinitionRef = { file: splitVia(d.file)[0]! }
+  // provenance annotation) — strip it so file matching works, and keep the
+  // via path: it's the join key from flake.modules.* outputs to their modules.
+  const [file, via] = splitVia(d.file)
+  const ref: DefinitionRef = { file }
+  if (via) ref.via = via
   const u = unwrap(d.value)
   if (u.valueError) ref.valueError = true
   if (u.valueSkipped) ref.valueSkipped = true
+  if (u.valueNames) ref.valueNames = u.valueNames
   let v = u.value
   if (
     v !== null &&
@@ -251,13 +259,22 @@ export function toEntry(o: RawOption): OptionEntry {
     value: val.value,
     valueError: val.valueError,
     valueSkipped: val.valueSkipped,
+    valueNames: val.valueNames,
     default: def.value,
+    defaultNames: def.valueNames,
     defaultText: o.defaultText ?? undefined,
-    declarations: o.declarations.map((d) => ({
-      file: d.file,
-      ...(d.line !== null ? { line: d.line } : {}),
-      ...(d.column !== null ? { column: d.column } : {}),
-    })),
+    // Declaration files carry the same ", via option <path>" suffix as
+    // definitions (dendritic flake.modules.* imports) — split it here too so
+    // resolveFile matches the clean store path instead of the annotated one.
+    declarations: o.declarations.map((d) => {
+      const [file, via] = splitVia(d.file)
+      return {
+        file,
+        ...(d.line !== null ? { line: d.line } : {}),
+        ...(d.column !== null ? { column: d.column } : {}),
+        ...(via ? { via } : {}),
+      }
+    }),
     definitions: o.definitions.map(toDefinition),
   }
 }

@@ -65,6 +65,27 @@ describe("value preview", () => {
     expect(previewOf({ value: { p: 1 } })).toBe('{"p":1}')
   })
 
+  test("package-typed names preview beats the bare skipped note", () => {
+    expect(
+      previewOf({ customized: true, valueSkipped: true, valueNames: ["hello-2.12", "rg-14.1"] }),
+    ).toBe("hello-2.12  rg-14.1")
+    expect(previewOf({ customized: true, valueSkipped: true, valueNames: [] })).toBe(
+      "(no packages)",
+    )
+  })
+
+  test("own definition's valueNames win over the merged names", () => {
+    const entry = opt(["environment", "systemPackages"], {
+      customized: true,
+      valueSkipped: true,
+      valueNames: ["hello-2.12", "rg-14.1"],
+      definitions: [{ file: HL, valueSkipped: true, valueNames: ["hello-2.12"] }],
+    })
+    mountRow(entry, (host) => {
+      expect(host.querySelector(".val")?.textContent).toBe("hello-2.12")
+    })
+  })
+
   test("own definition's valueSkipped wins over a merged value", () => {
     const entry = opt(["a"], {
       customized: true,
@@ -123,6 +144,19 @@ describe("expanded value", () => {
       host.querySelector("button")!.click()
       flushSync()
       expect(host.querySelector("pre")?.textContent).toBe("(value skipped)")
+    })
+  })
+
+  test("names-only entries expand to one name per line", () => {
+    const entry = opt(["environment", "systemPackages"], {
+      customized: true,
+      valueSkipped: true,
+      valueNames: ["hello-2.12", "rg-14.1"],
+    })
+    mountRow(entry, (host) => {
+      host.querySelector("button")!.click()
+      flushSync()
+      expect(host.querySelector("pre")?.textContent).toBe("hello-2.12\nrg-14.1")
     })
   })
 })

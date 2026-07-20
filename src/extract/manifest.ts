@@ -18,6 +18,7 @@ import { extractorFingerprint } from "./fingerprint"
 import { lastCommits, repoPrefix } from "./git"
 import { importGraph } from "./imports"
 import { canonicalInputNames, scanInputRefs } from "./input-refs"
+import { scanOverlayDefs } from "./overlay-refs"
 import {
   evalExtract,
   type FlakeMetadataJson,
@@ -47,7 +48,7 @@ export async function buildManifest(
       warnings.push(`nix flake show failed: ${String(e).split("\n")[0]}`)
       return null
     }),
-    evalExtract<ManifestEval>({ flakeRef, mode: "manifest" }, timeoutMs),
+    manifestEval(flakeRef, timeoutMs, warnings),
   ])
 
   const inputFollows: InputFollow[] = []
@@ -64,6 +65,11 @@ export async function buildManifest(
   const inputRefs = await scanInputRefs(
     selfFiles.map((f) => f.relPath),
     canonicalInputNames(inputs),
+    read,
+    selfId,
+  )
+  const overlayDefs = await scanOverlayDefs(
+    selfFiles.map((f) => f.relPath),
     read,
     selfId,
   )
@@ -86,6 +92,7 @@ export async function buildManifest(
     files,
     importEdges,
     inputRefs,
+    overlayDefs,
     inputFollows,
     configurations: ev.configurations.map(({ kind, n }) => ({
       id: `${kind}/${n}`,
@@ -98,6 +105,40 @@ export async function buildManifest(
     grafts: ev.grafts ?? [],
     outputNames: ev.outputNames ?? {},
     warnings,
+  }
+}
+
+/**
+ * The manifest eval, with one degradation step. Resolving a TRANSITIVE input
+ * can fail in a way no `tryEval` can catch: a lock entry whose recorded `url`
+ * disagrees with what the fetcher returns (flakehub pins carrying query
+ * params are a live example) aborts the eval from below the Nix exception
+ * layer. That is unrelated to the flake's own health — such a flake still
+ * builds — so falling back to a direct-inputs-only walk keeps the whole app
+ * usable instead of failing at the front door. The cost is store paths for
+ * inputs-of-inputs, which only affects attributing option files that live in
+ * one; those degrade to the "unknown" bucket.
+ */
+async function manifestEval(
+  flakeRef: string,
+  timeoutMs: number,
+  warnings: string[],
+): Promise<ManifestEval> {
+  try {
+    return await evalExtract<ManifestEval>({ flakeRef, mode: "manifest" }, timeoutMs)
+  } catch (e) {
+    const first =
+      String(e)
+        .split("\n")
+        .find((l) => l.includes("error:")) ?? String(e)
+    const shallow = await evalExtract<ManifestEval>(
+      { flakeRef, mode: "manifest", inputsDepth: 0 },
+      timeoutMs,
+    )
+    warnings.push(
+      `transitive inputs could not be resolved, so only direct inputs are listed — ${first.trim()}`,
+    )
+    return shallow
   }
 }
 

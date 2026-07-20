@@ -109,7 +109,7 @@ const OPTIONS_EVAL = {
       defaultText: null,
       default: { ok: false },
       value: { ok: true },
-      declarations: [`${SELF}/module.nix`],
+      declarations: [{ file: `${SELF}/module.nix`, line: null, column: null }],
       definitions: [{ file: `${SELF}/module.nix`, value: { ok: true } }],
     },
   ],

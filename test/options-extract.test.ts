@@ -157,6 +157,57 @@ test("happy path: every namespace chunk succeeds at full detail", async () => {
   expect(progress.at(-1)).toMatchObject({ done: 3, total: 3 })
 })
 
+test("package-typed names + via provenance survive toEntry/toDefinition", async () => {
+  await useScenario({
+    "names:": { ok: ["environment"] },
+    "opts:environment|c=|v=1|d=1": opts({
+      ...raw(["environment", "systemPackages"]),
+      type: "list of package",
+      // The names-only envelope extract.nix emits for package-typed values.
+      value: { names: ["hello-2.12", "ripgrep-14.1.0"] },
+      default: { names: [] },
+      declarations: [
+        // Module-system provenance suffix on the declarer (dendritic imports).
+        {
+          file: "/nix/store/src-env/module.nix, via option flake.modules.nixos.demo",
+          line: null,
+          column: null,
+        },
+      ],
+      definitions: [
+        {
+          file: "/nix/store/src-env/host.nix, via option flake.modules.nixos.demo",
+          value: { names: ["hello-2.12", "ripgrep-14.1.0"] },
+        },
+        { file: "/nix/store/src-env/module.nix", value: { names: [] } },
+      ],
+    }),
+  })
+  const r = await extract()
+
+  const o = byLoc(r, "environment.systemPackages")!
+  // Names ride alongside an honest valueSkipped so pre-names UIs degrade.
+  expect(o.value).toBeUndefined()
+  expect(o.valueSkipped).toBe(true)
+  expect(o.valueNames).toEqual(["hello-2.12", "ripgrep-14.1.0"])
+  expect(o.defaultNames).toEqual([])
+  expect(o.declarations).toEqual([
+    { file: "/nix/store/src-env/module.nix", via: "flake.modules.nixos.demo" },
+  ])
+  expect(o.definitions).toEqual([
+    {
+      file: "/nix/store/src-env/host.nix",
+      via: "flake.modules.nixos.demo",
+      valueSkipped: true,
+      valueNames: ["hello-2.12", "ripgrep-14.1.0"],
+    },
+    { file: "/nix/store/src-env/module.nix", valueSkipped: true, valueNames: [] },
+  ])
+  // The cleaned (via-stripped) file string is what the fileIndex keys on.
+  expect(Object.keys(r.data.fileIndex)).toContain("/nix/store/src-env/host.nix")
+  expect(Object.keys(r.data.fileIndex).some((f) => f.includes("via option"))).toBe(false)
+})
+
 test("split isolation: only the poisoned child degrades, siblings keep full values", async () => {
   await useScenario({
     "names:": { ok: ["services", "boot"] },
