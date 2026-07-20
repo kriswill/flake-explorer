@@ -72,9 +72,13 @@ const packageRef = $derived.by(() => {
   {:else if app.manifest}
     <h2>{app.manifest.flake.description ?? app.manifest.flake.ref}</h2>
     <p class="mono muted">{app.manifest.flake.ref}{app.manifest.flake.rev ? ` @ ${app.manifest.flake.rev.slice(0, 12)}` : ""}</p>
+    {@const allInputs = Object.values(app.manifest.inputs)}
+    {@const directInputs = allInputs.filter((i) => !i.transitive).length}
+    {@const transitiveInputs =
+      allInputs.length - directInputs + (app.manifest.inputFollows ?? []).length}
     <p>
       {app.manifest.files.length} .nix files ·
-      {Object.keys(app.manifest.inputs).length} inputs ·
+      {directInputs} inputs{transitiveInputs ? ` (+${transitiveInputs} transitive)` : ""} ·
       {app.manifest.configurations.length} configurations
     </p>
     <Legend />

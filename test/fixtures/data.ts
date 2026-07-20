@@ -116,6 +116,7 @@ export const fixtureManifest = (): Manifest => ({
     { from: "self:modules/sub/b.nix", to: "self:lib/c.nix" },
   ],
   inputRefs: [{ file: "self:modules/a.nix", input: "sops-nix" }],
+  inputFollows: [{ name: "sops-nix/nixpkgs", target: "nixpkgs" }],
   configurations: [
     {
       id: "nixos/test",

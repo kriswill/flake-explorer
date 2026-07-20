@@ -6,6 +6,7 @@ import { existsSync, statSync } from "node:fs"
 import { resolve } from "node:path"
 import {
   type FileEntry,
+  type InputFollow,
   type InputInfo,
   type Manifest,
   makeFileId,
@@ -49,7 +50,8 @@ export async function buildManifest(
     evalExtract<ManifestEval>({ flakeRef, mode: "manifest" }, timeoutMs),
   ])
 
-  const inputs = inputInfos(meta, ev, warnings)
+  const inputFollows: InputFollow[] = []
+  const inputs = inputInfos(meta, ev, warnings, inputFollows)
   const files = await fileEntries(ev, localCheckout, warnings)
   const selfFiles = files.filter((f) => f.origin.kind === "self")
   const read = (relPath: string) => Bun.file(`${ev.self}/${relPath}`).text()
@@ -84,6 +86,7 @@ export async function buildManifest(
     files,
     importEdges,
     inputRefs,
+    inputFollows,
     configurations: ev.configurations.map(({ kind, n }) => ({
       id: `${kind}/${n}`,
       kind,
@@ -196,9 +199,11 @@ export function inputInfos(
   meta: FlakeMetadataJson,
   ev: ManifestEval,
   warnings: string[],
+  followEdges?: InputFollow[],
 ): Record<string, InputInfo> {
   const out: Record<string, InputInfo> = {}
   const seenNodes = new Set<string>()
+  const nameByNode = new Map<string, string>()
   interface Item {
     name: string
     nodeKey: string | null
@@ -255,8 +260,15 @@ export function inputInfos(
       if (item.depth === 0) warnings.push(`flake.lock: could not resolve input "${item.name}"`)
       continue
     }
-    if (seenNodes.has(item.nodeKey!)) continue
+    if (seenNodes.has(item.nodeKey!)) {
+      // The node already has an entry under another name — record the edge
+      // the dedup would otherwise silently drop ("sops-nix/nixpkgs → nixpkgs").
+      const target = nameByNode.get(item.nodeKey!)
+      if (target && followEdges) followEdges.push({ name: item.name, target })
+      continue
+    }
     seenNodes.add(item.nodeKey!)
+    nameByNode.set(item.nodeKey!, item.name)
     out[item.name] = {
       name: item.name,
       nodeKey: item.nodeKey!,

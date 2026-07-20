@@ -56,6 +56,10 @@ classDiagram
     file
     input
   }
+  class InputFollow {
+    name
+    target
+  }
   class ConfigRef {
     id
     kind
@@ -102,6 +106,7 @@ classDiagram
   Manifest --> "many" FileEntry : files
   Manifest --> "many" ImportEdge : importEdges
   Manifest --> "many" InputRef : inputRefs
+  Manifest --> "many" InputFollow : inputFollows
   Manifest --> "many" ConfigRef : configurations
   Manifest --> "many" GraftInfo : grafts
   ConfigData --> "many" OptionEntry : options

@@ -60,6 +60,7 @@ describe.skipIf(!hasNix)("mini-flake fixture (real nix)", () => {
 
     // flake.nix's own `inputs.vendor.url = …` line is a source reference too.
     expect(m.inputRefs).toEqual([{ file: "self:flake.nix", input: "vendor" }])
+    expect(m.inputFollows).toEqual([]) // vendor has no inputs of its own
 
     const edges = new Set(m.importEdges.map((e) => `${e.from}->${e.to}`))
     expect(edges.has("self:lib/greeting.nix->self:lib/helper.nix")).toBe(true)

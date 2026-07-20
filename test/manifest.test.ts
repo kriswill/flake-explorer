@@ -256,12 +256,27 @@ describe("inputInfos", () => {
       a_lock: { locked: { type: "github", owner: "o", repo: "a" } },
       b_lock: { inputs: { n: ["A"] }, locked: { type: "github", owner: "o", repo: "b" } },
     })
-    const out = inputInfos(meta, makeEv(), [])
+    const followEdges: { name: string; target: string }[] = []
+    const out = inputInfos(meta, makeEv(), [], followEdges)
 
     expect(Object.keys(out).sort()).toEqual(["A", "B"])
     expect(out.A!.nodeKey).toBe("a_lock")
-    // The transitive alias "B/n" must not reappear.
+    // The transitive alias "B/n" must not reappear as an entry — but the
+    // dropped edge is recorded for the input page's follows list.
     expect(out["B/n"]).toBeUndefined()
+    expect(followEdges).toEqual([{ name: "B/n", target: "A" }])
+  })
+
+  test("diamond dedup records the losing parent's edge too", () => {
+    const meta = makeMeta({
+      root: { inputs: { P: "p_lock", Q: "q_lock" } },
+      p_lock: { inputs: { shared: "s_lock" }, locked: { type: "github", owner: "o", repo: "p" } },
+      q_lock: { inputs: { shared: "s_lock" }, locked: { type: "github", owner: "o", repo: "q" } },
+      s_lock: { locked: { type: "github", owner: "o", repo: "s" } },
+    })
+    const followEdges: { name: string; target: string }[] = []
+    inputInfos(meta, makeEv(), [], followEdges)
+    expect(followEdges).toEqual([{ name: "Q/shared", target: "P/shared" }])
   })
 
   test("root-level alias of a real input: ONE entry, real name primary, alias recorded", () => {
