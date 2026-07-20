@@ -114,6 +114,56 @@ describe("degradation", () => {
     })
   })
 
+  test("a loading config shows the slot's progress note, not a dead button", () => {
+    app.configs = { "nixos/test": "loading" }
+    mountAt(["modules", "nixos", "demo"], (host) => {
+      expect(host.textContent).toContain("loading…")
+      expect(host.textContent).not.toContain("load to see usage")
+    })
+  })
+
+  test("an errored config surfaces the message with a retry", () => {
+    app.configs = { "nixos/test": { error: "boom: eval failed" } }
+    mountAt(["modules", "nixos", "demo"], (host) => {
+      expect(host.textContent).toContain("boom: eval failed")
+      expect(host.textContent).toContain("retry")
+    })
+  })
+
+  test("a leaf node's flake-show type is shown when there is one", () => {
+    withMount(
+      ModuleOutputDetail,
+      { path: ["nixosModules", "demo"], leaf: { kind: "leaf" as const, type: "nixos module" } },
+      (host) => {
+        expect(host.textContent).toContain("nixos module")
+      },
+    )
+  })
+
+  test("a bare flake-parts-prefixed via still matches the unprefixed output path", () => {
+    // Output nixosModules.demo, stamped "nixosModules.demo" without the
+    // flake. prefix — both forms are accepted.
+    const config = fixtureConfig()
+    config.options[0] = opt(["services", "x", "enable"], {
+      customized: true,
+      highestPrio: 100,
+      declarations: [{ file: `${SELF}/modules/a.nix`, via: "nixosModules.demo" }],
+      definitions: [],
+    })
+    app.configs = {
+      "nixos/test": {
+        data: config,
+        indexes: buildConfigIndexes(app.manifest!, config, app.flakeIndexes!),
+      },
+    }
+    mountAt(["nixosModules", "demo"], (host) => {
+      expect([...host.querySelectorAll("button")].map((b) => b.textContent)).toContain(
+        "modules/a.nix",
+      )
+      expect(host.textContent).toContain("1 declared")
+    })
+  })
+
   test("loaded config without via stamps: honest no-provenance note", () => {
     const config = fixtureConfig() // fixture options carry no via
     app.configs = {
