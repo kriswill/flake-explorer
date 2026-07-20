@@ -91,6 +91,8 @@ class AppState {
   }
   q = $state("")
   showAll = $state(false)
+  /** 1-based line the source view scrolls to (?L= filter); cleared on selection change. */
+  line = $state<number | null>(null)
 
   /** Config whose module tree/details are active (from selection). */
   activeConfigId = $derived(
@@ -251,20 +253,37 @@ class AppState {
 
   select(sel: Selection | null) {
     const filterOnly = sameSelection(this.selection, sel)
+    if (!filterOnly) this.line = null
     this.selection = sel
     this.#followSelection(sel)
     this.#writeHash(filterOnly)
   }
 
-  /** Load the config behind a selection and reveal its file in the right tree. */
+  /** Select a file and scroll its source view to a 1-based line (?L=). */
+  selectFileAt(fileId: string, line: number) {
+    const sel: Selection = { kind: "file", fileId }
+    const filterOnly = sameSelection(this.selection, sel)
+    this.selection = sel
+    this.line = line
+    this.#followSelection(sel)
+    this.#writeHash(filterOnly)
+  }
+
+  /** Load the config behind a selection and reveal it in both trees. */
   #followSelection(sel: Selection | null) {
     if (sel?.kind === "config" || sel?.kind === "module") {
+      this.#revealConfig(sel.configId)
       const p = this.loadConfig(sel.configId)
       if (sel.kind === "module") {
         this.revealFile(sel.moduleId)
-        void p.then(() => this.revealFile(sel.moduleId))
+        this.revealModule(sel.configId, sel.moduleId)
+        void p.then(() => {
+          this.revealFile(sel.moduleId)
+          this.revealModule(sel.configId, sel.moduleId)
+        })
       }
     } else if (sel?.kind === "option") {
+      this.#revealConfig(sel.configId)
       void this.loadConfig(sel.configId).then(() => this.#revealOptionDeclarer(sel))
     } else if (sel?.kind === "file") {
       this.revealFile(sel.fileId)
@@ -277,14 +296,36 @@ class AppState {
     }
   }
 
-  /** Reveal an option's first declaring file in the right tree (post-load). */
+  /** Reveal an option's first declaring file in both trees (post-load). */
   #revealOptionDeclarer(sel: Extract<Selection, { kind: "option" }>) {
     const loaded = loadedConfig(this.configs[sel.configId])
     if (!loaded || !this.manifest || !this.flakeIndexes) return
     const i = loaded.indexes.optionsByLoc.get(sel.loc.join("."))
     const decl = i === undefined ? undefined : loaded.data.options[i]!.declarations[0]
     if (!decl) return
-    this.revealFile(resolveFile(decl.file, this.manifest, this.flakeIndexes).id)
+    const id = resolveFile(decl.file, this.manifest, this.flakeIndexes).id
+    this.revealFile(id)
+    this.revealModule(sel.configId, id)
+  }
+
+  /** Expand the left outputs-tree chain down to a configuration's node. */
+  #revealConfig(configId: string) {
+    this.expanded.add(`out:${configId.split("/")[0]}Configurations`)
+    this.expanded.add(`cfg:${configId}`)
+  }
+
+  /**
+   * Expand the LEFT module-tree ancestors leading to a module file — the
+   * counterpart of revealFile below for the config tree. fileToNodes already
+   * holds the leaf + every ancestor node id (built for hover highlighting);
+   * adding the leaf id to `expanded` is inert (only dirs consult it). No-op
+   * until the config is loaded — callers re-invoke post-load.
+   */
+  revealModule(configId: string, moduleId: string) {
+    this.#revealConfig(configId)
+    const loaded = loadedConfig(this.configs[configId])
+    const nodes = loaded?.indexes.fileToNodes.get(moduleId)
+    if (nodes) for (const id of nodes) this.expanded.add(id)
   }
 
   /**
@@ -331,12 +372,16 @@ class AppState {
   setFilters(f: Partial<Filters>) {
     if (f.q !== undefined) this.q = f.q
     if (f.all !== undefined) this.showAll = f.all
+    if (f.line !== undefined) this.line = f.line
     this.#writeHash(true)
   }
 
   #writeHash(replace: boolean) {
     if (this.#applyingHash || typeof window === "undefined") return
-    const hash = `#${encodeHash({ sel: this.selection, filters: { q: this.q, all: this.showAll } })}`
+    const hash = `#${encodeHash({
+      sel: this.selection,
+      filters: { q: this.q, all: this.showAll, line: this.line },
+    })}`
     if (window.location.hash === hash) return
     if (replace) window.history.replaceState(null, "", hash)
     else window.history.pushState(null, "", hash)
@@ -349,6 +394,7 @@ class AppState {
       this.selection = view.sel
       this.q = view.filters.q
       this.showAll = view.filters.all
+      this.line = view.filters.line
       this.#followSelection(view.sel)
     } finally {
       this.#applyingHash = false

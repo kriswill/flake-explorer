@@ -3,6 +3,7 @@ import type { GraftInfo, InputInfo, OutputNode } from "../../src/schema"
 import { colorFor } from "../lib/color"
 import { inputLabel } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
+import { revealWhen } from "../lib/reveal.svelte"
 import { app, loadedConfig } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
 import AsyncSlot from "./AsyncSlot.svelte"
@@ -147,6 +148,8 @@ const pathName = $derived.by(() => {
                     <button
                       class="row cfg"
                       class:sel={app.selection?.kind === "config" && app.selection.configId === id}
+                      use:revealWhen={() =>
+                        app.selection?.kind === "config" && app.selection.configId === id}
                       onclick={() => clickConfig(kind, name)}
                     >
                       <Dot dir open={app.expanded.has(`cfg:${id}`)} />

@@ -1,8 +1,9 @@
 <script lang="ts">
 import { PRIO } from "../../src/schema"
-import { type FileMeta, resolveFile } from "../lib/indexes"
+import { type Crumb, type FileMeta, resolveFile } from "../lib/indexes"
 import { jsonSegments } from "../lib/json-segments"
 import { app, configError, loadedConfig } from "../lib/state.svelte"
+import Breadcrumb from "./Breadcrumb.svelte"
 
 interface Props {
   configId: string
@@ -57,6 +58,17 @@ const prioChip = (prio: number | undefined): { label: string; cls: string } | nu
 
 const otherConfigs = $derived((app.manifest?.configurations ?? []).filter((c) => c.id !== configId))
 
+/**
+ * config › option namespace › leaf. Namespace segments filter the trees to
+ * that prefix rather than navigating — there is no page for a partial loc.
+ */
+const crumbs = $derived.by((): Crumb[] => {
+  const out: Crumb[] = [{ label: configId, sel: { kind: "config", configId } }]
+  if (loc.length > 1) out.push({ label: `${loc.slice(0, -1).join(".")}.` })
+  out.push({ label: loc.at(-1) ?? locStr })
+  return out
+})
+
 /** "customized" | "default" | "not present" for a LOADED sibling config; null when unloaded. */
 const presenceIn = (id: string): string | null => {
   const other = loadedConfig(app.configs[id])
@@ -72,7 +84,14 @@ const presenceIn = (id: string): string | null => {
     <button
       class="link mono"
       onclick={() => app.select({ kind: "module", configId, moduleId: meta.id })}
-    >{meta.relPath}{line !== undefined ? `:${line}` : ""}</button>
+    >{meta.relPath}</button>
+    {#if line !== undefined}
+      <!-- The line goes to the FILE page's source view (?L=), where there is
+           source to scroll; the module page shows options, not text. -->
+      {@const id = meta.id}
+      {@const l = line}
+      <button class="link mono lineno" onclick={() => app.selectFileAt(id, l)}>:{line}</button>
+    {/if}
     {#if meta.origin.kind === "input"}<span class="muted mono">({meta.origin.input})</span>{/if}
   {:else}
     <span class="mono">{storePath}{line !== undefined ? `:${line}` : ""}</span>
@@ -99,11 +118,8 @@ const presenceIn = (id: string): string | null => {
   {/if}
 {/snippet}
 
+<Breadcrumb segments={crumbs} />
 <h2 class="mono">{locStr}</h2>
-<p class="crumb">
-  option in
-  <button class="link mono" onclick={() => app.select({ kind: "config", configId })}>{configId}</button>
-</p>
 
 {#if !slot || slot === "loading"}
   <p class="muted">Extracting / loading options… (first run can take a minute or two)</p>
@@ -210,10 +226,8 @@ const presenceIn = (id: string): string | null => {
     font-size: 0.9375rem;
     word-break: break-all;
   }
-  .crumb {
-    margin: 2px 0 10px;
-    font-size: 0.75rem;
-    color: var(--ink-muted);
+  .lineno {
+    margin-left: -6px;
   }
   .mono {
     font-family: ui-monospace, monospace;

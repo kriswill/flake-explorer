@@ -2,6 +2,7 @@
 import { colorFor } from "../lib/color"
 import { type FileTreeNode, fileTreeMatches } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
+import { revealWhen } from "../lib/reveal.svelte"
 import { app } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
 import Dot from "./Dot.svelte"
@@ -31,15 +32,6 @@ const isModSel = (fileId: string) =>
 
 const isFileSel = (fileId: string) =>
   app.selection?.kind === "file" && app.selection.fileId === fileId
-
-/** Scroll the auto-highlighted row into view when it becomes selected —
-    either directly (a file link elsewhere in the app) or as a config's
-    module (the left tree's module selection mirrored here). */
-function reveal(el: HTMLElement, fileId: string) {
-  $effect(() => {
-    if (isModSel(fileId) || isFileSel(fileId)) el.scrollIntoView?.({ block: "nearest" })
-  })
-}
 </script>
 
 <ul class="tree" class:nested={depth > 0}>
@@ -64,7 +56,7 @@ function reveal(el: HTMLElement, fileId: string) {
           class:rel={app.highlightedFiles.has(child.fileId)}
           class:hov={app.hover?.kind === "module" && app.hover.fileId === child.fileId}
           class:modsel={isModSel(child.fileId)}
-          use:reveal={child.fileId}
+          use:revealWhen={() => isModSel(child.fileId!) || isFileSel(child.fileId!)}
           onclick={() => app.select({ kind: "file", fileId: child.fileId! })}
           onpointerenter={() => (app.hover = { kind: "file", fileId: child.fileId! })}
           onpointerleave={() => (app.hover = null)}

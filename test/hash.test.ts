@@ -7,8 +7,12 @@ import {
   type ViewState,
 } from "../app/lib/hash"
 
-const roundTrip = (sel: Selection | null, q = "", all = false): ViewState =>
-  decodeHash(`#${encodeHash({ sel, filters: { q, all } })}`)
+const roundTrip = (
+  sel: Selection | null,
+  q = "",
+  all = false,
+  line: number | null = null,
+): ViewState => decodeHash(`#${encodeHash({ sel, filters: { q, all, line } })}`)
 
 describe("hash codec", () => {
   test("round-trips every selection kind", () => {
@@ -27,7 +31,22 @@ describe("hash codec", () => {
 
   test("round-trips filters", () => {
     const v = roundTrip({ kind: "config", configId: "nixos/nebula" }, "nginx & friends?", true)
-    expect(v.filters).toEqual({ q: "nginx & friends?", all: true })
+    expect(v.filters).toEqual({ q: "nginx & friends?", all: true, line: null })
+  })
+
+  test("the ?L= line anchor round-trips; junk and zero decode to null", () => {
+    const sel: Selection = { kind: "file", fileId: "self:modules/zsh.nix" }
+    expect(roundTrip(sel, "", false, 108).filters.line).toBe(108)
+    expect(encodeHash({ sel, filters: { q: "", all: false, line: 108 } })).toBe(
+      "/f/self:modules%2Fzsh.nix?L=108",
+    )
+    expect(decodeHash("#/f/x?L=abc").filters.line).toBeNull()
+    expect(decodeHash("#/f/x?L=-3").filters.line).toBeNull()
+    expect(decodeHash("#/f/x?L=0").filters.line).toBeNull()
+    // Absent line writes no param at all.
+    expect(encodeHash({ sel, filters: { q: "", all: false, line: null } })).toBe(
+      "/f/self:modules%2Fzsh.nix",
+    )
   })
 
   test("output attr names containing dots round-trip", () => {
@@ -58,7 +77,7 @@ describe("hash codec", () => {
   test("option URLs stay readable for typical locs", () => {
     const hash = encodeHash({
       sel: { kind: "option", configId: "nixos/nebula", loc: ["programs", "zsh", "histSize"] },
-      filters: { q: "", all: false },
+      filters: { q: "", all: false, line: null },
     })
     expect(hash).toBe("/c/nixos%2Fnebula/opt/programs.zsh.histSize")
   })

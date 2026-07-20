@@ -11,6 +11,8 @@
 //   #/f/<fileId>                      file selection
 //   #/i/<inputName>                   flake input selection
 // filters: ?q=<search>&all=1 (option filter "all" instead of "customized")
+//          &L=<line> (scroll the source view to a line; replace-state like
+//          the other filters — Back walks selections, not line jumps)
 
 export type Selection =
   | { kind: "output"; path: string[] }
@@ -24,6 +26,8 @@ export interface Filters {
   q: string
   /** Show all options in the detail panel, not just customized ones. */
   all: boolean
+  /** 1-based source line to scroll to (file/module source views). */
+  line: number | null
 }
 
 export interface ViewState {
@@ -61,6 +65,7 @@ export function encodeHash(view: ViewState): string {
   const p = new URLSearchParams()
   if (view.filters.q) p.set("q", view.filters.q)
   if (view.filters.all) p.set("all", "1")
+  if (view.filters.line) p.set("L", String(view.filters.line))
   const qs = p.toString()
   return encodeSel(view.sel) + (qs ? `?${qs}` : "")
 }
@@ -70,9 +75,11 @@ export function decodeHash(raw: string): ViewState {
   const qi = bare.indexOf("?")
   const selPart = qi < 0 ? bare : bare.slice(0, qi)
   const p = new URLSearchParams(qi >= 0 ? bare.slice(qi + 1) : "")
+  const lineRaw = p.get("L")
+  const line = lineRaw && /^\d+$/.test(lineRaw) ? Number(lineRaw) : null
   return {
     sel: decodeSel(selPart),
-    filters: { q: p.get("q") ?? "", all: p.get("all") === "1" },
+    filters: { q: p.get("q") ?? "", all: p.get("all") === "1", line: line || null },
   }
 }
 

@@ -12,6 +12,7 @@ import type {
   Manifest,
 } from "../../src/schema"
 import { makeFileId, UNKNOWN_FILE } from "../../src/schema"
+import type { Selection } from "./hash"
 
 export interface FileMeta {
   id: string
@@ -82,6 +83,31 @@ export function fileTreeMatches(n: FileTreeNode, q: string): boolean {
     (x) => (x.fileId ? x.path : null),
     (x) => x.children,
   )
+}
+
+/** One breadcrumb segment; no `sel` = plain text (the current page, or an unlinkable dir). */
+export interface Crumb {
+  label: string
+  sel?: Selection
+}
+
+/**
+ * Breadcrumb segments for a file-backed page: config › origin › dirs › file.
+ * The file segment carries no selection — callers link it (or not) depending
+ * on whether the crumb sits on the file page itself or a module page.
+ */
+export function crumbsForFile(meta: FileMeta, configId?: string): Crumb[] {
+  const crumbs: Crumb[] = []
+  if (configId) crumbs.push({ label: configId, sel: { kind: "config", configId } })
+  if (meta.origin.kind === "input") {
+    crumbs.push({ label: meta.origin.input, sel: { kind: "input", name: meta.origin.input } })
+  } else if (meta.origin.kind === "unknown" && meta.origin.group) {
+    crumbs.push({ label: meta.origin.group })
+  }
+  const parts = meta.relPath.split("/")
+  if (parts.length > 1) crumbs.push({ label: `${parts.slice(0, -1).join("/")}/` })
+  crumbs.push({ label: parts.at(-1)! })
+  return crumbs
 }
 
 /** Parse a nixpkgs-style meta.position "file:line"; line absent when there is no trailing :<digits>. */
