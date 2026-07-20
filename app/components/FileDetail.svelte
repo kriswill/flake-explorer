@@ -2,12 +2,13 @@
 import { REL_PATH_RE, resolveKnownRef } from "../../src/pathref"
 import { displayLabel, type FileOrigin } from "../../src/schema"
 import { colorFor } from "../lib/color"
-import { parsePosition, resolveFile } from "../lib/indexes"
+import { crumbsForFile, parsePosition, resolveFile } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
 import { type Interval, segmentLines } from "../lib/segments"
 import { app, loadedConfig, loadedPackage } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
 import AsyncSlot from "./AsyncSlot.svelte"
+import Breadcrumb from "./Breadcrumb.svelte"
 import Dot from "./Dot.svelte"
 import HeaderChip from "./HeaderChip.svelte"
 import InputProvenance from "./InputProvenance.svelte"
@@ -134,10 +135,17 @@ async function copyHash() {
 }
 
 const label = displayLabel
+
+/** Origin + dirs + filename; no config crumb — a file page is config-agnostic. */
+const crumbs = $derived.by(() => {
+  const meta = manifestEntry ?? configView?.meta
+  return meta ? crumbsForFile(meta) : []
+})
 </script>
 
 <div class="file-detail">
   <div class="fd-head">
+    {#if crumbs.length > 1}<Breadcrumb segments={crumbs} />{/if}
     <div class="head" style="--c:{colorFor(colorKey, gen)}">
       <Dot />
       <h2 class="mono">{relPath}</h2>
@@ -208,7 +216,11 @@ const label = displayLabel
         retry={() => app.retryFileContent(fileId, storePath!)}
       >
         {#snippet children()}
-          <SourceView {lines} onref={(id) => app.select({ kind: "file", fileId: id })} />
+          <SourceView
+            {lines}
+            onref={(id) => app.select({ kind: "file", fileId: id })}
+            highlight={app.line ?? undefined}
+          />
         {/snippet}
       </AsyncSlot>
     {/if}

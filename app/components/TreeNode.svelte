@@ -19,6 +19,7 @@ export function nodeColorKey(n: Node): string {
 
 <script lang="ts">
   import { prefs } from "../lib/prefs.svelte";
+  import { revealWhen } from "../lib/reveal.svelte";
   import { app } from "../lib/state.svelte";
   import { colorFor } from "../lib/color";
   import { THEMES } from "../lib/themes";
@@ -75,6 +76,7 @@ export function nodeColorKey(n: Node): string {
       class="row"
       class:hl={highlighted}
       class:sel={selected}
+      use:revealWhen={() => selected}
       onclick={click}
       onpointerenter={() => node.fileId && (app.hover = { kind: "module", fileId: node.fileId })}
       onpointerleave={() => node.fileId && (app.hover = null)}

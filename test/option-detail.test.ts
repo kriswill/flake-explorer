@@ -105,7 +105,11 @@ describe("found option", () => {
       expect(host.querySelector("h2")?.textContent).toBe("services.x.enable")
       expect(host.textContent).toContain("boolean")
       expect(host.textContent).toContain("Whether to enable x.")
-      expect(host.textContent).toContain("modules/sub/b.nix:12")
+      // The declarer file links to its module page; the line is its own
+      // link into the file page's source view (?L=).
+      const declLinks = [...host.querySelectorAll("button")].map((b) => b.textContent)
+      expect(declLinks).toContain("modules/sub/b.nix")
+      expect(declLinks).toContain(":12")
       expect(host.textContent).toContain("Final merged value")
       // Definition site links to its module page.
       const links = [...host.querySelectorAll("button")].map((b) => b.textContent)

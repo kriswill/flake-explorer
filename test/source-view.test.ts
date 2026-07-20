@@ -45,6 +45,38 @@ describe("SourceView", () => {
     })
   })
 
+  test("the highlight line gets .hl; others don't", () => {
+    const lines: Segment[][] = [[{ text: "a" }], [{ text: "b" }], [{ text: "c" }]]
+    withMount(SourceView, { lines, highlight: 2 }, (host) => {
+      const items = [...host.querySelectorAll(".src li")]
+      expect(items.map((li) => li.classList.contains("hl"))).toEqual([false, true, false])
+    })
+    withMount(SourceView, { lines }, (host) => {
+      expect(host.querySelectorAll(".src li.hl").length).toBe(0)
+    })
+  })
+
+  test("blank lines still render an <li> (the stacked-gutter-number bug)", () => {
+    // A blank source line is one empty segment; without a min-height its <li>
+    // collapses and consecutive gutter numbers overlap.
+    const lines: Segment[][] = [
+      [{ text: "a = 1;" }],
+      [{ text: "" }],
+      [{ text: "" }],
+      [{ text: "b" }],
+    ]
+    withMount(SourceView, { lines }, (host) => {
+      const items = host.querySelectorAll(".src li")
+      expect(items.length).toBe(4)
+      expect(items[1]!.textContent).toBe("")
+      // The height floor that keeps their gutter numbers apart lives in the
+      // per-line rule of the component's stylesheet (svelte scopes selectors,
+      // so match the rule by its counter-increment rather than by ".src li").
+      const css = [...document.querySelectorAll("style")].map((s) => s.textContent).join("")
+      expect(css).toMatch(/counter-increment:\s*line;[^}]*min-height/)
+    })
+  })
+
   test("multiple segments on one line render in order", () => {
     const lines: Segment[][] = [
       [{ text: "let " }, { text: "x", cls: "tok-keyword" }, { text: " = 1;" }],

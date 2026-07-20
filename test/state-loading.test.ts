@@ -188,6 +188,88 @@ describe("loadPackage", () => {
   })
 })
 
+describe("left-tree orientation (config/module/option selections)", () => {
+  async function seedLoaded() {
+    const m = fixtureManifest()
+    injectData("manifest.json", m)
+    injectData("config/nixos.test.json", fixtureConfig())
+    await app.loadManifest()
+    await app.loadConfig("nixos/test")
+  }
+
+  test("a config selection opens its category and config node", () => {
+    app.manifest = fixtureManifest()
+    app.flakeIndexes = buildFlakeIndexes(app.manifest)
+    app.select({ kind: "config", configId: "nixos/test" })
+    expect(app.expanded.has("out:nixosConfigurations")).toBe(true)
+    expect(app.expanded.has("cfg:nixos/test")).toBe(true)
+  })
+
+  test("a module deep link expands the module tree's dir chain down to the file", async () => {
+    await seedLoaded()
+    app.expanded.clear()
+    app.applyHash("#/c/nixos%2Ftest/m/self%3Amodules%2Fsub%2Fb.nix")
+    // Wait for the (already-resolved) loadConfig promise chain to settle.
+    await Promise.resolve()
+    expect(app.expanded.has("out:nixosConfigurations")).toBe(true)
+    expect(app.expanded.has("cfg:nixos/test")).toBe(true)
+    expect(app.expanded.has("dir:self/modules")).toBe(true)
+    expect(app.expanded.has("dir:self/modules/sub")).toBe(true)
+    // The right file tree is revealed too (pre-existing behavior).
+    expect(app.fileExpanded.has("fdir:self/modules")).toBe(true)
+  })
+
+  test("an option deep link expands to its declaring module in the left tree", async () => {
+    await seedLoaded()
+    app.expanded.clear()
+    // services.x.enable is declared by modules/sub/b.nix in the fixture.
+    app.applyHash("#/c/nixos%2Ftest/opt/services.x.enable")
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(app.expanded.has("cfg:nixos/test")).toBe(true)
+    expect(app.expanded.has("dir:self/modules/sub")).toBe(true)
+  })
+
+  test("revealModule is inert (not throwing) for an unloaded config", () => {
+    app.manifest = fixtureManifest()
+    app.flakeIndexes = buildFlakeIndexes(app.manifest)
+    app.revealModule("nixos/test", "self:modules/a.nix")
+    // Config chain still opens; the dir chain simply isn't known yet.
+    expect(app.expanded.has("cfg:nixos/test")).toBe(true)
+    expect(app.expanded.has("dir:self/modules")).toBe(false)
+  })
+})
+
+describe("line anchor (?L=)", () => {
+  test("selectFileAt sets the line; a later selection change clears it", () => {
+    app.manifest = fixtureManifest()
+    app.flakeIndexes = buildFlakeIndexes(app.manifest)
+    app.selectFileAt("self:lib/c.nix", 42)
+    expect(app.selection).toEqual({ kind: "file", fileId: "self:lib/c.nix" })
+    expect(app.line).toBe(42)
+
+    app.select({ kind: "file", fileId: "self:modules/a.nix" })
+    expect(app.line).toBeNull()
+  })
+
+  test("a re-select of the SAME file keeps the line (filter-only change)", () => {
+    app.manifest = fixtureManifest()
+    app.flakeIndexes = buildFlakeIndexes(app.manifest)
+    app.selectFileAt("self:lib/c.nix", 7)
+    app.select({ kind: "file", fileId: "self:lib/c.nix" })
+    expect(app.line).toBe(7)
+  })
+
+  test("applyHash restores the line from ?L=", () => {
+    app.manifest = fixtureManifest()
+    app.flakeIndexes = buildFlakeIndexes(app.manifest)
+    app.applyHash("#/f/self:lib%2Fc.nix?L=108")
+    expect(app.line).toBe(108)
+    app.applyHash("#/f/self:lib%2Fc.nix")
+    expect(app.line).toBeNull()
+  })
+})
+
 describe("loadFileContent", () => {
   const FILE_ID = "self:lib/c.nix"
   const STORE = "/nix/store/aaaa-source/lib/c.nix"

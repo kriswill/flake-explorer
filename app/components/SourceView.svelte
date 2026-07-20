@@ -9,13 +9,22 @@ interface Props {
   lines: Segment[][]
   /** Click handler for resolvable "./"/"../" references (receives the FileEntry.id). */
   onref?: (fileId: string) => void
+  /** 1-based line to highlight and scroll to (the ?L= filter). */
+  highlight?: number
 }
-const { lines, onref }: Props = $props()
+const { lines, onref, highlight }: Props = $props()
+
+/** Scroll the highlighted line to center once it renders (and on change). */
+function revealLine(el: HTMLElement, line: number) {
+  $effect(() => {
+    if (line === highlight) el.scrollIntoView?.({ block: "center" })
+  })
+}
 </script>
 
 <ol class="src">
   {#each lines as segs, i (i)}
-    <li>
+    <li class:hl={i + 1 === highlight} use:revealLine={i + 1}>
       {#each segs as seg, j (j)}
         {#if seg.ref && onref}
           <button class="ref {seg.cls ?? ''}" onclick={() => onref(seg.ref!)}>{seg.text}</button>
@@ -46,6 +55,14 @@ const { lines, onref }: Props = $props()
     counter-increment: line;
     padding-left: 3.25em;
     position: relative;
+    /* A blank line renders an empty <li> with no line box — without a floor
+       its height collapses and the absolutely-positioned ::before gutter
+       numbers of consecutive blank lines stack on top of each other. */
+    min-height: 1.5em;
+  }
+  .src li.hl {
+    background: color-mix(in srgb, var(--link) 14%, transparent);
+    border-radius: 3px;
   }
   .src li::before {
     content: counter(line);

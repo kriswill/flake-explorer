@@ -1,8 +1,10 @@
 <script lang="ts">
 import { colorFor } from "../lib/color"
+import { crumbsForFile } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
 import { app } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
+import Breadcrumb from "./Breadcrumb.svelte"
 import Dot from "./Dot.svelte"
 import InputProvenance from "./InputProvenance.svelte"
 import OptionRow from "./OptionRow.svelte"
@@ -49,6 +51,7 @@ const fileEntry = $derived(app.manifest?.files.find((f) => f.id === moduleId) ??
 {:else if !meta}
   <p class="muted">No data for this module in {configId}.</p>
 {:else}
+  <Breadcrumb segments={crumbsForFile(meta, configId)} />
   <div class="head" style="--c:{colorFor(colorKey, gen)}">
     <Dot />
     <h2 class="mono">{meta.relPath}</h2>
