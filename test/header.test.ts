@@ -48,7 +48,9 @@ describe("text-size control", () => {
 
       // The signed variants notch the A so the sign reads clear of it; the
       // plain A needs no hole, and each mask id is used once.
-      const maskIds = [...host.querySelectorAll("mask")].map((m) => m.id)
+      const maskIds = sizeButtons(host)
+        .flatMap((b) => [...b.querySelectorAll("mask")])
+        .map((m) => m.id)
       expect(maskIds.sort()).toEqual(["sz-notch-down", "sz-notch-up"])
       expect(reset!.querySelector("mask")).toBeNull()
       expect(reset!.querySelector("path.letter")?.getAttribute("mask")).toBeNull()
@@ -93,15 +95,41 @@ describe("text-size control", () => {
 })
 
 describe("header actions", () => {
-  test("theme toggle flips the theme and its label", () => {
+  test("theme switch reports the theme it is in, and flips it", () => {
     withMount(Header, {}, (host) => {
-      const themeBtn = host.querySelector<HTMLButtonElement>(".round.theme")!
-      expect(themeBtn.getAttribute("aria-label")).toBe("Switch to dark theme")
+      const sw = host.querySelector<HTMLButtonElement>(".themesw")!
+      // A switch states what it IS, so the label is fixed and the state
+      // lives in aria-checked — the knob position says the same thing.
+      expect(sw.getAttribute("role")).toBe("switch")
+      expect(sw.getAttribute("aria-label")).toBe("Dark theme")
+      expect(sw.getAttribute("aria-checked")).toBe("false")
+      expect(sw.getAttribute("title")).toBe("Switch to dark theme")
+      expect(sw.querySelector("svg")?.classList.contains("dark")).toBe(false)
 
-      themeBtn.click()
+      sw.click()
       flushSync()
       expect(prefs.themeIndex).toBe(1)
-      expect(themeBtn.getAttribute("aria-label")).toBe("Switch to light theme")
+      expect(sw.getAttribute("aria-checked")).toBe("true")
+      expect(sw.getAttribute("title")).toBe("Switch to light theme")
+      // The whole animation hangs off this one class; everything else is CSS.
+      expect(sw.querySelector("svg")?.classList.contains("dark")).toBe(true)
+
+      sw.click()
+      flushSync()
+      expect(prefs.themeIndex).toBe(0)
+      expect(sw.getAttribute("aria-checked")).toBe("false")
+    })
+  })
+
+  test("the switch carries both faces, the moon drawn by subtraction", () => {
+    withMount(Header, {}, (host) => {
+      const sw = host.querySelector<HTMLButtonElement>(".themesw")!
+      expect(sw.querySelectorAll(".sun .rays line").length).toBe(8)
+      expect(sw.querySelector(".sun .core")).not.toBeNull()
+      // The crescent is a disc minus a disc, so the mask must be wired up —
+      // without it the moon renders as a plain filled circle.
+      expect(sw.querySelector(".moon")?.getAttribute("mask")).toBe("url(#tsw-crescent)")
+      expect(sw.querySelectorAll("mask#tsw-crescent circle").length).toBe(2)
     })
   })
 
