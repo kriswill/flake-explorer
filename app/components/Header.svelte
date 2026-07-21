@@ -85,13 +85,52 @@ const atDefault = $derived(prefs.textStep === TEXT_DEFAULT_STEP)
         onclick={() => prefs.adjustTextStep(1)}
       >{@render sizeIcon("up")}</button>
     </span>
+    <!--
+      Theme switch: a track the knob slides along, carrying the sun out and
+      the moon in. One inline SVG, animated entirely in CSS — no sprite, no
+      icon font, crisp at any size, and it scales with the text control like
+      the rest of the header.
+
+      It is a switch, not a button that relabels itself: role/aria-checked
+      state the theme it IS, which is also what the knob position shows.
+    -->
     <button
-      class="round theme"
+      class="themesw"
       type="button"
-      aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
+      role="switch"
+      aria-checked={isDark}
+      aria-label="Dark theme"
       title={isDark ? "Switch to light theme" : "Switch to dark theme"}
       onclick={toggleTheme}
-    >{isDark ? "☀" : "☾"}</button>
+    >
+      <svg class="tsw" class:dark={isDark} viewBox="0 0 44 24" aria-hidden="true" focusable="false">
+        <!-- Crescent by subtraction: a disc with a second disc masked out,
+             which stays a clean arc at any size where a drawn curve would
+             need hinting. -->
+        <mask id="tsw-crescent">
+          <circle cx="12" cy="12" r="6.2" fill="#fff" />
+          <circle cx="14.2" cy="9.8" r="5.8" fill="#000" />
+        </mask>
+        <rect class="track" x="1" y="1" width="42" height="22" rx="11" />
+        <g class="knob">
+          <circle class="cap" cx="12" cy="12" r="8.5" />
+          <g class="sun">
+            <circle class="core" cx="12" cy="12" r="3.2" />
+            <g class="rays">
+              <line x1="12" y1="7.3" x2="12" y2="5.6" />
+              <line x1="15.32" y1="8.68" x2="16.53" y2="7.47" />
+              <line x1="16.7" y1="12" x2="18.4" y2="12" />
+              <line x1="15.32" y1="15.32" x2="16.53" y2="16.53" />
+              <line x1="12" y1="16.7" x2="12" y2="18.4" />
+              <line x1="8.68" y1="15.32" x2="7.47" y2="16.53" />
+              <line x1="7.3" y1="12" x2="5.6" y2="12" />
+              <line x1="8.68" y1="8.68" x2="7.47" y2="7.47" />
+            </g>
+          </g>
+          <circle class="moon" cx="12" cy="12" r="6.2" mask="url(#tsw-crescent)" />
+        </g>
+      </svg>
+    </button>
     <button
       class="round help"
       type="button"
@@ -187,6 +226,96 @@ const atDefault = $derived(prefs.textStep === TEXT_DEFAULT_STEP)
   }
   .fontctl .reset:disabled {
     opacity: 0.55;
+  }
+  /* ---- theme switch ---- */
+  .themesw {
+    background: none;
+    border: none;
+    padding: 0;
+    display: inline-flex;
+    flex: none;
+    cursor: pointer;
+    border-radius: 999px;
+  }
+  .themesw:focus-visible {
+    outline: 2px solid var(--link);
+    outline-offset: 2px;
+  }
+  .tsw {
+    height: 1.55em;
+    width: auto;
+    display: block;
+  }
+  /* The track reads as recessed by being the page colour inside the header's
+     lighter surface — true in both themes, so no per-theme override. */
+  .track {
+    fill: var(--page);
+    stroke: var(--grid);
+    stroke-width: 1.5;
+  }
+  /* Likewise the knob is the header's own surface, so it stays "raised"
+     whichever theme is on. */
+  .cap {
+    fill: var(--surface-1);
+    stroke: var(--grid);
+    stroke-width: 1;
+  }
+  /* surface-1 over page is only a couple of shades in either theme, so the
+     knob needs a shadow to read as sitting on top of the track rather than
+     cut into it. */
+  .knob {
+    filter: drop-shadow(0 1px 1.2px rgb(0 0 0 / 0.4));
+    transition: transform 0.4s cubic-bezier(0.34, 1.25, 0.5, 1);
+  }
+  .tsw.dark .knob {
+    transform: translateX(20px);
+  }
+  /* Each face is only ever seen under its own theme — the sun against the
+     light knob, the moon against the dark one — so a single theme variable
+     each is enough. */
+  .sun {
+    fill: var(--s3);
+    stroke: var(--s3);
+  }
+  .core {
+    stroke: none;
+  }
+  .rays line {
+    stroke-width: 1.6;
+    stroke-linecap: round;
+  }
+  .moon {
+    fill: var(--ink-2);
+  }
+  /* fill-box so the spin turns about the glyph itself rather than the SVG
+     origin, which would swing it out of the knob. */
+  .sun,
+  .moon {
+    transform-box: fill-box;
+    transform-origin: center;
+    transition:
+      opacity 0.25s ease,
+      transform 0.4s ease;
+  }
+  .moon {
+    opacity: 0;
+    transform: rotate(-70deg) scale(0.4);
+  }
+  .tsw.dark .sun {
+    opacity: 0;
+    transform: rotate(70deg) scale(0.4);
+  }
+  .tsw.dark .moon {
+    opacity: 1;
+    transform: none;
+  }
+  /* The switch still works and still reads; it just stops moving. */
+  @media (prefers-reduced-motion: reduce) {
+    .knob,
+    .sun,
+    .moon {
+      transition-duration: 0.01ms;
+    }
   }
   .round {
     width: 30px;
