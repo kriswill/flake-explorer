@@ -110,6 +110,26 @@ describe("hash codec", () => {
     expect(decodeHash("#/diff/nixos%2Fnebula").sel).toBeNull()
   })
 
+  test("hand-typed raw slashes in single-id links converge with the encoded form", () => {
+    // The encoder escapes '/' as %2F, so the app's own links keep the id in one
+    // segment; a human writing the link by hand leaves the slash raw. Both must
+    // resolve to the same selection instead of truncating at the first slash.
+    for (const raw of ["#/f/self:pkgs/rtk.nix", "#/f/self:pkgs%2Frtk.nix"]) {
+      expect(decodeHash(raw).sel).toEqual({ kind: "file", fileId: "self:pkgs/rtk.nix" })
+    }
+    expect(decodeHash("#/i/home-manager/nixpkgs").sel).toEqual({
+      kind: "input",
+      name: "home-manager/nixpkgs",
+    })
+    expect(decodeHash("#/c/nixos/nebula").sel).toEqual({ kind: "config", configId: "nixos/nebula" })
+    // Multi-arg config routes still treat '/' as a real separator.
+    expect(decodeHash("#/c/nixos%2Fnebula/m/self:foo.nix").sel).toEqual({
+      kind: "module",
+      configId: "nixos/nebula",
+      moduleId: "self:foo.nix",
+    })
+  })
+
   test("empty and garbage hashes decode to null selection", () => {
     expect(decodeHash("").sel).toBeNull()
     expect(decodeHash("#").sel).toBeNull()

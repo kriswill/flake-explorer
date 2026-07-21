@@ -108,15 +108,23 @@ function decodeSel(path: string): Selection | null {
   const parts = path.split("/").filter(Boolean)
   if (parts.length === 0) return null
   const [tag, a, tag2, b] = parts
+  // Single-id remainder: everything after the tag, rejoined. The app's own
+  // encoder escapes '/' as %2F so its links land in `a` alone; a hand-typed
+  // link (#/f/self:pkgs/rtk.nix) keeps the slash raw and splits across parts.
+  // Rejoining then decoding converges both forms — seg() turns %2F and a raw
+  // '/' into the same id — instead of truncating to a non-existent `a`.
+  const rest = () => seg(parts.slice(1).join("/"))
   if (tag === "diff" && a && tag2) return { kind: "diff", a: seg(a), b: seg(tag2) }
   if (tag === "o" && a) return { kind: "output", path: a.split(".").map(seg).filter(Boolean) }
   if (tag === "c" && a && tag2 === "m" && b)
     return { kind: "module", configId: seg(a), moduleId: seg(b) }
   if (tag === "c" && a && tag2 === "opt" && b)
     return { kind: "option", configId: seg(a), loc: b.split(".").map(seg).filter(Boolean) }
-  if (tag === "c" && a) return { kind: "config", configId: seg(a) }
-  if (tag === "f" && a) return { kind: "file", fileId: seg(a) }
-  if (tag === "i" && a) return { kind: "input", name: seg(a) }
+  // Multi-arg config routes (m/opt) are handled above and keep '/' as a real
+  // separator; a bare config id falls through to the single-id rejoin.
+  if (tag === "c" && a) return { kind: "config", configId: rest() }
+  if (tag === "f" && a) return { kind: "file", fileId: rest() }
+  if (tag === "i" && a) return { kind: "input", name: rest() }
   return null
 }
 

@@ -58,6 +58,14 @@ const directInputs = $derived(
   Object.values(app.manifest?.inputs ?? {}).filter((i) => !i.transitive),
 )
 
+/** Inputs-of-inputs (the deduped lock closure). Reachable, but tucked behind a
+ *  collapsed disclosure so the sidebar stays about what flows into modules. */
+const transitiveInputs = $derived(
+  Object.values(app.manifest?.inputs ?? {})
+    .filter((i) => i.transitive)
+    .sort((a, b) => a.name.localeCompare(b.name)),
+)
+
 const shortPin = (i: InputInfo) => i.rev?.slice(0, 7) ?? i.ref ?? i.type
 
 function toggle(id: string) {
@@ -114,6 +122,31 @@ const pathName = $derived.by(() => {
         </li>
       {/each}
     </ul>
+    {#if transitiveInputs.length}
+      <button class="row disc" onclick={() => toggle("inputs:transitive")}>
+        <Dot dir open={app.expanded.has("inputs:transitive")} />
+        <span class="label">transitive</span>
+        <span class="badge mono">{transitiveInputs.length}</span>
+      </button>
+      {#if app.expanded.has("inputs:transitive")}
+        <ul class="tree">
+          {#each transitiveInputs as inp, i (inp.name)}
+            <li class="connect" class:railed={i < transitiveInputs.length - 1}>
+              <button
+                class="row"
+                class:sel={app.selection?.kind === "input" && app.selection.name === inp.name}
+                style="--c:{colorFor(inp.name, gen)}"
+                onclick={() => app.select({ kind: "input", name: inp.name })}
+              >
+                <Dot />
+                <span class="label mono">{inp.name}</span>
+                <span class="badge mono">{shortPin(inp)}</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    {/if}
   </section>
 
   <section>
@@ -315,6 +348,13 @@ const pathName = $derived.by(() => {
   }
   .cat .label {
     font-weight: 600;
+  }
+  /* Transitive-inputs disclosure: a quiet toggle, not a peer of direct inputs. */
+  .disc .label {
+    color: var(--ink-muted);
+    text-transform: uppercase;
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
   }
   .label {
     white-space: nowrap;

@@ -139,11 +139,15 @@ class AppState {
         throw new Error(incompatibleData("manifest.json", (m as { version?: unknown })?.version))
       this.manifest = m
       this.flakeIndexes = buildFlakeIndexes(m)
-      registerSlotKeys(
-        Object.values(m.inputs)
-          .filter((i) => !i.transitive)
-          .map((i) => i.name),
-      )
+      // Direct inputs first so they keep the curated slots (the 12-slot
+      // registry is first-come); transitive names follow for stable chip
+      // colors on their now-reachable pages, falling back to nameColor once
+      // the slots run out.
+      const allInputs = Object.values(m.inputs)
+      registerSlotKeys([
+        ...allInputs.filter((i) => !i.transitive).map((i) => i.name),
+        ...allInputs.filter((i) => i.transitive).map((i) => i.name),
+      ])
       // A deep link decoded before the manifest arrived couldn't load its
       // configuration yet — follow it now.
       this.#followSelection(this.selection)

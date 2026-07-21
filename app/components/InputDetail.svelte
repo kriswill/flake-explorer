@@ -115,6 +115,11 @@ const lines = $derived.by(() => {
         </div>
       {/if}
 
+      <!-- Shown for transitive inputs too: they genuinely contribute (e.g. a
+           snowglobe-lib/* module imported into a configuration). The per-config
+           "load (may extract)" affordance is uniform with non-contributing
+           direct inputs — cold, we can't tell "contributes nothing" from
+           "nothing loaded yet" without loading the config anyway. -->
       {#if app.manifest?.configurations.length}
         <div class="section">
           <h3>Modules contributed</h3>
@@ -206,7 +211,11 @@ const lines = $derived.by(() => {
         <h3>flake.nix <span class="path mono">{input.storePath ? `${input.storePath}/flake.nix` : ""}</span></h3>
       </div>
       {#if !input.storePath}
-        <p class="muted">Source not available (input was not fetched during extraction).</p>
+        <p class="muted">
+          {input.transitive
+            ? "Source not available for transitive inputs beyond the fetched depth."
+            : "Source not available (input was not fetched during extraction)."}
+        </p>
       {:else}
         <AsyncSlot
           value={contentSlot}
