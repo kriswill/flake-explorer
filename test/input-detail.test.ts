@@ -62,6 +62,25 @@ describe("InputDetail", () => {
     })
   })
 
+  test("transitive input without source: depth-honest message", () => {
+    app.manifest = {
+      ...fixtureManifest(),
+      inputs: {
+        "nixpkgs/systems": {
+          name: "nixpkgs/systems",
+          nodeKey: "systems",
+          type: "github",
+          transitive: true,
+        },
+      },
+    }
+    withMount(InputDetail, { name: "nixpkgs/systems" }, (host) => {
+      expect(host.textContent).toContain(
+        "Source not available for transitive inputs beyond the fetched depth.",
+      )
+    })
+  })
+
   test("known input with a storePath: resolves from an embedded blob (no network)", async () => {
     const storePath = "/nix/store/aaaa-vendor"
     app.manifest = {
