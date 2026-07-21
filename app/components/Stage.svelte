@@ -91,11 +91,18 @@ const packageRef = $derived.by(() => {
     <p class="mono muted">{app.manifest.flake.ref}{app.manifest.flake.rev ? ` @ ${app.manifest.flake.rev.slice(0, 12)}` : ""}</p>
     {@const allInputs = Object.values(app.manifest.inputs)}
     {@const directInputs = allInputs.filter((i) => !i.transitive).length}
-    {@const transitiveInputs =
-      allInputs.length - directInputs + (app.manifest.inputFollows ?? []).length}
+    <!-- Transitive splits into two honest counts: walkable lock nodes (the
+         sidebar's "transitive" disclosure lists exactly these) and follows
+         edges, which are aliases onto existing nodes, not separate nodes. -->
+    {@const transitiveNodes = allInputs.length - directInputs}
+    {@const follows = (app.manifest.inputFollows ?? []).length}
+    {@const paren = [
+      transitiveNodes ? `+${transitiveNodes} transitive` : "",
+      follows ? `${follows} follows` : "",
+    ].filter(Boolean).join(", ")}
     <p>
       {app.manifest.files.length} .nix files ·
-      {directInputs} inputs{transitiveInputs ? ` (+${transitiveInputs} transitive)` : ""} ·
+      {directInputs} inputs{paren ? ` (${paren})` : ""} ·
       {app.manifest.configurations.length} configurations
     </p>
     <Legend />

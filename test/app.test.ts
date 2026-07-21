@@ -65,6 +65,41 @@ describe("OutputsTree", () => {
     })
   })
 
+  test("transitive inputs sit behind a collapsed disclosure", () => {
+    app.manifest!.inputs["nixpkgs/systems"] = {
+      name: "nixpkgs/systems",
+      nodeKey: "systems",
+      type: "github",
+      rev: "1234567abcdef00",
+      transitive: true,
+    }
+    withMount(OutputsTree, {}, (host) => {
+      const disc = [...host.querySelectorAll("button")].find((b) =>
+        b.textContent?.includes("transitive"),
+      )!
+      expect(disc.textContent).toContain("1")
+      // Collapsed by default — the lock node is not in the tree yet.
+      expect(host.textContent).not.toContain("nixpkgs/systems")
+
+      disc.click()
+      flushSync()
+      const row = [...host.querySelectorAll("button")].find((b) =>
+        b.textContent?.includes("nixpkgs/systems"),
+      )!
+      expect(row.textContent).toContain("1234567") // shortPin from rev
+
+      row.click()
+      flushSync()
+      expect(app.selection).toEqual({ kind: "input", name: "nixpkgs/systems" })
+      expect(row.classList.contains("sel")).toBe(true)
+
+      // Toggling again collapses the disclosure.
+      disc.click()
+      flushSync()
+      expect(host.textContent).not.toContain("nixpkgs/systems")
+    })
+  })
+
   test("hovered file highlights matching tree nodes", () => {
     withMount(OutputsTree, {}, (host) => {
       app.selection = { kind: "config", configId: "nixos/test" }

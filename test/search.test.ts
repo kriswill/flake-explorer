@@ -77,7 +77,7 @@ describe("searchAll", () => {
     })
   })
 
-  test("input aliases match and are noted; transitive inputs are excluded", () => {
+  test("input aliases match and are noted; transitive inputs join with a tag", () => {
     const m: Manifest = {
       ...manifest,
       inputs: {
@@ -95,7 +95,24 @@ describe("searchAll", () => {
     expect(inputs.hits).toEqual([
       { label: "nixpkgs", detail: "aliases: stable", sel: { kind: "input", name: "nixpkgs" } },
     ])
-    expect(searchAll("sops-nix/nixpkgs", m, [])).toEqual([])
+    // Transitive inputs are now reachable in search, tagged so they read as
+    // inputs-of-inputs; the full parent/child name rides in the label.
+    expect(searchAll("sops-nix/nixpkgs", m, [])).toEqual([
+      {
+        kind: "inputs",
+        total: 1,
+        hits: [
+          {
+            label: "sops-nix/nixpkgs",
+            detail: "transitive",
+            sel: { kind: "input", name: "sops-nix/nixpkgs" },
+          },
+        ],
+      },
+    ])
+    // A bare "nixpkgs" query surfaces both, direct ranked ahead of transitive.
+    const both = searchAll("nixpkgs", m, []).find((c) => c.kind === "inputs")!
+    expect(both.hits.map((h) => h.label)).toEqual(["nixpkgs", "sops-nix/nixpkgs"])
   })
 
   test("caps each category and reports the uncapped total", () => {

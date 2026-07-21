@@ -332,3 +332,41 @@ describe("FileDetail", () => {
     }
   })
 })
+
+describe("cold deep links", () => {
+  test("id resolving against nothing renders the honest not-found page", () => {
+    // parseFileId("self:nope.nix") succeeds, so this exercises the "parses but
+    // no store path derivable" arm of notFound, not a mere parse failure.
+    withMount(FileDetail, { fileId: "self:nope.nix" }, (host) => {
+      expect(host.textContent).toContain("Unknown file")
+      expect(host.textContent).toContain("self:nope.nix")
+    })
+  })
+
+  test("unknown-bucket id lands on the same not-found page", () => {
+    withMount(FileDetail, { fileId: "garbage" }, (host) => {
+      expect(host.textContent).toContain("Unknown file")
+    })
+  })
+
+  test("cold input-origin id rebuilds the store path from the input's storePath", async () => {
+    // Not in manifest.files, no config loaded — only the id itself plus
+    // manifest.inputs.nixpkgs.storePath make this resolvable.
+    const fileId = "input:nixpkgs:lib/foo.nix"
+    injectData(`file/${encodeURIComponent(fileId)}`, { text: "{ lib }: { }", tokens: [] })
+    const host = document.createElement("div")
+    document.body.appendChild(host)
+    const instance = mount(FileDetail, { target: host, props: { fileId } })
+    try {
+      await Bun.sleep(0)
+      flushSync()
+      expect(host.textContent).not.toContain("Unknown file")
+      expect(host.querySelector("h2")?.textContent).toBe("lib/foo.nix")
+      expect(host.textContent).toContain("nixpkgs") // input chip from the parsed origin
+      expect(host.textContent).toContain("{ lib }: { }")
+    } finally {
+      void unmount(instance)
+      host.remove()
+    }
+  })
+})
