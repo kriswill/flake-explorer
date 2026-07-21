@@ -140,9 +140,29 @@ describe("header actions", () => {
       flushSync()
       expect(app.selection).toBeNull()
 
-      host.querySelector<HTMLButtonElement>(".round.help")!.click()
+      host.querySelector<HTMLButtonElement>(".about")!.click()
       flushSync()
       expect(app.aboutOpen).toBe(true)
+    })
+  })
+
+  test("the about icon is one solid bubble with the i knocked out", () => {
+    withMount(Header, {}, (host) => {
+      const about = host.querySelector<HTMLButtonElement>(".about")!
+      expect(about.getAttribute("aria-label")).toBe("About Flake Explorer")
+
+      // One filled shape, not a stroked ring plus drawn glyph — that is what
+      // survives at 21px.
+      const bubble = about.querySelector(".bubble")!
+      expect(about.querySelectorAll("path").length).toBe(1)
+      expect(bubble.getAttribute("d")).toContain("A10 10")
+
+      // The letter is the hole. Without the mask the bubble renders as a
+      // plain blob with no i at all, which still looks deliberate — so pin it.
+      expect(bubble.getAttribute("mask")).toBe("url(#about-i)")
+      const mask = about.querySelector("mask#about-i")!
+      expect(mask.querySelector("circle")).not.toBeNull() // tittle
+      expect(mask.querySelector("rect[transform]")).not.toBeNull() // leaning stem
     })
   })
 })
