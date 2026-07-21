@@ -37,15 +37,22 @@ describe("text-size control", () => {
       expect(sizeButtons(host).length).toBe(3)
       // Every button is an icon — no stray label text to go stale.
       for (const b of sizeButtons(host)) expect(b.textContent?.trim()).toBe("")
-      for (const b of sizeButtons(host)) expect(b.querySelector("svg.tt")).not.toBeNull()
+      for (const b of sizeButtons(host)) expect(b.querySelector("svg.szicon")).not.toBeNull()
 
-      // The arrows distinguish the two actions; the reset icon carries the
-      // T-pair alone, and says so with a narrower viewBox.
-      expect(smaller!.querySelectorAll("path").length).toBe(3)
-      expect(larger!.querySelectorAll("path").length).toBe(3)
-      expect(reset!.querySelectorAll("path").length).toBe(2)
-      expect(reset!.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 17.5 16")
-      expect(smaller!.querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 24 16")
+      // All three carry the same A; the sign is what differs. A minus is one
+      // bar, a plus is that bar plus the upright, and reset has neither.
+      for (const b of sizeButtons(host)) expect(b.querySelectorAll("path.letter").length).toBe(1)
+      expect(smaller!.querySelectorAll("rect.sign").length).toBe(1)
+      expect(larger!.querySelectorAll("rect.sign").length).toBe(2)
+      expect(reset!.querySelectorAll("rect.sign").length).toBe(0)
+
+      // The signed variants notch the A so the sign reads clear of it; the
+      // plain A needs no hole, and each mask id is used once.
+      const maskIds = [...host.querySelectorAll("mask")].map((m) => m.id)
+      expect(maskIds.sort()).toEqual(["sz-notch-down", "sz-notch-up"])
+      expect(reset!.querySelector("mask")).toBeNull()
+      expect(reset!.querySelector("path.letter")?.getAttribute("mask")).toBeNull()
+      expect(larger!.querySelector("path.letter")?.getAttribute("mask")).toBe("url(#sz-notch-up)")
 
       // The size is still announced, just not painted on screen.
       expect(smaller!.getAttribute("aria-label")).toContain("currently M")
