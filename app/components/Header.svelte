@@ -15,19 +15,40 @@ const atLargest = $derived(prefs.textStep === TEXT_STEPS.length - 1)
 const atDefault = $derived(prefs.textStep === TEXT_DEFAULT_STEP)
 </script>
 
-<!-- The word-processor "text size" glyph: a large T beside a small t, with
-     the arrow saying which way this button moves. The reset button carries
-     the pair alone. Drawn as paths rather than letters so the shape is the
-     same in every font, and filled with currentColor so it picks up the
-     button's own hover/disabled state. -->
+<!--
+  The familiar "text size" glyph: a heavy A with a +/− tucked into its
+  shoulder. Geometry, not a font, so it looks the same everywhere and stays
+  crisp at any scale.
+
+  The A is drawn as one outline plus its counter, knocked out with evenodd,
+  and takes currentColor so it inherits the button's hover/disabled state.
+  The sign is the accent color, and the A is masked by a disc around it —
+  a real hole, so the notch reads against whatever is behind the button
+  (surface, hover, modal) instead of being painted a background color that
+  would be wrong the moment the surface changed.
+
+  The mask id is per-direction: each variant appears once, so the ids stay
+  unique in the document.
+-->
 {#snippet sizeIcon(dir: "up" | "down" | null)}
-  <svg class="tt" viewBox={dir ? "0 0 24 16" : "0 0 17.5 16"} aria-hidden="true" focusable="false">
-    <path d="M0.5 2h9v2H6v9H4V4H0.5z" />
-    <path d="M10.5 7h6.5v1.7h-2.4v4.8h-1.7V8.7h-2.4z" />
+  <svg class="szicon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    {#if dir}
+      <mask id="sz-notch-{dir}">
+        <rect width="24" height="24" fill="#fff" />
+        <circle cx="18.3" cy="5.2" r="6.4" fill="#000" />
+      </mask>
+    {/if}
+    <path
+      class="letter"
+      fill-rule="evenodd"
+      mask={dir ? `url(#sz-notch-${dir})` : undefined}
+      d="M0 22.8 8.1 2.4h4.3l8.1 20.4h-5.6L13.3 18.4H7.2L5.6 22.8zM10.25 8.2 12.75 15.2h-5z"
+    />
+    {#if dir}
+      <rect class="sign" x="13.8" y="3.9" width="9" height="2.6" rx="1.3" />
+    {/if}
     {#if dir === "up"}
-      <path d="M21 3.5l3 4h-2v6h-2v-6h-2z" />
-    {:else if dir === "down"}
-      <path d="M21 13.5l-3-4h2v-6h2v6h2z" />
+      <rect class="sign" x="17" y="0.7" width="2.6" height="9" rx="1.3" />
     {/if}
   </svg>
 {/snippet}
@@ -136,13 +157,16 @@ const atDefault = $derived(prefs.textStep === TEXT_DEFAULT_STEP)
     cursor: pointer;
     line-height: 1;
   }
-  /* Height in em so the glyph tracks the surrounding type; width follows the
-     viewBox, which is narrower on the arrowless reset icon so the two T's
-     stay the same size rather than being stretched to fill the arrow's slot. */
-  .tt {
-    height: 0.85em;
+  /* Height in em so the glyph tracks the surrounding type. */
+  .szicon {
+    height: 1.15em;
     width: auto;
+  }
+  .letter {
     fill: currentColor;
+  }
+  .sign {
+    fill: var(--link);
   }
   .fontctl button + button {
     border-left: 1px solid var(--grid);
