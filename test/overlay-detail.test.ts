@@ -75,6 +75,64 @@ describe("overlay page", () => {
   test("unscanned overlay: honest fallback about the scanned forms", () => {
     mountAt(["overlays", "evaluated-only"], null, (host) => {
       expect(host.textContent).toContain("Definition site not found")
+      // No definition site means no body was scanned — no attrs section.
+      expect(host.textContent).not.toContain("Adds / overrides")
+    })
+  })
+})
+
+describe("adds / overrides", () => {
+  test("attrs render with kind chips; an attr matching a package output links to it", () => {
+    app.manifest!.overlayDefs = [
+      {
+        name: "default",
+        file: "self:lib/c.nix",
+        attrs: [
+          { name: "hello", kind: "override" },
+          { name: "extra-tool", kind: "add" },
+        ],
+      },
+    ]
+    mountAt(["overlays", "default"], null, (host) => {
+      const section = [...host.querySelectorAll("section")].find((s) =>
+        s.textContent?.includes("Adds / overrides"),
+      )!
+      expect(section.querySelector("h3 .count")?.textContent).toBe("2")
+      const items = [...section.querySelectorAll("li")].map((li) => li.textContent?.trim())
+      expect(items).toEqual(["extra-tool add", "hello override"])
+      // "hello" is a packages.<system> output — it links; "extra-tool" is not.
+      const link = [...section.querySelectorAll("button")].find((b) => b.textContent === "hello")!
+      link.click()
+      expect(app.selection).toEqual({ kind: "output", path: ["packages", "x86_64-linux", "hello"] })
+      expect([...section.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["hello"])
+    })
+  })
+
+  test("attrs merge across definition sites, override winning over add", () => {
+    app.manifest!.overlayDefs = [
+      { name: "default", file: "self:lib/c.nix", attrs: [{ name: "zeta", kind: "add" }] },
+      {
+        name: "default",
+        file: "self:modules/a.nix",
+        attrs: [
+          { name: "zeta", kind: "override" },
+          { name: "alpha", kind: "add" },
+        ],
+      },
+    ]
+    mountAt(["overlays", "default"], null, (host) => {
+      const section = [...host.querySelectorAll("section")].find((s) =>
+        s.textContent?.includes("Adds / overrides"),
+      )!
+      const items = [...section.querySelectorAll("li")].map((li) => li.textContent?.trim())
+      expect(items).toEqual(["alpha add", "zeta override"])
+    })
+  })
+
+  test("scanned def with no readable body: honest empty note", () => {
+    // overlayDefs from seed() has no attrs — an unscannable/empty body.
+    mountAt(["overlays", "default"], null, (host) => {
+      expect(host.textContent).toContain("No top-level attrs detected")
     })
   })
 })

@@ -27,6 +27,15 @@ export interface Manifest {
   configurations: ConfigRef[]
   /** Derivation-typed outputs: packages, devShells, checks, formatter (see PackageRef). */
   packages: PackageRef[]
+  /**
+   * "What in this flake depends on X": depended-on package refId -> dependent
+   * refIds. Present only in a static export (built from the embedded package
+   * blobs — see extract/reverse-deps.ts); authoritative over the EXPORTED set,
+   * which a partial `--packages` export makes partial. Absent in serve mode,
+   * where the manifest carries no package data — the SPA then derives a
+   * client-side index over loaded packages, labeled honestly.
+   */
+  packageReverseDeps?: Record<string, string[]>
   /** Outputs that extend an input's same-named namespace (lib = nixpkgs.lib.extend …). */
   grafts: GraftInfo[]
   /** Top-level attr names per output — fills in where nix flake show says "unknown". */
@@ -189,6 +198,20 @@ export interface OverlayDef {
   name: string
   /** FileEntry.id of the defining file. */
   file: string
+  /**
+   * Top-level attrs the overlay body adds/overrides, when the body could be
+   * located and its `final: prev: { … }` form scanned. Absent for overlays
+   * whose body can't be scanned syntactically (anonymous list overlays,
+   * computed attr names) — a documented limit, not an empty overlay.
+   */
+  attrs?: OverlayAttr[]
+}
+
+/** One top-level attr an overlay body defines. `override` = its rhs patches the
+ *  prior package (references `prev.`/`super.` or uses `.override`/`.overrideAttrs`). */
+export interface OverlayAttr {
+  name: string
+  kind: "add" | "override"
 }
 
 /**

@@ -24,6 +24,38 @@ const defFor = (n: string) => (app.manifest?.overlayDefs ?? []).find((d) => d.na
 
 /** Files importing a definition site — usually the file that attaches the overlay. */
 const importedBy = (fileId: string) => [...(app.flakeIndexes?.importedBy.get(fileId) ?? [])].sort()
+
+/** Top-level attrs the overlay adds/overrides, merged across definition sites
+ *  (override wins). Empty when no body was scannable — see the honest note. */
+const attrs = $derived.by(() => {
+  const byName = new Map<string, "add" | "override">()
+  for (const d of defs) {
+    for (const a of d.attrs ?? []) {
+      if (!byName.has(a.name) || a.kind === "override") byName.set(a.name, a.kind)
+    }
+  }
+  return [...byName]
+    .map(([n, kind]) => ({ name: n, kind }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+})
+
+/**
+ * An overlay attr `foo` is `pkgs.foo`; a `packages.<system>.foo` output
+ * re-exposes it, so link there. Restricted to the `packages` category — a
+ * devShell/check/formatter sharing a name (e.g. "default") is NOT the package.
+ * Built once as a name→ref map; first system wins for a multi-system name (same
+ * derivation on each). The overlay's own name is not enough — the added attr
+ * name is (gh-op adds `gh`), so key on attr, resolved at the call site.
+ */
+const pkgByName = $derived.by(() => {
+  const map = new Map<string, string[]>() // attr name -> package output path
+  for (const p of app.manifest?.packages ?? []) {
+    const attr = p.path.at(-1)
+    if (p.path[0] === "packages" && attr && !map.has(attr)) map.set(attr, p.path)
+  }
+  return map
+})
+const pkgForAttr = (n: string) => pkgByName.get(n) ?? null
 </script>
 
 {#if !name}
@@ -69,6 +101,32 @@ const importedBy = (fileId: string) => [...(app.flakeIndexes?.importedBy.get(fil
       </ul>
     {/if}
   </section>
+
+  {#if defs.length}
+    <section>
+      <h3>Adds / overrides <span class="count">{attrs.length}</span></h3>
+      {#if attrs.length === 0}
+        <p class="muted">
+          No top-level attrs detected — an empty overlay, or an anonymous/computed
+          form the source scan can't read (only <span class="mono">final: prev: &lbrace; … &rbrace;</span> bodies are enumerated).
+        </p>
+      {:else}
+        <ul class="plain">
+          {#each attrs as a (a.name)}
+            {@const pkgPath = pkgForAttr(a.name)}
+            <li>
+              {#if pkgPath}
+                <button class="link mono" onclick={() => app.select({ kind: "output", path: pkgPath })}>{a.name}</button>
+              {:else}
+                <span class="mono">{a.name}</span>
+              {/if}
+              <span class="chip {a.kind}">{a.kind}</span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
+  {/if}
 {/if}
 
 <style>
@@ -129,5 +187,22 @@ const importedBy = (fileId: string) => [...(app.flakeIndexes?.importedBy.get(fil
   }
   .link:hover {
     text-decoration: underline;
+  }
+  .count {
+    color: var(--ink-muted);
+    font-weight: normal;
+  }
+  .chip {
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 6px;
+    border-radius: 8px;
+    border: 1px solid var(--grid);
+    color: var(--ink-muted);
+  }
+  .chip.override {
+    color: var(--warn);
+    border-color: color-mix(in srgb, var(--warn) 45%, transparent);
   }
 </style>

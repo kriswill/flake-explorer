@@ -7,6 +7,7 @@ import { join } from "node:path"
 import { buildFlakeIndexes, resolveFile } from "../app/lib/indexes"
 import { buildApp, pageHtml } from "./build-app"
 import { tokenizeNix } from "./extract/highlight"
+import { buildPackageReverseDeps } from "./extract/reverse-deps"
 import { readInputFile } from "./extract/run-nix"
 import {
   type ConfigData,
@@ -142,6 +143,10 @@ export async function exportHtml(
             status: "pending" as const,
           },
     ),
+    // Built from the embedded blobs — authoritative over the exported package
+    // set. Serve mode omits it (no package data at manifest-build time); the
+    // SPA derives its own over loaded packages there.
+    packageReverseDeps: buildPackageReverseDeps(packageData),
     warnings: [...manifest.warnings, ...warnings],
   } satisfies Manifest
 

@@ -260,6 +260,98 @@ describe("PackageDetail", () => {
     })
   })
 
+  test("static reverse-dep index: dependents list 'in this flake' when export is complete", () => {
+    const manifest = fixtureManifest()
+    manifest.packages = fixturePackageRefs().map((r) => ({ ...r, status: "ok" as const }))
+    // "ghost" has no manifest ref — renders as its bare id, no link.
+    manifest.packageReverseDeps = { [PKG_ID]: ["checks/x86_64-linux/test", "ghost/pkg"] }
+    app.manifest = manifest
+    app.flakeIndexes = buildFlakeIndexes(manifest)
+    app.packages = { [PKG_ID]: { data: samplePackage() } }
+    withMount(PackageDetail, { refId: PKG_ID }, (host) => {
+      const section = [...host.querySelectorAll("section")].find((s) =>
+        s.textContent?.includes("Depended on by"),
+      )!
+      expect(section.querySelector(".count")?.textContent).toBe("2")
+      expect(section.querySelector(".scope")?.textContent).toBe("in this flake")
+      expect(section.textContent).toContain("ghost/pkg")
+      // No serve-mode affordance when the index is authoritative.
+      expect(buttonsWithText(section as HTMLElement, "load").length).toBe(0)
+      const link = [...section.querySelectorAll("button")].find((b) => b.textContent === "test")!
+      link.click()
+      flushSync()
+      expect(app.selection).toEqual({ kind: "output", path: ["checks", "x86_64-linux", "test"] })
+    })
+  })
+
+  test("complete static export without dependents: flake-wide empty note", () => {
+    app.manifest!.packages = fixturePackageRefs().map((r) => ({ ...r, status: "ok" as const }))
+    app.manifest!.packageReverseDeps = {}
+    app.packages = { [PKG_ID]: { data: samplePackage() } }
+    withMount(PackageDetail, { refId: PKG_ID }, (host) => {
+      expect(host.textContent).toContain("No other package in this flake depends on it.")
+    })
+  })
+
+  test("static index over a partial export: 'among exported packages', honest empty note", () => {
+    // fixture refs default to status "pending" — a partial --packages export.
+    app.manifest!.packageReverseDeps = {}
+    app.packages = { [PKG_ID]: { data: samplePackage() } }
+    withMount(PackageDetail, { refId: PKG_ID }, (host) => {
+      const section = [...host.querySelectorAll("section")].find((s) =>
+        s.textContent?.includes("Depended on by"),
+      )!
+      expect(section.querySelector(".scope")?.textContent).toBe("among exported packages")
+      expect(section.textContent).toContain("No exported package depends on it.")
+    })
+  })
+
+  test("serve mode derives dependents from packages loaded this session", () => {
+    // No packageReverseDeps on the manifest — the serve-mode shape.
+    const dependent: PackageData = {
+      ...samplePackage(),
+      id: "checks/x86_64-linux/test",
+      path: ["checks", "x86_64-linux", "test"],
+      drv: {
+        ...samplePackage().drv!,
+        drvPath: "/nix/store/ttt-test.drv",
+        inputDrvs: [{ drvPath: samplePackage().drv!.drvPath, name: "hello", outputs: ["out"] }],
+      },
+    }
+    app.packages = {
+      [PKG_ID]: { data: samplePackage() },
+      "checks/x86_64-linux/test": { data: dependent },
+      "devShells/x86_64-linux/default": { error: "boom" }, // errored slot: never a dependent
+    }
+    withMount(PackageDetail, { refId: PKG_ID }, (host) => {
+      const section = [...host.querySelectorAll("section")].find((s) =>
+        s.textContent?.includes("Depended on by"),
+      )!
+      expect(section.querySelector(".count")?.textContent).toBe("1")
+      expect(section.querySelector(".scope")?.textContent).toBe("among loaded packages")
+      expect([...section.querySelectorAll(".revdeps button")].map((b) => b.textContent)).toEqual([
+        "test",
+      ])
+      // One package (formatter) is neither loaded nor errored — offer the rest.
+      const loadAll = buttonsWithText(section as HTMLElement, "load 1 more package ")
+      expect(loadAll.length).toBe(1)
+    })
+  })
+
+  test("serve mode without dependents: honest empty note, load-all loads every package", () => {
+    app.packages = { [PKG_ID]: { data: samplePackage() } }
+    withMount(PackageDetail, { refId: PKG_ID }, (host) => {
+      expect(host.textContent).toContain("No dependents among loaded packages.")
+      const loadAll = buttonsWithText(host, "load 3 more packages")[0]!
+      loadAll.click()
+      flushSync()
+      // Every ref now occupies a slot (here: permanent "not in export" errors),
+      // so the affordance disappears rather than promising more.
+      expect(Object.keys(app.packages).length).toBe(4)
+      expect(buttonsWithText(host, "more package").length).toBe(0)
+    })
+  })
+
   test("warnings render in a collapsed details block", () => {
     const data = {
       ...samplePackage(),
