@@ -131,13 +131,42 @@ const atDefault = $derived(prefs.textStep === TEXT_DEFAULT_STEP)
         </g>
       </svg>
     </button>
+    <!--
+      About: a solid speech bubble with the i knocked out of it.
+
+      Solid-with-a-hole rather than a stroked ring and a drawn letter: at
+      21px thin strokes silt up and the counter of the i closes, while one
+      filled shape keeps its silhouette and the hole stays open. The hole is
+      a real hole, so it shows the surface behind rather than being painted
+      a background colour that would be wrong on hover or in the dark theme.
+    -->
     <button
-      class="round help"
+      class="about"
       type="button"
       aria-label="About Flake Explorer"
       title="About Flake Explorer"
       onclick={() => app.openAbout()}
-    >?</button>
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <mask id="about-i">
+          <rect width="24" height="24" fill="#fff" />
+          <circle cx="13.1" cy="6.4" r="1.9" fill="#000" />
+          <!-- A few degrees of lean: enough to read as a letter rather than
+               a bar, not enough to blur its edges at this size. -->
+          <rect
+            x="10.8"
+            y="9.2"
+            width="3"
+            height="8"
+            rx="1.5"
+            fill="#000"
+            transform="rotate(8 12.3 13.2)"
+          />
+        </mask>
+        <!-- Arc the long way round, then out to the tail point and back. -->
+        <path class="bubble" mask="url(#about-i)" d="M20.19 17.34A10 10 0 1 0 15.42 21L20.13 22Z" />
+      </svg>
+    </button>
   </div>
 </header>
 
@@ -317,23 +346,45 @@ const atDefault = $derived(prefs.textStep === TEXT_DEFAULT_STEP)
       transition-duration: 0.01ms;
     }
   }
-  .round {
-    width: 30px;
-    height: 30px;
-    border: 1px solid var(--grid);
-    border-radius: 50%;
-    background: var(--surface-1);
-    color: var(--ink-2);
-    cursor: pointer;
-    font-size: var(--text-sm);
-    line-height: 1;
+  /* ---- about ---- */
+  /* No button chrome: the icon is already a ring, and a bordered circle
+     around it would read as a circle inside a circle. */
+  .about {
+    background: none;
+    border: none;
+    padding: 0;
+    display: inline-flex;
     flex: none;
+    cursor: pointer;
+    border-radius: 50%;
   }
-  .round:hover {
+  .about:focus-visible {
+    outline: 2px solid var(--link);
+    outline-offset: 2px;
+  }
+  .about svg {
+    height: 1.6em;
+    width: auto;
+    display: block;
+    transition: transform 0.2s ease;
+  }
+  .about:hover svg {
+    transform: scale(1.1);
+  }
+  /* currentColor, so the icon picks up the button's hover the same way the
+     other header controls do. */
+  .about {
+    color: var(--ink-2);
+  }
+  .about:hover {
     color: var(--ink-1);
-    border-color: var(--ink-muted);
   }
-  .help {
-    font-weight: 600;
+  .bubble {
+    fill: currentColor;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .about svg {
+      transition: none;
+    }
   }
 </style>
