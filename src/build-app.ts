@@ -5,6 +5,7 @@
 import { join } from "node:path"
 import { SveltePlugin } from "bun-plugin-svelte"
 import { THEMES } from "../app/lib/themes"
+import { TEXT_DEFAULT_STEP, textSizeRem } from "../app/lib/type-scale"
 import { type AboutData, collectAbout } from "./licenses"
 
 export interface AppBundle {
@@ -117,6 +118,7 @@ export function pageHtml(
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
+html{font-size:${textSizeRem(TEXT_DEFAULT_STEP)}rem}
 body{font-family:system-ui,sans-serif;font-size:0.875rem;background:var(--page);color:var(--ink-1)}
 ${themeCss()}
 ${bundle.css.replace(/<\/style/gi, "<\\/style")}

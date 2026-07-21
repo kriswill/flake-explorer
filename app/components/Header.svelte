@@ -1,10 +1,16 @@
 <script lang="ts">
 import { prefs } from "../lib/prefs.svelte"
 import { app } from "../lib/state.svelte"
+import { TEXT_DEFAULT_STEP, TEXT_STEPS, textStepName } from "../lib/type-scale"
 import SearchBox from "./SearchBox.svelte"
 
 const isDark = $derived(prefs.themeIndex === 1)
 const toggleTheme = () => prefs.setTheme(isDark ? 0 : 1)
+
+// One press = one step on the type scale, so the ends of the range are real
+// stops rather than a click that silently does nothing.
+const atSmallest = $derived(prefs.textStep === 0)
+const atLargest = $derived(prefs.textStep === TEXT_STEPS.length - 1)
 </script>
 
 <header>
@@ -16,15 +22,27 @@ const toggleTheme = () => prefs.setTheme(isDark ? 0 : 1)
   <SearchBox />
   <div class="controls">
     <span class="fontctl" role="group" aria-label="Text size">
-      <button type="button" title="Smaller text" aria-label="Smaller text" onclick={() => prefs.adjustFontScale(-0.1)}>A−</button>
       <button
         type="button"
-        class="pct"
-        title="Reset text size"
-        aria-label="Reset text size to 100%"
-        onclick={() => prefs.setFontScale(1)}
-      >{Math.round(prefs.fontScale * 100)}%</button>
-      <button type="button" title="Larger text" aria-label="Larger text" onclick={() => prefs.adjustFontScale(0.1)}>A+</button>
+        title="Smaller text"
+        aria-label="Smaller text"
+        disabled={atSmallest}
+        onclick={() => prefs.adjustTextStep(-1)}
+      >A−</button>
+      <button
+        type="button"
+        class="step"
+        title="Reset text size to {textStepName(TEXT_DEFAULT_STEP)}"
+        aria-label="Text size {prefs.textSizeName} — reset to {textStepName(TEXT_DEFAULT_STEP)}"
+        onclick={() => prefs.resetTextSize()}
+      >{prefs.textSizeName}</button>
+      <button
+        type="button"
+        title="Larger text"
+        aria-label="Larger text"
+        disabled={atLargest}
+        onclick={() => prefs.adjustTextStep(1)}
+      >A+</button>
     </span>
     <button
       class="round theme"
@@ -100,14 +118,18 @@ const toggleTheme = () => prefs.setTheme(isDark ? 0 : 1)
   .fontctl button + button {
     border-left: 1px solid var(--grid);
   }
-  .fontctl button:hover {
+  .fontctl button:hover:not(:disabled) {
     color: var(--ink-1);
     background: var(--page);
   }
-  .fontctl .pct {
-    min-width: 6ch;
+  .fontctl button:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .fontctl .step {
+    min-width: 4ch;
     color: var(--ink-muted);
-    font-variant-numeric: tabular-nums;
+    text-align: center;
   }
   .round {
     width: 30px;

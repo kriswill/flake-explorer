@@ -9,6 +9,7 @@ import OutputsTree from "../app/components/OutputsTree.svelte"
 import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
 import { prefs } from "../app/lib/prefs.svelte"
 import { app } from "../app/lib/state.svelte"
+import { TEXT_DEFAULT_STEP, TEXT_RATIO, TEXT_STEPS, textSizeRem } from "../app/lib/type-scale"
 import { fixtureConfig, fixtureManifest } from "./fixtures/data"
 
 function seed() {
@@ -141,25 +142,58 @@ describe("ModuleDetail", () => {
   })
 })
 
-describe("font scale", () => {
-  test("adjusts, clamps, persists to localStorage, and restores", () => {
-    prefs.setFontScale(1)
-    prefs.adjustFontScale(0.1)
-    expect(prefs.fontScale).toBe(1.1)
-    expect(localStorage.getItem("flake-explorer:font-scale@2")).toBe("1.1")
-    // 100% == 22.4px base (the old 140%), so 1.1 => 24.64px
-    expect(document.documentElement.style.fontSize).toBe("24.64px")
+describe("text size", () => {
+  const KEY = "flake-explorer:text-step@3"
 
-    prefs.setFontScale(99)
-    expect(prefs.fontScale).toBe(1.5) // clamped
+  test("steps the modular scale, persists, and restores", () => {
+    prefs.resetTextSize()
+    // The default is in the page shell's static CSS, so it clears the
+    // inline override instead of restating it.
+    expect(prefs.textSizeName).toBe("M")
+    expect(document.documentElement.style.fontSize).toBe("")
+    expect(localStorage.getItem(KEY)).toBe("3")
 
-    prefs.fontScale = 0 // simulate a fresh session
-    prefs.initFontScale() // restores the clamped saved value
-    expect(prefs.fontScale).toBe(1.5)
+    // One press = one ratio step (1.12rem × 1.125), not a linear nudge.
+    prefs.adjustTextStep(1)
+    expect(prefs.textStep).toBe(4)
+    expect(prefs.textSizeName).toBe("L")
+    expect(document.documentElement.style.fontSize).toBe("1.26rem")
+    expect(localStorage.getItem(KEY)).toBe("4")
 
-    localStorage.removeItem("flake-explorer:font-scale@2")
-    prefs.initFontScale()
-    expect(prefs.fontScale).toBe(1)
+    prefs.adjustTextStep(-2)
+    expect(prefs.textSizeName).toBe("S")
+    expect(document.documentElement.style.fontSize).toBe("0.996rem")
+
+    prefs.textStep = TEXT_DEFAULT_STEP // simulate a fresh session
+    prefs.initTextSize() // restores the saved step
+    expect(prefs.textSizeName).toBe("S")
+  })
+
+  test("clamps at both ends of the scale", () => {
+    prefs.setTextStep(99)
+    expect(prefs.textStep).toBe(TEXT_STEPS.length - 1)
+    expect(prefs.textSizeName).toBe("XXL")
+
+    prefs.setTextStep(-99)
+    expect(prefs.textStep).toBe(0)
+    expect(prefs.textSizeName).toBe("XXS")
+
+    // Sizes stay geometric around the default: n steps out is ratio^n.
+    expect(textSizeRem(TEXT_DEFAULT_STEP)).toBe(1.12)
+    expect(textSizeRem(TEXT_DEFAULT_STEP + 1)).toBe(Math.round(1.12 * TEXT_RATIO * 1000) / 1000)
+  })
+
+  test("an unset or junk saved value falls back to the default step", () => {
+    // getItem returns null and Number(null) is 0 — a real step ("XXS") — so
+    // "absent" must not be read as a number.
+    prefs.setTextStep(0) // moves off the default (and persists), then:
+    localStorage.removeItem(KEY)
+    prefs.initTextSize()
+    expect(prefs.textSizeName).toBe("M")
+
+    localStorage.setItem(KEY, "not-a-number")
+    prefs.initTextSize()
+    expect(prefs.textSizeName).toBe("M")
   })
 })
 

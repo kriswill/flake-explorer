@@ -8,7 +8,7 @@ const prefersDark =
   typeof matchMedia === "function" ? matchMedia("(prefers-color-scheme: dark)").matches : false
 prefs.initTheme(prefersDark)
 
-prefs.initFontScale()
+prefs.initTextSize()
 prefs.initPanes()
 app.initRouting()
 void app.loadManifest()
