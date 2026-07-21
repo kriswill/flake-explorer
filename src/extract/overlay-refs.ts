@@ -131,15 +131,9 @@ function enumerateOverlayAttrs(text: string, from: number): OverlayAttr[] {
   const start = skipTrivia(text, from)
   const header = text.slice(start).match(OVERLAY_LAMBDA_RE)
   if (!header) return []
-  const prevName = header[2]! // "prev"/"super" — its dotted use marks an override
+  const prevName = header[2]! // "prev"/"super" — the prior package set
   const braceAt = start + header[0].length // just past the body-opening `{`
   const body = topLevelText(text, braceAt)
-
-  // `prev.<x>` / `super.<x>` access, or `.override`/`.overrideAttrs`, means the
-  // entry patches the prior package rather than adding a fresh one. `_` is the
-  // Nix throwaway binding — nothing can reference it.
-  const prevRe = prevName === "_" ? null : new RegExp(`(?<![\\w'-])${escapeRe(prevName)}\\.`)
-  const OVERRIDE_CALL_RE = /\.overrideAttrs\b|\.override\b/
 
   const attrs: OverlayAttr[] = []
   const seen = new Set<string>()
@@ -148,7 +142,13 @@ function enumerateOverlayAttrs(text: string, from: number): OverlayAttr[] {
     if (seen.has(name)) continue
     seen.add(name)
     const rhs = e[2] ?? ""
-    const override = (prevRe?.test(rhs) ?? false) || OVERRIDE_CALL_RE.test(rhs)
+    // Override = the attr redefines the SAME-named package from prev/super
+    // (`rtk = prev.rtk.overrideAttrs …`). Referencing prev under a DIFFERENT
+    // name (`myPython = prev.python3`, `foo = prev.callPackage ./foo.nix {}`)
+    // is a fresh add — the broad "any prev. reference" rule mislabeled those.
+    const override =
+      prevName !== "_" &&
+      new RegExp(`(?<![\\w'-])${escapeRe(prevName)}\\.${escapeRe(name)}(?![\\w'-])`).test(rhs)
     attrs.push({ name, kind: override ? "override" : "add" })
   }
   return attrs

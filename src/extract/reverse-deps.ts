@@ -20,11 +20,16 @@ import type { PackageData } from "../schema"
 export function buildPackageReverseDeps(
   packageData: Map<string, PackageData>,
 ): Record<string, string[]> {
-  // drvPath -> owning refId, so each inputDrv is an O(1) lookup rather than a
-  // scan over every package.
-  const byDrv = new Map<string, string>()
+  // drvPath -> owning refIds, so each inputDrv is an O(1) lookup rather than a
+  // scan over every package. A LIST, not one id: an alias like
+  // `packages.default = packages.myapp` gives two refIds the SAME drvPath, and
+  // both must be credited or one alias's page falsely reads "0 dependents".
+  const byDrv = new Map<string, string[]>()
   for (const [id, data] of packageData) {
-    if (data.drv?.drvPath) byDrv.set(data.drv.drvPath, id)
+    if (!data.drv?.drvPath) continue
+    const owners = byDrv.get(data.drv.drvPath)
+    if (owners) owners.push(id)
+    else byDrv.set(data.drv.drvPath, [id])
   }
 
   const reverse: Record<string, string[]> = {}
@@ -33,11 +38,12 @@ export function buildPackageReverseDeps(
     // dependent so a package appears once under each thing it depends on.
     const seen = new Set<string>()
     for (const inp of data.drv?.inputDrvs ?? []) {
-      const dep = byDrv.get(inp.drvPath)
-      if (!dep || dep === id || seen.has(dep)) continue // skip nixpkgs drvs and self-edges
-      seen.add(dep)
-      if (!reverse[dep]) reverse[dep] = []
-      reverse[dep].push(id)
+      for (const dep of byDrv.get(inp.drvPath) ?? []) {
+        if (dep === id || seen.has(dep)) continue // skip self-edges and repeats
+        seen.add(dep)
+        if (!reverse[dep]) reverse[dep] = []
+        reverse[dep].push(id)
+      }
     }
   }
   for (const k of Object.keys(reverse)) reverse[k]!.sort()

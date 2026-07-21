@@ -90,8 +90,36 @@ const reverseDeps = $derived.by(() => {
 /** Packages not yet loaded — the client-side join above cannot see these. */
 const unloadedPackages = $derived((app.manifest?.packages ?? []).filter((p) => !app.packages[p.id]))
 
-const pkgPathOf = (id: string) => app.manifest?.packages.find((p) => p.id === id)?.path ?? null
-const pkgLabel = (id: string) => pkgPathOf(id)?.at(-1) ?? id
+/**
+ * A static export downgrades non-embedded packages to "pending" (export.ts);
+ * with none pending, the embedded index covers the whole flake and "in this
+ * flake" is exact. A partial `--packages a,b` export leaves the rest pending —
+ * the index then can't see an un-exported dependent, so the label must not
+ * claim flake-wide truth. (Errored packages have no drv → never a dependent →
+ * don't count against completeness.)
+ */
+const staticComplete = $derived((app.manifest?.packages ?? []).every((p) => p.status !== "pending"))
+
+const scopeNote = $derived(
+  reverseDeps.scope === "loaded"
+    ? "among loaded packages"
+    : staticComplete
+      ? "in this flake"
+      : "among exported packages",
+)
+const emptyNote = $derived(
+  reverseDeps.scope === "loaded"
+    ? "No dependents among loaded packages."
+    : staticComplete
+      ? "No other package in this flake depends on it."
+      : "No exported package depends on it.",
+)
+
+/** id → path, built once — the revdeps list would otherwise scan every render. */
+const pkgPathById = $derived(
+  new Map((app.manifest?.packages ?? []).map((p) => [p.id, p.path] as const)),
+)
+const pkgLabel = (id: string) => pkgPathById.get(id)?.at(-1) ?? id
 
 function loadAllPackages() {
   for (const p of app.manifest?.packages ?? []) void app.loadPackage(p.id)
@@ -277,12 +305,12 @@ function loadAllPackages() {
   <section>
     <h3>
       Depended on by <span class="count">{reverseDeps.ids.length}</span>
-      <span class="scope">{reverseDeps.scope === "static" ? "in this flake" : "among loaded packages"}</span>
+      <span class="scope">{scopeNote}</span>
     </h3>
     {#if reverseDeps.ids.length}
       <ul class="revdeps">
         {#each reverseDeps.ids as id (id)}
-          {@const path = pkgPathOf(id)}
+          {@const path = pkgPathById.get(id)}
           <li>
             {#if path}
               <button class="link mono" onclick={() => app.select({ kind: "output", path })}>{pkgLabel(id)}</button>
@@ -293,11 +321,7 @@ function loadAllPackages() {
         {/each}
       </ul>
     {:else}
-      <p class="muted">
-        {reverseDeps.scope === "static"
-          ? "No other package in this flake depends on it."
-          : "No dependents among loaded packages."}
-      </p>
+      <p class="muted">{emptyNote}</p>
     {/if}
     <!-- Only a drvPath join is sound, so this sees the flake's OWN packages
          only — a nixpkgs consumer of this derivation never appears. In serve

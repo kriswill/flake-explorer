@@ -106,6 +106,31 @@ test("nested attrsets inside a block entry do not leak fake entries", async () =
   ])
 })
 
+test("override needs the SAME name from prev/super; prev under another name is an add", async () => {
+  const defs = await scan({
+    "flake.nix": `{
+      overlays.default = final: prev: {
+        rtk = prev.rtk.overrideAttrs (old: { });   # same name → override
+        myPython = prev.python3;                     # aliases another pkg → add
+        wrapped = prev.callPackage ./wrapped.nix {}; # builds fresh via prev → add
+        pinned = prev.pinned // { x = 1; };          # merges same name → override
+      };
+    }`,
+  })
+  expect(defs).toEqual([
+    {
+      name: "default",
+      file: "self:flake.nix",
+      attrs: [
+        { name: "rtk", kind: "override" },
+        { name: "myPython", kind: "add" },
+        { name: "wrapped", kind: "add" },
+        { name: "pinned", kind: "override" },
+      ],
+    },
+  ])
+})
+
 test("overlay body attrs: add vs override, and bodies read from the imported file", async () => {
   const defs = await scan({
     "flake.nix": `{

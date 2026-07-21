@@ -39,8 +39,23 @@ const attrs = $derived.by(() => {
     .sort((a, b) => a.name.localeCompare(b.name))
 })
 
-/** An overlay attr that a flake package re-exposes by the same name links to it. */
-const pkgForAttr = (n: string) => app.manifest?.packages.find((p) => p.path.at(-1) === n) ?? null
+/**
+ * An overlay attr `foo` is `pkgs.foo`; a `packages.<system>.foo` output
+ * re-exposes it, so link there. Restricted to the `packages` category — a
+ * devShell/check/formatter sharing a name (e.g. "default") is NOT the package.
+ * Built once as a name→ref map; first system wins for a multi-system name (same
+ * derivation on each). The overlay's own name is not enough — the added attr
+ * name is (gh-op adds `gh`), so key on attr, resolved at the call site.
+ */
+const pkgByName = $derived.by(() => {
+  const map = new Map<string, string[]>() // attr name -> package output path
+  for (const p of app.manifest?.packages ?? []) {
+    const attr = p.path.at(-1)
+    if (p.path[0] === "packages" && attr && !map.has(attr)) map.set(attr, p.path)
+  }
+  return map
+})
+const pkgForAttr = (n: string) => pkgByName.get(n) ?? null
 </script>
 
 {#if !name}
@@ -98,10 +113,10 @@ const pkgForAttr = (n: string) => app.manifest?.packages.find((p) => p.path.at(-
       {:else}
         <ul class="plain">
           {#each attrs as a (a.name)}
-            {@const pkg = pkgForAttr(a.name)}
+            {@const pkgPath = pkgForAttr(a.name)}
             <li>
-              {#if pkg}
-                <button class="link mono" onclick={() => app.select({ kind: "output", path: pkg.path })}>{a.name}</button>
+              {#if pkgPath}
+                <button class="link mono" onclick={() => app.select({ kind: "output", path: pkgPath })}>{a.name}</button>
               {:else}
                 <span class="mono">{a.name}</span>
               {/if}
