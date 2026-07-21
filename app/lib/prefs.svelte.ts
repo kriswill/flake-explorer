@@ -4,14 +4,13 @@
 // Components that only tweak appearance import `prefs`, not `app`.
 
 import { applyThemeVars, defaultThemeIndex, THEMES } from "./themes"
+import { clampTextStep, TEXT_DEFAULT_STEP, textSizeRem, textStepName } from "./type-scale"
 
-// Baseline root font-size at 100%. 22.4px = the old 16px base at 140%,
-// rebased so the comfortable reading size reads as "100%". The storage key
-// is versioned: values saved against the 16px base would render wrong.
-const FONT_BASE_PX = 22.4
-const FONT_SCALE_KEY = "flake-explorer:font-scale@2"
-const FONT_SCALE_MIN = 0.5
-const FONT_SCALE_MAX = 1.5
+// The stored value is a step INDEX on the type scale, not the old 0.5–1.5
+// multiplier — hence the key bump. A stale "1.1" read as a step would round
+// to 1 ("XS"), so @2 values must not be inherited; everyone starts at the
+// new default, which is the point of changing it.
+const TEXT_STEP_KEY = "flake-explorer:text-step@3"
 
 const THEME_KEY = "flake-explorer:theme@1"
 
@@ -24,8 +23,8 @@ const PANE_LIMITS = {
 
 class Prefs {
   themeIndex = $state(0)
-  /** Text scale factor; all component type is rem-based, so root font-size scales everything. */
-  fontScale = $state(1)
+  /** Step on the type scale; all component type is rem-based, so the root font-size moves everything. */
+  textStep = $state(TEXT_DEFAULT_STEP)
   paneLeft = $state(PANE_DEFAULTS.left)
   paneRight = $state(PANE_DEFAULTS.right)
 
@@ -48,26 +47,40 @@ class Prefs {
     applyThemeVars(i)
   }
 
-  // ------------------------------------------------------------- font scale
+  // --------------------------------------------------------------- text size
 
-  initFontScale() {
-    if (typeof localStorage === "undefined") return
-    const saved = Number(localStorage.getItem(FONT_SCALE_KEY))
-    this.setFontScale(Number.isFinite(saved) && saved > 0 ? saved : 1)
+  /** The current step's name ("M"), which the control shows in place of a percentage. */
+  get textSizeName(): string {
+    return textStepName(this.textStep)
   }
 
-  setFontScale(scale: number) {
-    this.fontScale =
-      Math.round(Math.min(FONT_SCALE_MAX, Math.max(FONT_SCALE_MIN, scale)) * 100) / 100
+  initTextSize() {
+    if (typeof localStorage === "undefined") return
+    // getItem returns null when unset and Number(null) is 0 — a REAL step
+    // ("XXS"), so an absent value must be caught before the numeric check.
+    const raw = localStorage.getItem(TEXT_STEP_KEY)
+    this.setTextStep(raw === null ? TEXT_DEFAULT_STEP : Number(raw))
+  }
+
+  setTextStep(step: number) {
+    this.textStep = clampTextStep(step)
     if (typeof localStorage !== "undefined")
-      localStorage.setItem(FONT_SCALE_KEY, String(this.fontScale))
+      localStorage.setItem(TEXT_STEP_KEY, String(this.textStep))
     if (typeof document !== "undefined") {
-      document.documentElement.style.fontSize = `${FONT_BASE_PX * this.fontScale}px`
+      // The default already sits in the page shell's static CSS, so clear the
+      // inline override rather than restating it — that keeps the default
+      // rendering correct before (and without) JS, with no size flash.
+      document.documentElement.style.fontSize =
+        this.textStep === TEXT_DEFAULT_STEP ? "" : `${textSizeRem(this.textStep)}rem`
     }
   }
 
-  adjustFontScale(delta: number) {
-    this.setFontScale(this.fontScale + delta)
+  adjustTextStep(delta: number) {
+    this.setTextStep(this.textStep + delta)
+  }
+
+  resetTextSize() {
+    this.setTextStep(TEXT_DEFAULT_STEP)
   }
 
   // ------------------------------------------------------------ pane widths
