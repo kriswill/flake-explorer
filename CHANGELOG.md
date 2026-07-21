@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Transitive inputs are walkable end to end: the sidebar's inputs section
+  gains a collapsed "transitive" disclosure listing every deduped lock
+  node as a selectable `parent/child` page, search surfaces them with a
+  "transitive" tag (ranked just behind direct inputs at equal match
+  quality), and the flake overview splits the closure into honest
+  counts — walkable transitive nodes vs `follows` edges, which are
+  aliases onto existing nodes rather than nodes of their own.
+- An overlay page lists the top-level attrs its body adds or overrides:
+  the source scan locates each overlay's `final: prev: { … }` body
+  (inline, or the imported file when the definition is `import
+  ./file.nix`), enumerates its depth-1 attrs, and marks each add vs
+  override (an attr redefining the same-named `prev`/`super` package). An
+  attr re-exposed as a flake package links to that package's page;
+  unscannable bodies (anonymous, computed, or `let … in` forms) get an
+  honest in-page note instead of a wrong guess.
+- A package page answers "what in this flake depends on this?": a
+  "Depended on by" section joined on `drvPath` — false-positive-free, two
+  derivations never share a `.drv` path. Static exports embed an
+  authoritative reverse-deps index over the exported set; serve mode
+  derives one over packages loaded this session, labels its scope
+  honestly, and offers to load the rest to complete the count.
+
+### Changed
+
+- The overlay definition-site scan's schema grew per-overlay attr lists,
+  so existing cached blobs re-extract once on next access.
+
+### Fixed
+
+- Hand-typed deep links with a raw `/` inside a file/input/config id
+  (`#/f/self:pkgs/rtk.nix`) now resolve — the hash parser rejoins the
+  remainder for single-id routes instead of truncating to a nonexistent
+  id and hanging. A genuinely unresolvable id renders an explicit
+  "Unknown file" page.
+- Cold deep links to files reached only through option declarations
+  (e.g. a nixpkgs module) rebuild their store path from the input's
+  `storePath` and load their source instead of showing a permanent
+  loading state.
+- Transitive inputs no longer hide their "Modules contributed" section
+  before any configuration is loaded — they genuinely contribute modules,
+  and the load affordance is now uniform with direct inputs.
+
 ## [0.3.0] — 2026-07-20
 
 ### Added
