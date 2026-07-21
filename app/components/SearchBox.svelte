@@ -168,12 +168,18 @@ function baseIndex(catIndex: number): number {
     position: relative;
     width: 100%;
   }
+  /* The query text scales with the text-size control — it is content you
+     have to read back. The BOX does not: a fixed height keeps it from
+     pushing the top bar taller as the type grows. 30px clears the largest
+     step (~20px text) without clipping, so the text needs no cap.
+     Horizontal-only padding, since the height now does the centring. */
   .search {
     background: var(--page);
     border: 1px solid var(--grid);
     border-radius: 6px;
     color: var(--ink-1);
-    padding: 5px 10px;
+    height: 30px;
+    padding: 0 10px;
     font-size: var(--text-xs);
     width: 100%;
     box-sizing: border-box;
