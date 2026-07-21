@@ -1,6 +1,6 @@
 <script lang="ts">
 import { REL_PATH_RE, resolveKnownRef } from "../../src/pathref"
-import { displayLabel, type FileOrigin } from "../../src/schema"
+import { displayLabel, type FileOrigin, parseFileId } from "../../src/schema"
 import { colorFor } from "../lib/color"
 import { crumbsForFile, parsePosition, resolveFile } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
@@ -30,9 +30,38 @@ const configView = $derived.by(() => {
   return null
 })
 
-const relPath = $derived(manifestEntry?.relPath ?? configView?.meta.relPath ?? fileId)
+/**
+ * Cold deep-link fallback. manifestEntry covers self + import-tree files;
+ * configView covers files a loaded config references. A file reached only
+ * through an option declaration — e.g. a nixpkgs module (`input:nixpkgs:…`) —
+ * is in neither when opened cold, and a `file` selection never loads a config,
+ * so nothing would fill the gap. But its id still carries the input name + the
+ * relPath (that relPath was produced by stripping the input's storePath), so
+ * for input-origin ids we can rebuild the real store path from
+ * manifest.inputs[input].storePath and load the source directly. (A *patched*
+ * input cold may point at the unpatched tree until a config loads the patched
+ * meta; the fetch then just errors and self-corrects.)
+ */
+const parsed = $derived(!manifestEntry && !configView ? parseFileId(fileId) : null)
+const parsedOrigin: FileOrigin | null = $derived(
+  parsed?.kind === "input"
+    ? { kind: "input", input: parsed.input }
+    : parsed
+      ? { kind: "self" }
+      : null,
+)
+const parsedStorePath = $derived.by(() => {
+  if (parsed?.kind !== "input") return null
+  const inp = app.manifest?.inputs[parsed.input]
+  return inp?.storePath ? `${inp.storePath}/${parsed.relPath}` : null
+})
+
+const relPath = $derived(
+  manifestEntry?.relPath ?? configView?.meta.relPath ?? parsed?.relPath ?? fileId,
+)
+
 const inputName = $derived.by(() => {
-  const origin = manifestEntry?.origin ?? configView?.meta.origin
+  const origin = manifestEntry?.origin ?? configView?.meta.origin ?? parsedOrigin
   return origin?.kind === "input" ? origin.input : null
 })
 const inputInfo = $derived(inputName ? (app.manifest?.inputs[inputName] ?? null) : null)
@@ -43,9 +72,22 @@ const importedBy = $derived([...(app.flakeIndexes?.importedBy.get(fileId) ?? [])
 
 // ------------------------------------------------------------- source view
 
-const origin = $derived(manifestEntry?.origin ?? configView?.meta.origin ?? null)
-const storePath = $derived(manifestEntry?.storePath ?? configView?.meta.storePath ?? null)
+const origin = $derived(manifestEntry?.origin ?? configView?.meta.origin ?? parsedOrigin)
+const storePath = $derived(
+  manifestEntry?.storePath ?? configView?.meta.storePath ?? parsedStorePath ?? null,
+)
 const contentSlot = $derived(app.fileContents[fileId])
+
+/** A file id that resolves against nothing — a mistyped/stale deep link, or a
+ *  truncated raw-slash id from before the hash parser learned to rejoin. Note
+ *  parseFileId("self:pkgs") *succeeds* (relPath "pkgs"), so a parse check alone
+ *  would miss this; the honest test is "no manifest entry, no loaded config,
+ *  and no store path we can derive from the id". An unknown-bucket id
+ *  (parseFileId → null) that no loaded config resolves lands here too; it would
+ *  resolve reactively if some other action loaded a config that references it,
+ *  but the file page itself does not trigger that. Gated on a loaded manifest so
+ *  a cold deep link doesn't flash not-found before data arrives. */
+const notFound = $derived(!!app.manifest && !manifestEntry && !configView && !storePath)
 
 /** The module system reports some declarations under a relative pseudo-path
  *  (nixpkgs declares _module.* as literally "lib/modules.nix") — there is no
@@ -144,6 +186,16 @@ const crumbs = $derived.by(() => {
 </script>
 
 <div class="file-detail">
+  {#if notFound}
+    <div class="head" style="--c:{colorFor(fileId, gen)}">
+      <Dot />
+      <h2 class="mono">{fileId}</h2>
+    </div>
+    <p class="muted section">
+      Unknown file: no file with id <span class="mono">{fileId}</span> exists in this flake. The
+      link may be mistyped or point to a file from a different extraction.
+    </p>
+  {:else}
   <div class="fd-head">
     {#if crumbs.length > 1}<Breadcrumb segments={crumbs} />{/if}
     <div class="head" style="--c:{colorFor(colorKey, gen)}">
@@ -286,6 +338,7 @@ const crumbs = $derived.by(() => {
       <p class="muted section">Load a configuration on the left to see which options this file affects.</p>
     {/if}
   </div>
+  {/if}
 </div>
 
 <style>

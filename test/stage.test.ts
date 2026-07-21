@@ -163,6 +163,29 @@ describe("Stage", () => {
     withMount(Stage, {}, (host) => {
       expect(host.textContent).toContain("test flake")
       expect(host.querySelector("details")).toBeNull()
+      // Fixture: two direct inputs, no transitive nodes, one follows edge —
+      // the parenthetical carries only the follows count.
+      expect(host.textContent).toContain("2 inputs (1 follows)")
+    })
+  })
+
+  test("overview counts transitive lock nodes apart from follows edges", () => {
+    app.manifest!.inputs["nixpkgs/systems"] = {
+      name: "nixpkgs/systems",
+      nodeKey: "systems",
+      type: "github",
+      transitive: true,
+    }
+    withMount(Stage, {}, (host) => {
+      expect(host.textContent).toContain("2 inputs (+1 transitive, 1 follows)")
+    })
+  })
+
+  test("overview with neither transitive nodes nor follows drops the parenthetical", () => {
+    app.manifest = { ...app.manifest!, inputFollows: [] }
+    withMount(Stage, {}, (host) => {
+      expect(host.textContent).toContain("2 inputs ·")
+      expect(host.textContent).not.toContain("2 inputs (")
     })
   })
 })

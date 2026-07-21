@@ -113,17 +113,24 @@ export function searchAll(
 
   const inputs: Scored[] = []
   for (const i of Object.values(manifest.inputs)) {
-    if (i.transitive) continue
+    // Transitive inputs join the corpus too — the label carries the full
+    // parent/child name and the hit routes like any input; a "transitive" tag
+    // in the detail line keeps them distinguishable from direct inputs.
     const names = [i.name, ...(i.aliases ?? [])]
     const scores = names
       .map((n) => rankMatch(n.toLowerCase(), q))
       .filter((s): s is number => s !== null)
     if (scores.length === 0) continue
     inputs.push({
-      score: Math.min(...scores),
+      // Direct inputs sort ahead of transitive at equal match quality.
+      score: Math.min(...scores) * 2 + (i.transitive ? 1 : 0),
       hit: {
         label: i.name,
-        detail: i.aliases?.length ? `aliases: ${i.aliases.join(", ")}` : undefined,
+        detail: i.transitive
+          ? "transitive"
+          : i.aliases?.length
+            ? `aliases: ${i.aliases.join(", ")}`
+            : undefined,
         sel: { kind: "input", name: i.name },
       },
     })
