@@ -281,14 +281,14 @@ const pathName = $derived.by(() => {
   .path {
     margin: 0;
     padding: 0 8px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     color: var(--link);
     word-break: break-all;
   }
   .eyebrow {
     margin: 0 0 4px;
     padding: 0 8px;
-    font-size: 0.6875rem;
+    font-size: var(--text-3xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -301,7 +301,7 @@ const pathName = $derived.by(() => {
   .desc {
     margin: 0;
     padding: 0 8px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     color: var(--ink-2);
   }
   .desc.muted {
@@ -333,7 +333,7 @@ const pathName = $derived.by(() => {
     border: none;
     color: var(--ink-1);
     font: inherit;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     padding: 0.2rem 0.4rem;
     border-radius: 6px;
     cursor: pointer;
@@ -353,7 +353,7 @@ const pathName = $derived.by(() => {
   .disc .label {
     color: var(--ink-muted);
     text-transform: uppercase;
-    font-size: 0.6875rem;
+    font-size: var(--text-3xs);
     letter-spacing: 0.06em;
   }
   .label {
@@ -364,12 +364,12 @@ const pathName = $derived.by(() => {
   .type {
     margin-left: auto;
     color: var(--ink-muted);
-    font-size: 0.6875rem;
+    font-size: var(--text-3xs);
     flex: none;
   }
   .badge {
     margin-left: auto;
-    font-size: 0.6875rem;
+    font-size: var(--text-3xs);
     color: var(--ink-muted);
     background: var(--page);
     border-radius: 8px;
@@ -381,7 +381,7 @@ const pathName = $derived.by(() => {
   }
   .note {
     color: var(--ink-muted);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     margin: 2px 0 2px 24px;
   }
   /* AsyncSlot's notes render inside a config <li> — give them the same

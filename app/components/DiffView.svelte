@@ -126,12 +126,12 @@ const sides = $derived([
 <style>
   h2 {
     margin: 0;
-    font-size: 0.9375rem;
+    font-size: var(--text-sm);
     word-break: break-all;
   }
   .crumb {
     margin: 2px 0 10px;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     color: var(--ink-muted);
   }
   .mono {
@@ -139,17 +139,17 @@ const sides = $derived([
   }
   .muted {
     color: var(--ink-muted);
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .load {
     display: flex;
     align-items: baseline;
     gap: 8px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     margin: 4px 0;
   }
   .summary {
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     color: var(--ink-2);
     display: flex;
     align-items: center;
@@ -161,7 +161,7 @@ const sides = $derived([
   }
   .toggle {
     margin-left: auto;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     color: var(--ink-2);
     display: inline-flex;
     align-items: center;
@@ -171,14 +171,14 @@ const sides = $derived([
   table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     margin-top: 8px;
   }
   th {
     text-align: left;
     font-weight: 600;
     color: var(--ink-muted);
-    font-size: 0.6875rem;
+    font-size: var(--text-3xs);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     padding: 4px 8px 4px 0;
@@ -210,7 +210,7 @@ const sides = $derived([
     border: none;
     padding: 0;
     color: var(--link);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     cursor: pointer;
     text-align: left;
     word-break: break-all;

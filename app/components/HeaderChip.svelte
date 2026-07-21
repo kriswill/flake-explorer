@@ -40,7 +40,7 @@ const { label, onclick, icon }: Props = $props()
     border: 1px solid var(--grid);
     border-radius: 7px;
     color: var(--ink-2);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     font-weight: 500;
     padding: 4px 10px;
     cursor: pointer;

@@ -253,7 +253,7 @@ const lines = $derived.by(() => {
   }
   h2 {
     margin: 0;
-    font-size: 0.9375rem;
+    font-size: var(--text-sm);
     word-break: break-all;
   }
   .section {
@@ -263,14 +263,14 @@ const lines = $derived.by(() => {
   }
   h3 {
     margin: 6px 0;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     display: flex;
     align-items: baseline;
     gap: 8px;
   }
   .path {
     font-weight: 400;
-    font-size: 0.6875rem;
+    font-size: var(--text-3xs);
     color: var(--ink-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -281,7 +281,7 @@ const lines = $derived.by(() => {
   }
   .muted {
     color: var(--ink-muted);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   .count {
     color: var(--ink-muted);
@@ -297,7 +297,7 @@ const lines = $derived.by(() => {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .plain li {
     display: flex;
@@ -311,7 +311,7 @@ const lines = $derived.by(() => {
     display: flex;
     align-items: baseline;
     gap: 8px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     margin: 2px 0;
   }
   .cfgname {
@@ -321,7 +321,7 @@ const lines = $derived.by(() => {
     background: none;
     border: none;
     padding: 0;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     color: var(--link);
     cursor: pointer;
     text-align: left;

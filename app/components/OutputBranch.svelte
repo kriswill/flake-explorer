@@ -76,7 +76,7 @@ const isSel = (name: string) =>
     border: none;
     color: var(--ink-1);
     font: inherit;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     padding: 0.2rem 0.4rem;
     border-radius: 6px;
     cursor: pointer;
@@ -100,7 +100,7 @@ const isSel = (name: string) =>
   .type {
     margin-left: auto;
     color: var(--ink-muted);
-    font-size: 0.6875rem;
+    font-size: var(--text-3xs);
     flex: none;
   }
 </style>

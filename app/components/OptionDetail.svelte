@@ -227,7 +227,7 @@ const presenceIn = (id: string): string | null => {
 <style>
   h2 {
     margin: 0;
-    font-size: 0.9375rem;
+    font-size: var(--text-sm);
     word-break: break-all;
   }
   .lineno {
@@ -235,22 +235,22 @@ const presenceIn = (id: string): string | null => {
   }
   .diff {
     margin-left: auto;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   .mono {
     font-family: ui-monospace, monospace;
   }
   .muted {
     color: var(--ink-muted);
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .err {
     color: var(--err);
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .warn {
     color: var(--warn);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   .warns {
     margin: 6px 0 0;
@@ -265,11 +265,11 @@ const presenceIn = (id: string): string | null => {
   }
   .type {
     color: var(--ink-muted);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   .chip {
     flex: none;
-    font-size: 0.625rem;
+    font-size: var(--text-3xs);
     border-radius: 8px;
     padding: 0 6px;
     line-height: 1rem;
@@ -289,7 +289,7 @@ const presenceIn = (id: string): string | null => {
   }
   .desc {
     margin: 4px 0 0;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     color: var(--ink-2);
     max-width: 60rem;
   }
@@ -300,7 +300,7 @@ const presenceIn = (id: string): string | null => {
   }
   h3 {
     margin: 0 0 6px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -311,7 +311,7 @@ const presenceIn = (id: string): string | null => {
   }
   .mergenote {
     margin: 0 0 6px;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   .plain {
     list-style: none;
@@ -320,7 +320,7 @@ const presenceIn = (id: string): string | null => {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .plain li {
     display: flex;
@@ -334,7 +334,7 @@ const presenceIn = (id: string): string | null => {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .defhead {
     display: flex;
@@ -348,7 +348,7 @@ const presenceIn = (id: string): string | null => {
     display: flex;
     flex-wrap: wrap;
     gap: 4px 6px;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   .names li {
     background: var(--page);
@@ -362,7 +362,7 @@ const presenceIn = (id: string): string | null => {
     border: none;
     padding: 0;
     color: var(--link);
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     cursor: pointer;
     text-align: left;
     word-break: break-all;
@@ -374,7 +374,7 @@ const presenceIn = (id: string): string | null => {
     background: var(--page);
     border: 1px solid var(--grid);
     border-radius: 6px;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     margin: 4px 0 0;
     padding: 8px 10px;
     overflow-x: auto;

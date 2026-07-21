@@ -126,7 +126,7 @@ const visibleGroups = $derived(groups.filter((g) => fileTreeMatches(g.tree, app.
     align-items: center;
     gap: 5px;
     margin: 0 0 8px 2px;
-    font-size: 0.6875rem;
+    font-size: var(--text-3xs);
     color: var(--ink-2);
     cursor: pointer;
   }
@@ -161,7 +161,7 @@ const visibleGroups = $derived(groups.filter((g) => fileTreeMatches(g.tree, app.
     padding: 4px 4px 6px;
   }
   .glabel {
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -170,7 +170,7 @@ const visibleGroups = $derived(groups.filter((g) => fileTreeMatches(g.tree, app.
   .count {
     margin-left: auto;
     color: var(--ink-muted);
-    font-size: 0.6875rem;
+    font-size: var(--text-3xs);
   }
   .mono {
     font-family: ui-monospace, monospace;

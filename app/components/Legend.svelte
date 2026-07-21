@@ -37,7 +37,7 @@ const inputs = $derived(Object.values(app.manifest?.inputs ?? {}).filter((i) => 
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     color: var(--ink-2);
     border: 1px solid var(--grid);
     border-radius: 10px;

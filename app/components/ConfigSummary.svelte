@@ -123,18 +123,18 @@ function goto(node: TreeNode) {
 <style>
   h2 {
     margin: 0 0 8px;
-    font-size: 1rem;
+    font-size: var(--text-md);
   }
   .mono {
     font-family: ui-monospace, monospace;
   }
   .muted {
     color: var(--ink-muted);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   p {
     margin: 4px 0;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   section {
     border-top: 1px solid var(--grid);
@@ -143,7 +143,7 @@ function goto(node: TreeNode) {
   }
   h3 {
     margin: 0 0 6px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .plain {
     list-style: none;
@@ -152,7 +152,7 @@ function goto(node: TreeNode) {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .plain li {
     display: flex;
@@ -164,7 +164,7 @@ function goto(node: TreeNode) {
     border: none;
     padding: 0;
     color: var(--link);
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     cursor: pointer;
     text-align: left;
     word-break: break-all;

@@ -5,7 +5,7 @@
 import { join } from "node:path"
 import { SveltePlugin } from "bun-plugin-svelte"
 import { THEMES } from "../app/lib/themes"
-import { TEXT_DEFAULT_STEP, textSizeRem } from "../app/lib/type-scale"
+import { TEXT_DEFAULT_STEP, textSizeRem, textTokenCss } from "../app/lib/type-scale"
 import { type AboutData, collectAbout } from "./licenses"
 
 export interface AppBundle {
@@ -63,7 +63,9 @@ export function themeCss(): string {
     Object.entries(THEMES[i]!.vars)
       .map(([k, v]) => `${k}:${v};`)
       .join("")
-  return `:root{color-scheme:light;${vars(0)}}
+  // The --text-* type tokens come from the same module the text-size control
+  // steps, so component sizes and the control can never drift apart.
+  return `:root{color-scheme:light;${textTokenCss()};${vars(0)}}
 @media (prefers-color-scheme: dark){:root{color-scheme:dark;${vars(1)}}}`
 }
 
@@ -119,7 +121,7 @@ export function pageHtml(
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
 html{font-size:${textSizeRem(TEXT_DEFAULT_STEP)}rem}
-body{font-family:system-ui,sans-serif;font-size:0.875rem;background:var(--page);color:var(--ink-1)}
+body{font-family:system-ui,sans-serif;font-size:var(--text-sm);background:var(--page);color:var(--ink-1)}
 ${themeCss()}
 ${bundle.css.replace(/<\/style/gi, "<\\/style")}
 </style>

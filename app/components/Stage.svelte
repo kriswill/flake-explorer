@@ -125,7 +125,7 @@ const packageRef = $derived.by(() => {
   }
   h2 {
     margin: 0 0 8px;
-    font-size: 1rem;
+    font-size: var(--text-md);
   }
   .mono {
     font-family: ui-monospace, monospace;
@@ -138,7 +138,7 @@ const packageRef = $derived.by(() => {
   }
   .warn {
     color: var(--warn);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   .k {
     color: var(--ink-muted);
@@ -146,10 +146,10 @@ const packageRef = $derived.by(() => {
   }
   p {
     margin: 4px 0;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   details {
     margin-top: 10px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
 </style>

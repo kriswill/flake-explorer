@@ -26,7 +26,7 @@ const { segments }: { segments: Crumb[] } = $props()
     flex-wrap: wrap;
     gap: 4px;
     margin: 0 0 6px;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     color: var(--ink-muted);
   }
   .mono {
@@ -39,7 +39,7 @@ const { segments }: { segments: Crumb[] } = $props()
     background: none;
     border: none;
     padding: 0;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     color: var(--link);
     cursor: pointer;
     word-break: break-all;

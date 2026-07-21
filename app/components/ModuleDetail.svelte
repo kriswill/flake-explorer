@@ -128,7 +128,7 @@ const fileEntry = $derived(app.manifest?.files.find((f) => f.id === moduleId) ??
   }
   h2 {
     margin: 0;
-    font-size: 0.9375rem;
+    font-size: var(--text-sm);
     word-break: break-all;
   }
   .mono {
@@ -143,7 +143,7 @@ const fileEntry = $derived(app.manifest?.files.find((f) => f.id === moduleId) ??
     border: 1px solid var(--grid);
     border-radius: 7px;
     color: var(--ink-2);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     font-weight: 500;
     padding: 4px 10px;
     cursor: pointer;
@@ -172,7 +172,7 @@ const fileEntry = $derived(app.manifest?.files.find((f) => f.id === moduleId) ??
   }
   .git {
     color: var(--ink-muted);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     margin: 0 0 8px;
     white-space: nowrap;
     overflow: hidden;
@@ -185,7 +185,7 @@ const fileEntry = $derived(app.manifest?.files.find((f) => f.id === moduleId) ??
   }
   h3 {
     margin: 0 0 6px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -196,7 +196,7 @@ const fileEntry = $derived(app.manifest?.files.find((f) => f.id === moduleId) ??
   }
   .toggle {
     margin-left: auto;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     font-weight: normal;
     color: var(--ink-2);
     display: inline-flex;
@@ -211,6 +211,6 @@ const fileEntry = $derived(app.manifest?.files.find((f) => f.id === moduleId) ??
   }
   .muted {
     color: var(--ink-muted);
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
 </style>

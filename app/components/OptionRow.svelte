@@ -111,7 +111,7 @@ onDestroy(() => {
     box-sizing: border-box;
     border-radius: 6px;
     color: var(--ink-1);
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     padding: 0.2rem 0.4rem;
   }
   .opt {
@@ -159,7 +159,7 @@ onDestroy(() => {
   }
   .chip {
     flex: none;
-    font-size: 0.625rem;
+    font-size: var(--text-3xs);
     border-radius: 8px;
     padding: 0 6px;
     line-height: 1rem;
@@ -178,7 +178,7 @@ onDestroy(() => {
   }
   .val {
     margin-left: auto;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -191,7 +191,7 @@ onDestroy(() => {
     background: var(--page);
     border: 1px solid var(--grid);
     border-radius: 6px;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     margin: 2px 6px 6px 22px;
     padding: 8px 10px;
     overflow-x: auto;
