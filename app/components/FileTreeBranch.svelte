@@ -139,7 +139,7 @@ const isFileSel = (fileId: string) =>
     color: var(--ink-muted);
   }
   .label {
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

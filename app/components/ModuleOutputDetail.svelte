@@ -171,14 +171,14 @@ const anyHits = $derived(perConfig.some((c) => c.files?.length))
 <style>
   h2 {
     margin: 0 0 8px;
-    font-size: 1rem;
+    font-size: var(--text-md);
   }
   .mono {
     font-family: ui-monospace, monospace;
   }
   .muted {
     color: var(--ink-muted);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   .k {
     color: var(--ink-muted);
@@ -186,7 +186,7 @@ const anyHits = $derived(perConfig.some((c) => c.files?.length))
   }
   p {
     margin: 4px 0;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   section {
     border-top: 1px solid var(--grid);
@@ -195,7 +195,7 @@ const anyHits = $derived(perConfig.some((c) => c.files?.length))
   }
   h3 {
     margin: 0 0 6px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .count {
     color: var(--ink-muted);
@@ -211,7 +211,7 @@ const anyHits = $derived(perConfig.some((c) => c.files?.length))
     display: flex;
     flex-direction: column;
     gap: 3px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .plain li {
     display: flex;
@@ -226,7 +226,7 @@ const anyHits = $derived(perConfig.some((c) => c.files?.length))
     display: flex;
     align-items: baseline;
     gap: 8px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     margin: 2px 0;
   }
   .cfgname {
@@ -237,7 +237,7 @@ const anyHits = $derived(perConfig.some((c) => c.files?.length))
     border: none;
     padding: 0;
     color: var(--link);
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     cursor: pointer;
     text-align: left;
     word-break: break-all;

@@ -385,7 +385,7 @@ const crumbs = $derived.by(() => {
   }
   h2 {
     margin: 0;
-    font-size: 0.9375rem;
+    font-size: var(--text-sm);
     word-break: break-all;
   }
   .section {
@@ -395,7 +395,7 @@ const crumbs = $derived.by(() => {
   }
   h3 {
     margin: 6px 0;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .count {
     color: var(--ink-muted);
@@ -405,7 +405,7 @@ const crumbs = $derived.by(() => {
     font-family: ui-monospace, monospace;
   }
   .commit {
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     word-break: break-all;
     margin: 2px 0;
   }
@@ -414,7 +414,7 @@ const crumbs = $derived.by(() => {
     border: 1px solid var(--grid);
     border-radius: 4px;
     color: var(--ink-2);
-    font-size: 0.6875rem;
+    font-size: var(--text-3xs);
     cursor: pointer;
     margin-left: 6px;
   }
@@ -422,24 +422,24 @@ const crumbs = $derived.by(() => {
     list-style: none;
     margin: 0;
     padding: 0;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   .link {
     background: none;
     border: none;
     color: var(--link);
     cursor: pointer;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     padding: 1px 0;
     text-align: left;
     word-break: break-all;
   }
   .muted {
     color: var(--ink-muted);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   p {
     margin: 3px 0;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
 </style>

@@ -132,14 +132,14 @@ const pkgForAttr = (n: string) => pkgByName.get(n) ?? null
 <style>
   h2 {
     margin: 0 0 8px;
-    font-size: 1rem;
+    font-size: var(--text-md);
   }
   .mono {
     font-family: ui-monospace, monospace;
   }
   .muted {
     color: var(--ink-muted);
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .k {
     color: var(--ink-muted);
@@ -147,7 +147,7 @@ const pkgForAttr = (n: string) => pkgByName.get(n) ?? null
   }
   p {
     margin: 4px 0;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   section {
     border-top: 1px solid var(--grid);
@@ -156,7 +156,7 @@ const pkgForAttr = (n: string) => pkgByName.get(n) ?? null
   }
   h3 {
     margin: 0 0 6px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .plain {
     list-style: none;
@@ -165,7 +165,7 @@ const pkgForAttr = (n: string) => pkgByName.get(n) ?? null
     display: flex;
     flex-direction: column;
     gap: 3px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .plain li {
     display: flex;
@@ -180,7 +180,7 @@ const pkgForAttr = (n: string) => pkgByName.get(n) ?? null
     border: none;
     padding: 0;
     color: var(--link);
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     cursor: pointer;
     text-align: left;
     word-break: break-all;
@@ -193,7 +193,7 @@ const pkgForAttr = (n: string) => pkgByName.get(n) ?? null
     font-weight: normal;
   }
   .chip {
-    font-size: 0.625rem;
+    font-size: var(--text-3xs);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     padding: 1px 6px;

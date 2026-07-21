@@ -43,3 +43,34 @@ export function textSizeRem(step: number): number {
 export function textStepName(step: number): string {
   return TEXT_STEPS[clampTextStep(step)]!
 }
+
+/**
+ * Component type tokens — the same ratio, keyed by how many steps below the
+ * root each one sits. Components say `font-size: var(--text-xs)` instead of a
+ * raw number, so every size in the app lands on the scale by construction
+ * rather than by whoever last eyeballed a pixel value.
+ *
+ * Six steps covers the whole UI: micro badges (3xs) through the largest
+ * heading (lg). Sizes that used to sit between steps were drift, not
+ * hierarchy — no two of them were ever visible in the same component.
+ */
+export const TEXT_TOKENS = {
+  "3xs": -4,
+  "2xs": -3,
+  xs: -2,
+  sm: -1,
+  md: 0,
+  lg: 1,
+} as const
+
+/** Size of one component token, in rem relative to the root. */
+export function tokenRem(step: number): number {
+  return Math.round(TEXT_RATIO ** step * 1000) / 1000
+}
+
+/** The `--text-*` declarations for the page shell's `:root` block. */
+export function textTokenCss(): string {
+  return Object.entries(TEXT_TOKENS)
+    .map(([name, step]) => `--text-${name}:${tokenRem(step)}rem`)
+    .join(";")
+}

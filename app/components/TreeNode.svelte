@@ -121,7 +121,7 @@ export function nodeColorKey(n: Node): string {
     border: none;
     color: var(--ink-1);
     font: inherit;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     padding: 0.2rem 0.4rem;
     border-radius: 8px;
     cursor: pointer;
@@ -149,7 +149,7 @@ export function nodeColorKey(n: Node): string {
   }
   .badge {
     margin-left: auto;
-    font-size: 0.6875rem;
+    font-size: var(--text-3xs);
     color: var(--ink-muted);
     background: var(--page);
     border-radius: 8px;

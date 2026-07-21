@@ -174,7 +174,7 @@ function baseIndex(catIndex: number): number {
     border-radius: 6px;
     color: var(--ink-1);
     padding: 5px 10px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     width: 100%;
     box-sizing: border-box;
   }
@@ -197,7 +197,7 @@ function baseIndex(catIndex: number): number {
     z-index: 20;
   }
   .cathead {
-    font-size: 0.625rem;
+    font-size: var(--text-3xs);
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -214,7 +214,7 @@ function baseIndex(catIndex: number): number {
     border-radius: 6px;
     padding: 4px 8px;
     font: inherit;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     color: var(--ink-1);
     cursor: pointer;
     text-align: left;
@@ -234,7 +234,7 @@ function baseIndex(catIndex: number): number {
   }
   .detail {
     color: var(--ink-muted);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -249,7 +249,7 @@ function baseIndex(catIndex: number): number {
   }
   .muted {
     color: var(--ink-muted);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   .foot {
     border-top: 1px solid var(--grid);
@@ -272,7 +272,7 @@ function baseIndex(catIndex: number): number {
     border: none;
     padding: 0;
     color: var(--link);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     cursor: pointer;
     text-align: left;
   }

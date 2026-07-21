@@ -72,7 +72,7 @@ const revLink = $derived(commitUrl(input.url, input.rev))
     border: 1px solid color-mix(in srgb, var(--c) 35%, var(--grid));
     border-radius: 10px;
     padding: 8px 12px;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     margin-bottom: 8px;
     display: flex;
     align-items: baseline;

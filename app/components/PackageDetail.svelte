@@ -392,12 +392,12 @@ function loadAllPackages() {
   }
   h2 {
     margin: 0;
-    font-size: 0.9375rem;
+    font-size: var(--text-sm);
     word-break: break-all;
   }
   .path {
     margin: 0 0 8px;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   .mono {
     font-family: ui-monospace, monospace;
@@ -410,7 +410,7 @@ function loadAllPackages() {
   }
   .warn {
     color: var(--warn);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   .sep {
     color: var(--ink-muted);
@@ -420,7 +420,7 @@ function loadAllPackages() {
     color: var(--ink-muted);
     border-radius: 8px;
     padding: 1px 8px;
-    font-size: 0.6875rem;
+    font-size: var(--text-3xs);
     flex: none;
   }
   .badge.builder {
@@ -439,7 +439,7 @@ function loadAllPackages() {
   }
   h3 {
     margin: 0 0 6px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -453,7 +453,7 @@ function loadAllPackages() {
     grid-template-columns: auto 1fr;
     gap: 3px 10px;
     margin: 0;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   dt {
     color: var(--ink-muted);
@@ -464,7 +464,7 @@ function loadAllPackages() {
   }
   p {
     margin: 4px 0;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .k {
     color: var(--ink-muted);
@@ -481,7 +481,7 @@ function loadAllPackages() {
   }
   details {
     margin-top: 6px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   details summary {
     cursor: pointer;
@@ -501,7 +501,7 @@ function loadAllPackages() {
     list-style: none;
     margin: 4px 0 0;
     padding: 0;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   .outs li,
   .drvs li,
@@ -512,7 +512,7 @@ function loadAllPackages() {
   .scope {
     color: var(--ink-muted);
     font-weight: normal;
-    font-size: 0.6875rem;
+    font-size: var(--text-3xs);
     margin-left: auto;
   }
   .revdeps {
@@ -522,14 +522,14 @@ function loadAllPackages() {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   .link {
     background: none;
     border: none;
     padding: 0;
     color: var(--link);
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     cursor: pointer;
     text-align: left;
     word-break: break-all;
@@ -543,7 +543,7 @@ function loadAllPackages() {
     border: 1px solid var(--grid);
     border-radius: 6px;
     color: var(--ink-2);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     padding: 3px 8px;
     cursor: pointer;
   }

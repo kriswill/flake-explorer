@@ -48,7 +48,7 @@ function revealLine(el: HTMLElement, line: number) {
     overflow-y: hidden;
     white-space: pre;
     font-family: ui-monospace, monospace;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     line-height: 1.5;
   }
   .src li {

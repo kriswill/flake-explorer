@@ -46,7 +46,7 @@ const loaded = $derived(
 <style>
   .slot-note {
     margin: 3px 0;
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
   }
   .muted {
     color: var(--ink-muted);
@@ -59,7 +59,7 @@ const loaded = $derived(
     border: 1px solid var(--grid);
     border-radius: 4px;
     color: var(--ink-2);
-    font-size: 0.6875rem;
+    font-size: var(--text-3xs);
     cursor: pointer;
     margin-left: 6px;
   }

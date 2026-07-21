@@ -171,7 +171,7 @@ const rows = $derived.by((): Row[] => {
   }
   h2 {
     margin: 0;
-    font-size: 1.0625rem;
+    font-size: var(--text-md);
     display: flex;
     align-items: baseline;
     gap: 10px;
@@ -203,7 +203,7 @@ const rows = $derived.by((): Row[] => {
     flex: none;
     cursor: pointer;
     color: var(--ink-muted);
-    font-size: 1.125rem;
+    font-size: var(--text-lg);
     line-height: 1;
     border: 0;
     background: none;
@@ -228,7 +228,7 @@ const rows = $derived.by((): Row[] => {
     border-radius: 8px;
     color: var(--ink-muted);
     font: inherit;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
     font-weight: 500;
     padding: 5px 12px;
     cursor: pointer;
@@ -247,7 +247,7 @@ const rows = $derived.by((): Row[] => {
   }
   .about {
     color: var(--ink-2);
-    font-size: 0.84rem;
+    font-size: var(--text-xs);
     line-height: 1.55;
     margin: 0 0 14px;
   }
@@ -256,7 +256,7 @@ const rows = $derived.by((): Row[] => {
     font-weight: 600;
   }
   h3 {
-    font-size: 0.6875rem;
+    font-size: var(--text-3xs);
     font-weight: 600;
     color: var(--ink-muted);
     text-transform: uppercase;
@@ -265,14 +265,14 @@ const rows = $derived.by((): Row[] => {
   }
   .ref {
     color: var(--ink-muted);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     margin: 0 0 6px;
     overflow-wrap: break-word;
   }
   table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.8rem;
+    font-size: var(--text-xs);
     margin-bottom: 14px;
   }
   td {
@@ -292,7 +292,7 @@ const rows = $derived.by((): Row[] => {
   }
   .tool {
     color: var(--ink-muted);
-    font-size: 0.75rem;
+    font-size: var(--text-2xs);
     margin: 6px 0 0;
   }
   .tool a {
@@ -305,13 +305,13 @@ const rows = $derived.by((): Row[] => {
   }
   .lic-note {
     color: var(--ink-2);
-    font-size: 0.8rem;
+    font-size: var(--text-xs);
     line-height: 1.5;
     margin: 0 0 10px;
   }
   details.lic {
     margin: 4px 0;
-    font-size: 0.8125rem;
+    font-size: var(--text-xs);
   }
   details.lic summary {
     cursor: pointer;
