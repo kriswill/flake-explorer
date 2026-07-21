@@ -65,6 +65,37 @@ const positionInfo = $derived.by(() => {
   const meta = resolveFile(file, app.manifest, app.flakeIndexes)
   return { file, line, fileId: meta.id }
 })
+
+/**
+ * "Depended on by": packages in this flake that depend on THIS one, joined on
+ * drv.drvPath (the only sound key — reverse-deps.ts). A static export embeds an
+ * authoritative index; serve mode has none, so derive over packages loaded this
+ * session (blind to unloaded ones — hence the honest "among loaded" label and
+ * the load-the-rest affordance).
+ */
+const reverseDeps = $derived.by(() => {
+  const idx = app.manifest?.packageReverseDeps
+  if (idx) return { ids: idx[refId] ?? [], scope: "static" as const }
+  const myDrv = data?.drv?.drvPath
+  if (!myDrv) return { ids: [] as string[], scope: "loaded" as const }
+  const ids: string[] = []
+  for (const p of app.manifest?.packages ?? []) {
+    if (p.id === refId) continue
+    const dep = loadedPackage(app.packages[p.id])
+    if (dep?.data.drv?.inputDrvs.some((i) => i.drvPath === myDrv)) ids.push(p.id)
+  }
+  return { ids: ids.sort(), scope: "loaded" as const }
+})
+
+/** Packages not yet loaded — the client-side join above cannot see these. */
+const unloadedPackages = $derived((app.manifest?.packages ?? []).filter((p) => !app.packages[p.id]))
+
+const pkgPathOf = (id: string) => app.manifest?.packages.find((p) => p.id === id)?.path ?? null
+const pkgLabel = (id: string) => pkgPathOf(id)?.at(-1) ?? id
+
+function loadAllPackages() {
+  for (const p of app.manifest?.packages ?? []) void app.loadPackage(p.id)
+}
 </script>
 
 {#if !ref}
@@ -244,6 +275,42 @@ const positionInfo = $derived.by(() => {
   </section>
 
   <section>
+    <h3>
+      Depended on by <span class="count">{reverseDeps.ids.length}</span>
+      <span class="scope">{reverseDeps.scope === "static" ? "in this flake" : "among loaded packages"}</span>
+    </h3>
+    {#if reverseDeps.ids.length}
+      <ul class="revdeps">
+        {#each reverseDeps.ids as id (id)}
+          {@const path = pkgPathOf(id)}
+          <li>
+            {#if path}
+              <button class="link mono" onclick={() => app.select({ kind: "output", path })}>{pkgLabel(id)}</button>
+            {:else}
+              <span class="mono">{id}</span>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    {:else}
+      <p class="muted">
+        {reverseDeps.scope === "static"
+          ? "No other package in this flake depends on it."
+          : "No dependents among loaded packages."}
+      </p>
+    {/if}
+    <!-- Only a drvPath join is sound, so this sees the flake's OWN packages
+         only — a nixpkgs consumer of this derivation never appears. In serve
+         mode the join is further limited to loaded packages; offer to load the
+         rest so the count can complete. -->
+    {#if reverseDeps.scope === "loaded" && unloadedPackages.length}
+      <button class="loadall" onclick={loadAllPackages}>
+        load {unloadedPackages.length} more package{unloadedPackages.length === 1 ? "" : "s"} to complete (may extract)
+      </button>
+    {/if}
+  </section>
+
+  <section>
     <h3>Outputs <span class="count">{data.outputs.length}</span></h3>
     <ul class="outs">
       {#each data.outputs as out (out.name)}
@@ -417,5 +484,47 @@ const positionInfo = $derived.by(() => {
   .refs li {
     padding: 2px 0;
     word-break: break-all;
+  }
+  .scope {
+    color: var(--ink-muted);
+    font-weight: normal;
+    font-size: 0.6875rem;
+    margin-left: auto;
+  }
+  .revdeps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 0.8125rem;
+  }
+  .link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--link);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    text-align: left;
+    word-break: break-all;
+  }
+  .link:hover {
+    text-decoration: underline;
+  }
+  .loadall {
+    margin-top: 6px;
+    background: none;
+    border: 1px solid var(--grid);
+    border-radius: 6px;
+    color: var(--ink-2);
+    font-size: 0.75rem;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+  .loadall:hover {
+    color: var(--link);
+    border-color: var(--link);
   }
 </style>

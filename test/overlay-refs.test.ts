@@ -27,7 +27,12 @@ test("attr-path form: overlays.<name> = and flake.overlays.<name> =", async () =
   expect(defs).toEqual([
     { name: "default", file: "self:flake.nix" },
     { name: "dev-tools", file: "self:flake.nix" },
-    { name: "extra", file: "self:parts/overlays.nix" },
+    // hello = prev.hello → override; empty bodies carry no attrs field.
+    {
+      name: "extra",
+      file: "self:parts/overlays.nix",
+      attrs: [{ name: "hello", kind: "override" }],
+    },
   ])
 })
 
@@ -48,7 +53,11 @@ test("block form: flake.overlays = { … } entries, imports resolved to their fi
     { name: "kitten", file: "self:overlays/kitten.nix" },
     { name: "direnv", file: "self:overlays/direnv.nix" },
     // Unresolvable rhs falls back to the attach file itself.
-    { name: "inline", file: "self:modules/overlays.nix" },
+    {
+      name: "inline",
+      file: "self:modules/overlays.nix",
+      attrs: [{ name: "hello", kind: "override" }],
+    },
   ])
 })
 
@@ -84,7 +93,55 @@ test("nested attrsets inside a block entry do not leak fake entries", async () =
       };
     }`,
   })
-  expect(defs).toEqual([{ name: "big", file: "self:flake.nix" }])
+  // `big` and `deeper` are the depth-1 attrs; `alsoFake` (nested) does not leak.
+  expect(defs).toEqual([
+    {
+      name: "big",
+      file: "self:flake.nix",
+      attrs: [
+        { name: "fake", kind: "override" },
+        { name: "deeper", kind: "add" },
+      ],
+    },
+  ])
+})
+
+test("overlay body attrs: add vs override, and bodies read from the imported file", async () => {
+  const defs = await scan({
+    "flake.nix": `{
+      overlays.default = final: prev: {
+        freshPkg = final.callPackage ./pkg.nix { };
+        patched = prev.patched.overrideAttrs (old: { doCheck = false; });
+        pinned = prev.pinned;
+      };
+      overlays.viaImport = import ./overlays/big.nix;
+    }`,
+    // Imported body: whole file is the lambda; self/super naming + leading comment.
+    "overlays/big.nix": `# an overlay
+      self: super: {
+        added = self.hello;
+        bumped = super.bumped.override { withX = true; };
+      }`,
+  })
+  expect(defs).toEqual([
+    {
+      name: "default",
+      file: "self:flake.nix",
+      attrs: [
+        { name: "freshPkg", kind: "add" },
+        { name: "patched", kind: "override" },
+        { name: "pinned", kind: "override" },
+      ],
+    },
+    {
+      name: "viaImport",
+      file: "self:overlays/big.nix",
+      attrs: [
+        { name: "added", kind: "add" },
+        { name: "bumped", kind: "override" },
+      ],
+    },
+  ])
 })
 
 test("dedupes per site, keeps distinct files; unreadable files are skipped", async () => {

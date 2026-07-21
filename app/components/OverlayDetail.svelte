@@ -24,6 +24,23 @@ const defFor = (n: string) => (app.manifest?.overlayDefs ?? []).find((d) => d.na
 
 /** Files importing a definition site — usually the file that attaches the overlay. */
 const importedBy = (fileId: string) => [...(app.flakeIndexes?.importedBy.get(fileId) ?? [])].sort()
+
+/** Top-level attrs the overlay adds/overrides, merged across definition sites
+ *  (override wins). Empty when no body was scannable — see the honest note. */
+const attrs = $derived.by(() => {
+  const byName = new Map<string, "add" | "override">()
+  for (const d of defs) {
+    for (const a of d.attrs ?? []) {
+      if (!byName.has(a.name) || a.kind === "override") byName.set(a.name, a.kind)
+    }
+  }
+  return [...byName]
+    .map(([n, kind]) => ({ name: n, kind }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+})
+
+/** An overlay attr that a flake package re-exposes by the same name links to it. */
+const pkgForAttr = (n: string) => app.manifest?.packages.find((p) => p.path.at(-1) === n) ?? null
 </script>
 
 {#if !name}
@@ -69,6 +86,32 @@ const importedBy = (fileId: string) => [...(app.flakeIndexes?.importedBy.get(fil
       </ul>
     {/if}
   </section>
+
+  {#if defs.length}
+    <section>
+      <h3>Adds / overrides <span class="count">{attrs.length}</span></h3>
+      {#if attrs.length === 0}
+        <p class="muted">
+          No top-level attrs detected — an empty overlay, or an anonymous/computed
+          form the source scan can't read (only <span class="mono">final: prev: &lbrace; … &rbrace;</span> bodies are enumerated).
+        </p>
+      {:else}
+        <ul class="plain">
+          {#each attrs as a (a.name)}
+            {@const pkg = pkgForAttr(a.name)}
+            <li>
+              {#if pkg}
+                <button class="link mono" onclick={() => app.select({ kind: "output", path: pkg.path })}>{a.name}</button>
+              {:else}
+                <span class="mono">{a.name}</span>
+              {/if}
+              <span class="chip {a.kind}">{a.kind}</span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
+  {/if}
 {/if}
 
 <style>
@@ -129,5 +172,22 @@ const importedBy = (fileId: string) => [...(app.flakeIndexes?.importedBy.get(fil
   }
   .link:hover {
     text-decoration: underline;
+  }
+  .count {
+    color: var(--ink-muted);
+    font-weight: normal;
+  }
+  .chip {
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 6px;
+    border-radius: 8px;
+    border: 1px solid var(--grid);
+    color: var(--ink-muted);
+  }
+  .chip.override {
+    color: var(--warn);
+    border-color: color-mix(in srgb, var(--warn) 45%, transparent);
   }
 </style>
