@@ -171,6 +171,18 @@ const atDefault = $derived(prefs.textStep === TEXT_DEFAULT_STEP)
 </header>
 
 <style>
+  /*
+    The top bar is chrome, not content: it holds still while the text-size
+    control moves everything below it. So its own metrics are px — the bar
+    height, the icon sizes, the wordmark — and the one thing that does scale
+    is the text you type into the search field, which is content you have to
+    read. Its box is pinned so that scaling cannot push the bar around.
+
+    The icons were already fixed, but by accident: `em` inside a <button>
+    resolves against the UA button font-size, which nothing inherits into.
+    They are stated in px now so the next `font: inherit` cannot quietly
+    start scaling them.
+  */
   header {
     position: relative;
     z-index: 10;
@@ -178,12 +190,16 @@ const atDefault = $derived(prefs.textStep === TEXT_DEFAULT_STEP)
     grid-template-columns: 1fr minmax(280px, 480px) 1fr;
     align-items: center;
     gap: 12px;
-    padding: 8px 14px;
+    /* min-, not a hard height: nothing inside scales any more, so this is
+       exactly 46px in practice, but a very narrow window can still wrap the
+       wordmark rather than clipping it. */
+    min-height: 46px;
+    padding: 0 14px;
     background: var(--surface-1);
     border-bottom: 1px solid color-mix(in srgb, var(--ink-1) 15%, var(--grid));
   }
   h1 {
-    font-size: var(--text-sm);
+    font-size: 16px;
     margin: 0;
   }
   .home {
@@ -225,9 +241,8 @@ const atDefault = $derived(prefs.textStep === TEXT_DEFAULT_STEP)
     cursor: pointer;
     line-height: 1;
   }
-  /* Height in em so the glyph tracks the surrounding type. */
   .szicon {
-    height: 1.15em;
+    height: 15px;
     width: auto;
   }
   .letter {
@@ -271,7 +286,7 @@ const atDefault = $derived(prefs.textStep === TEXT_DEFAULT_STEP)
     outline-offset: 2px;
   }
   .tsw {
-    height: 1.55em;
+    height: 21px;
     width: auto;
     display: block;
   }
@@ -363,7 +378,7 @@ const atDefault = $derived(prefs.textStep === TEXT_DEFAULT_STEP)
     outline-offset: 2px;
   }
   .about svg {
-    height: 1.6em;
+    height: 21px;
     width: auto;
     display: block;
     transition: transform 0.2s ease;
