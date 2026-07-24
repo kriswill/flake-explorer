@@ -35,7 +35,11 @@ impl std::error::Error for NixError {}
 
 impl NixError {
     fn plain(message: impl Into<String>) -> Self {
-        NixError { message: message.into(), stderr: String::new(), exit_code: None }
+        NixError {
+            message: message.into(),
+            stderr: String::new(),
+            exit_code: None,
+        }
     }
 }
 
@@ -43,11 +47,13 @@ const MIN_NIX: (u64, u64) = (2, 19);
 
 /// Errors with a clear message when nix is missing or too old.
 pub async fn check_nix() -> Result<String, NixError> {
-    let out = run(&["--version"], Duration::from_secs(10)).await.map_err(|_| {
-        NixError::plain(
-            "flake-explorer needs `nix` on PATH (>= 2.19 with flakes enabled) — none found.",
-        )
-    })?;
+    let out = run(&["--version"], Duration::from_secs(10))
+        .await
+        .map_err(|_| {
+            NixError::plain(
+                "flake-explorer needs `nix` on PATH (>= 2.19 with flakes enabled) — none found.",
+            )
+        })?;
     // e.g. "nix (Nix) 2.34.7" or "nix (Determinate Nix 3.21.1) 2.34.7"
     let re = regex::Regex::new(r"\s(\d+)\.(\d+)\.\d+\s*$").unwrap();
     for line in out.lines() {
@@ -71,13 +77,20 @@ pub async fn check_nix() -> Result<String, NixError> {
 // Lazy trees (Determinate Nix) mint per-access-route virtual store paths;
 // force real content-addressed paths. On nix variants without the setting
 // this is just an "unknown setting" warning.
-const COMMON_OPTS: [&str; 4] = ["--option", "lazy-trees", "false", "--extra-experimental-features"];
+const COMMON_OPTS: [&str; 4] = [
+    "--option",
+    "lazy-trees",
+    "false",
+    "--extra-experimental-features",
+];
 const COMMON_FEATURES: &str = "nix-command flakes";
 
 pub async fn run(args: &[&str], timeout: Duration) -> Result<String, NixError> {
     let mut cmd = Command::new("nix");
     cmd.args(COMMON_OPTS).arg(COMMON_FEATURES).args(args);
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null());
+    cmd.stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null());
     cmd.kill_on_drop(true);
     let mut child = cmd
         .spawn()
@@ -120,7 +133,9 @@ pub async fn run(args: &[&str], timeout: Duration) -> Result<String, NixError> {
             message: format!(
                 "nix {} failed (exit {}):\n{}",
                 args.iter().take(3).cloned().collect::<Vec<_>>().join(" "),
-                exit_code.map(|c| c.to_string()).unwrap_or_else(|| "?".into()),
+                exit_code
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "?".into()),
                 tail
             ),
             stderr,
@@ -145,9 +160,17 @@ pub async fn flake_metadata(r#ref: &str, timeout: Duration) -> Result<FlakeMetad
 }
 
 /// `nix flake show --json <ref>`
-pub async fn flake_show(r#ref: &str, all_systems: bool, timeout: Duration) -> Result<Value, NixError> {
+pub async fn flake_show(
+    r#ref: &str,
+    all_systems: bool,
+    timeout: Duration,
+) -> Result<Value, NixError> {
     if all_systems {
-        run_json(&["flake", "show", "--json", "--all-systems", r#ref], timeout).await
+        run_json(
+            &["flake", "show", "--json", "--all-systems", r#ref],
+            timeout,
+        )
+        .await
     } else {
         run_json(&["flake", "show", "--json", r#ref], timeout).await
     }
@@ -226,7 +249,14 @@ pub struct PathInfoRaw {
 /// nonzero exit, so that's the signal checked (not the exit code).
 pub async fn path_info(out_path: &str, timeout: Duration) -> Result<Option<PathInfoRaw>, NixError> {
     let result: std::collections::HashMap<String, Option<PathInfoRaw>> = run_json(
-        &["path-info", "--json", "--json-format", "1", "--closure-size", out_path],
+        &[
+            "path-info",
+            "--json",
+            "--json-format",
+            "1",
+            "--closure-size",
+            out_path,
+        ],
         timeout,
     )
     .await?;
@@ -245,8 +275,13 @@ pub async fn read_input_file(
     match read_input_file_raw(flake_ref, input_name, rel_path, timeout).await {
         Ok(s) => Ok(s),
         Err(e) if e.stderr.contains("Is a directory") => {
-            read_input_file_raw(flake_ref, input_name, &format!("{rel_path}/default.nix"), timeout)
-                .await
+            read_input_file_raw(
+                flake_ref,
+                input_name,
+                &format!("{rel_path}/default.nix"),
+                timeout,
+            )
+            .await
         }
         Err(e) => Err(e),
     }

@@ -58,7 +58,10 @@ mod tests {
 
     #[test]
     fn resolves_dotdot() {
-        assert_eq!(resolve_rel_ref("a/b", "../c.nix").as_deref(), Some("a/c.nix"));
+        assert_eq!(
+            resolve_rel_ref("a/b", "../c.nix").as_deref(),
+            Some("a/c.nix")
+        );
         assert_eq!(resolve_rel_ref("", "./x/y.nix").as_deref(), Some("x/y.nix"));
         assert_eq!(resolve_rel_ref("a", "../../x.nix"), None);
     }

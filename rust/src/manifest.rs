@@ -65,12 +65,19 @@ pub async fn build_manifest(flake_ref: &str, opts: &ManifestOptions) -> anyhow::
     let self_id = |rel: &str| make_file_id_self(rel);
 
     let import_edges = import_graph(&self_files, &read, &self_id);
-    let input_refs = scan_input_refs(&self_files, &canonical_input_names(&inputs), &read, &self_id);
+    let input_refs = scan_input_refs(
+        &self_files,
+        &canonical_input_names(&inputs),
+        &read,
+        &self_id,
+    );
     let overlay_defs = scan_overlay_defs(&self_files, &read, &self_id);
 
     let outputs = match show_json {
         Some(j) => normalize_show(&j),
-        None => OutputNode::Attrset { children: IndexMap::new() },
+        None => OutputNode::Attrset {
+            children: IndexMap::new(),
+        },
     };
     let packages = package_refs(&outputs);
 
@@ -116,7 +123,9 @@ pub async fn build_manifest(flake_ref: &str, opts: &ManifestOptions) -> anyhow::
 }
 
 pub fn now_iso() -> String {
-    chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+    chrono::Utc::now()
+        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+        .to_string()
 }
 
 /// The manifest eval, with one degradation step: an unresolvable TRANSITIVE
@@ -126,7 +135,11 @@ async fn manifest_eval(
     flake_ref: &str,
     timeout: Duration,
 ) -> Result<(ManifestEval, Option<String>), NixError> {
-    let args = ExtractArgs { flake_ref: flake_ref.to_string(), mode: "manifest", ..Default::default() };
+    let args = ExtractArgs {
+        flake_ref: flake_ref.to_string(),
+        mode: "manifest",
+        ..Default::default()
+    };
     match eval_extract::<ManifestEval>(&args, timeout).await {
         Ok(ev) => Ok((ev, None)),
         Err(e) => {
@@ -138,7 +151,10 @@ async fn manifest_eval(
                 .trim()
                 .to_string();
             let shallow = eval_extract::<ManifestEval>(
-                &ExtractArgs { inputs_depth: Some(0), ..args },
+                &ExtractArgs {
+                    inputs_depth: Some(0),
+                    ..args
+                },
                 timeout,
             )
             .await?;
@@ -156,14 +172,18 @@ async fn manifest_eval(
 /// enumerated straight from the normalized outputs tree.
 pub fn package_refs(outputs: &OutputNode) -> Vec<PackageRef> {
     let mut refs = Vec::new();
-    let OutputNode::Attrset { children } = outputs else { return refs };
+    let OutputNode::Attrset { children } = outputs else {
+        return refs;
+    };
 
     for category in ["packages", "devShells", "checks"] {
         let Some(OutputNode::Attrset { children: systems }) = children.get(category) else {
             continue;
         };
         for (system, sys_node) in systems {
-            let OutputNode::Attrset { children: names } = sys_node else { continue };
+            let OutputNode::Attrset { children: names } = sys_node else {
+                continue;
+            };
             for (name, leaf) in names {
                 if matches!(leaf, OutputNode::Leaf { .. }) {
                     refs.push(make_package_ref(vec![
@@ -179,7 +199,10 @@ pub fn package_refs(outputs: &OutputNode) -> Vec<PackageRef> {
     if let Some(OutputNode::Attrset { children: systems }) = children.get("formatter") {
         for (system, leaf) in systems {
             if matches!(leaf, OutputNode::Leaf { .. }) {
-                refs.push(make_package_ref(vec!["formatter".to_string(), system.clone()]));
+                refs.push(make_package_ref(vec![
+                    "formatter".to_string(),
+                    system.clone(),
+                ]));
             }
         }
     }
@@ -191,7 +214,10 @@ fn make_package_ref(path: Vec<String>) -> PackageRef {
         id: path.join("/"),
         data_file: format!(
             "package/{}.json",
-            path.iter().map(|s| safe_name(s)).collect::<Vec<_>>().join(".")
+            path.iter()
+                .map(|s| safe_name(s))
+                .collect::<Vec<_>>()
+                .join(".")
         ),
         path,
         status: RefStatus::Pending,
@@ -223,7 +249,10 @@ pub fn safe_name(name: &str) -> String {
         .collect();
     let digest = Sha256::digest(name.as_bytes());
     let n = u64::from_be_bytes(digest[..8].try_into().unwrap());
-    format!("{slug}-{}", to_base36(n).chars().take(8).collect::<String>())
+    format!(
+        "{slug}-{}",
+        to_base36(n).chars().take(8).collect::<String>()
+    )
 }
 
 fn to_base36(mut n: u64) -> String {
@@ -316,7 +345,10 @@ pub fn input_infos(
                     follows: None,
                     aliases: None,
                 }),
-                Some(k) => by_node.entry(k).or_default().push(RootEntry { name, r#ref }),
+                Some(k) => by_node
+                    .entry(k)
+                    .or_default()
+                    .push(RootEntry { name, r#ref }),
             }
         }
     }
@@ -337,7 +369,13 @@ pub fn input_infos(
         aliases.sort();
         // Same store path either way; prefer the primary's eval node.
         let ev_node = std::iter::once(primary)
-            .chain(group.iter().enumerate().filter(|(i, _)| *i != primary_idx).map(|(_, e)| e))
+            .chain(
+                group
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| *i != primary_idx)
+                    .map(|(_, e)| e),
+            )
             .find_map(|e| ev.inputs.get(e.name));
         queue.push_back(Item {
             name: primary.name.to_string(),
@@ -356,7 +394,10 @@ pub fn input_infos(
         let node = item.node_key.as_ref().and_then(|k| meta.locks.nodes.get(k));
         let Some(node) = node else {
             if item.depth == 0 {
-                warnings.push(format!("flake.lock: could not resolve input \"{}\"", item.name));
+                warnings.push(format!(
+                    "flake.lock: could not resolve input \"{}\"",
+                    item.name
+                ));
             }
             continue;
         };
@@ -365,7 +406,10 @@ pub fn input_infos(
             // The node already has an entry under another name — record the
             // edge the dedup would otherwise silently drop.
             if let Some(target) = name_by_node.get(&node_key) {
-                follow_edges.push(InputFollow { name: item.name.clone(), target: target.clone() });
+                follow_edges.push(InputFollow {
+                    name: item.name.clone(),
+                    target: target.clone(),
+                });
             }
             continue;
         }
@@ -384,7 +428,9 @@ pub fn input_infos(
                     .and_then(|l| l.r#type.clone())
                     .or_else(|| node.original.as_ref().and_then(|o| o.r#type.clone()))
                     .unwrap_or_else(|| "unknown".to_string()),
-                url: locked.and_then(|l| l.url.clone()).or_else(|| url_from_locked(locked)),
+                url: locked
+                    .and_then(|l| l.url.clone())
+                    .or_else(|| url_from_locked(locked)),
                 r#ref: locked
                     .and_then(|l| l.r#ref.clone())
                     .or_else(|| node.original.as_ref().and_then(|o| o.r#ref.clone())),
@@ -421,10 +467,13 @@ pub fn input_infos(
 fn url_from_locked(locked: Option<&crate::run_nix::LockedInfo>) -> Option<String> {
     let l = locked?;
     match l.r#type.as_deref() {
-        Some("github") => l
-            .owner
-            .as_ref()
-            .map(|o| format!("https://github.com/{}/{}", o, l.repo.as_deref().unwrap_or(""))),
+        Some("github") => l.owner.as_ref().map(|o| {
+            format!(
+                "https://github.com/{}/{}",
+                o,
+                l.repo.as_deref().unwrap_or("")
+            )
+        }),
         Some("path") => l.path.clone(),
         _ => None,
     }
@@ -467,8 +516,9 @@ async fn file_entries(
 
     if let Some(checkout) = local_checkout {
         match repo_prefix(checkout).await {
-            None => warnings
-                .push(format!("{checkout} is not a git work tree — no per-file commit info")),
+            None => warnings.push(format!(
+                "{checkout} is not a git work tree — no per-file commit info"
+            )),
             Some(prefix) => {
                 let commits = last_commits(checkout, warnings).await;
                 for e in &mut entries {
@@ -531,7 +581,9 @@ fn inventory_node(node: &Value) -> OutputNode {
 }
 
 fn classic_node(node: &Value) -> OutputNode {
-    let Some(n) = node.as_object() else { return OutputNode::Unknown };
+    let Some(n) = node.as_object() else {
+        return OutputNode::Unknown;
+    };
     if n.get("unknown") == Some(&Value::Bool(true)) {
         return OutputNode::Unknown;
     }
@@ -583,7 +635,9 @@ mod tests {
             "empty": {}
         });
         let n = normalize_show(&j);
-        let OutputNode::Attrset { children } = &n else { panic!() };
+        let OutputNode::Attrset { children } = &n else {
+            panic!()
+        };
         assert!(matches!(children["unknownThing"], OutputNode::Unknown));
         assert!(matches!(children["empty"], OutputNode::Omitted));
         let refs = package_refs(&n);
@@ -606,7 +660,9 @@ mod tests {
             }
         });
         let n = normalize_show(&j);
-        let OutputNode::Attrset { children } = &n else { panic!() };
+        let OutputNode::Attrset { children } = &n else {
+            panic!()
+        };
         assert!(matches!(children["filteredOut"], OutputNode::Omitted));
         let refs = package_refs(&n);
         assert_eq!(refs[0].id, "packages/x86_64-linux/hello");

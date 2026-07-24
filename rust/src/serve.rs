@@ -52,12 +52,22 @@ pub async fn serve(flake_ref: String, flags: ServeFlags) -> anyhow::Result<()> {
     let title = format!("flake-explorer — {flake_ref}");
     let dist = find_app_dist()?;
     let bundle = load_bundle(&dist)?;
-    let page = page_html(&bundle, &title, &PageOpts { dev: flags.dev, embeds: &[] });
+    let page = page_html(
+        &bundle,
+        &title,
+        &PageOpts {
+            dev: flags.dev,
+            embeds: &[],
+        },
+    );
 
     println!("extracting manifest of {flake_ref} ...");
     let mut manifest = build_manifest(
         &flake_ref,
-        &ManifestOptions { all_systems: flags.all_systems, timeout: flags.timeout },
+        &ManifestOptions {
+            all_systems: flags.all_systems,
+            timeout: flags.timeout,
+        },
     )
     .await?;
     reconcile(&flags.out, &mut manifest);
@@ -148,9 +158,7 @@ async fn handle(state: Arc<AppState>, req: Request<Body>) -> Response {
                 *state.manifest.write().await = m;
                 axum::Json(json!({"ok": true})).into_response()
             }
-            Err(e) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response()
-            }
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")).into_response(),
         };
     }
 
@@ -170,7 +178,10 @@ async fn serve_blob(state: &Arc<AppState>, rel: &str) -> Response {
     let (id, status) = {
         let m = state.manifest.read().await;
         let found = if is_package {
-            m.packages.iter().find(|p| p.data_file == rel).map(|p| (p.id.clone(), p.status))
+            m.packages
+                .iter()
+                .find(|p| p.data_file == rel)
+                .map(|p| (p.id.clone(), p.status))
         } else {
             m.configurations
                 .iter()
@@ -213,16 +224,18 @@ async fn serve_blob(state: &Arc<AppState>, rel: &str) -> Response {
     }
 
     match std::fs::read(Path::new(&state.flags.out).join(rel)) {
-        Ok(bytes) => {
-            ([(header::CONTENT_TYPE, "application/json")], bytes).into_response()
-        }
+        Ok(bytes) => ([(header::CONTENT_TYPE, "application/json")], bytes).into_response(),
         Err(_) => (StatusCode::NOT_FOUND, "not found").into_response(),
     }
 }
 
 async fn on_demand(state: &Arc<AppState>, is_package: bool, id: &str) {
     // Keyspace prefix — a package id must never collide with a config id.
-    let key = if is_package { format!("pkg:{id}") } else { id.to_string() };
+    let key = if is_package {
+        format!("pkg:{id}")
+    } else {
+        id.to_string()
+    };
     let mut rx = {
         let mut inflight = state.inflight.lock().await;
         if let Some(rx) = inflight.get(&key) {
@@ -346,7 +359,11 @@ async fn serve_file(state: &Arc<AppState>, enc_id: &str, query: &str) -> Respons
     // without this the route hands out any file the serving user can open.
     let flake_path = state.manifest.read().await.flake.path.clone();
     if !under_readable_root(&store_path, &flake_path) {
-        return (StatusCode::FORBIDDEN, "storePath outside the store and flake").into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            "storePath outside the store and flake",
+        )
+            .into_response();
     }
     let text = match std::fs::read_to_string(&store_path) {
         Ok(t) => t,
@@ -387,7 +404,11 @@ pub fn under_readable_root(candidate: &str, flake_path: &str) -> bool {
         return false;
     }
     let root = normalize_path(flake_path);
-    let root_slash = if root.ends_with('/') { root.clone() } else { format!("{root}/") };
+    let root_slash = if root.ends_with('/') {
+        root.clone()
+    } else {
+        format!("{root}/")
+    };
     path == root || path.starts_with(&root_slash)
 }
 
@@ -424,8 +445,8 @@ fn async_stream_events(
     use tokio_stream::wrappers::BroadcastStream;
     use tokio_stream::StreamExt;
     let hello = tokio_stream::once(Ok(": connected\n\n".to_string()));
-    let reloads = BroadcastStream::new(rx)
-        .filter_map(|r| r.ok().map(|_| Ok("data: reload\n\n".to_string())));
+    let reloads =
+        BroadcastStream::new(rx).filter_map(|r| r.ok().map(|_| Ok("data: reload\n\n".to_string())));
     hello.chain(reloads)
 }
 
@@ -433,28 +454,33 @@ fn async_stream_events(
 /// pulls in) changes, then push a reload to connected browsers over SSE.
 fn spawn_dev_watcher(state: Arc<AppState>, dist: std::path::PathBuf, title: String) {
     use notify::{RecursiveMode, Watcher};
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf();
     let app_dir = repo.join("app");
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
     std::thread::spawn(move || {
         let tx2 = tx.clone();
-        let mut watcher = match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-            if let Ok(ev) = res {
-                let relevant = ev.paths.iter().any(|p| {
-                    p.extension().is_some_and(|e| e == "svelte" || e == "ts" || e == "css")
-                });
-                if relevant {
-                    let _ = tx2.send(());
+        let mut watcher =
+            match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+                if let Ok(ev) = res {
+                    let relevant = ev.paths.iter().any(|p| {
+                        p.extension()
+                            .is_some_and(|e| e == "svelte" || e == "ts" || e == "css")
+                    });
+                    if relevant {
+                        let _ = tx2.send(());
+                    }
                 }
-            }
-        }) {
-            Ok(w) => w,
-            Err(e) => {
-                eprintln!("dev: cannot watch app/: {e}");
-                return;
-            }
-        };
+            }) {
+                Ok(w) => w,
+                Err(e) => {
+                    eprintln!("dev: cannot watch app/: {e}");
+                    return;
+                }
+            };
         if let Err(e) = watcher.watch(&app_dir, RecursiveMode::Recursive) {
             eprintln!("dev: cannot watch app/: {e}");
             return;
@@ -494,7 +520,14 @@ fn spawn_dev_watcher(state: Arc<AppState>, dist: std::path::PathBuf, title: Stri
             }
             match load_bundle(&dist) {
                 Ok(bundle) => {
-                    let page = page_html(&bundle, &title, &PageOpts { dev: true, embeds: &[] });
+                    let page = page_html(
+                        &bundle,
+                        &title,
+                        &PageOpts {
+                            dev: true,
+                            embeds: &[],
+                        },
+                    );
                     *state.page.write().await = page;
                     println!(
                         "dev: UI rebuilt in {}ms — reloading clients",
@@ -516,7 +549,10 @@ mod tests {
     fn readable_roots() {
         assert!(under_readable_root("/nix/store/abc-src/x.nix", "/home/f"));
         assert!(!under_readable_root("/nix/store-evil/x", "/home/f"));
-        assert!(!under_readable_root("/nix/store/../../etc/passwd", "/home/f"));
+        assert!(!under_readable_root(
+            "/nix/store/../../etc/passwd",
+            "/home/f"
+        ));
         assert!(under_readable_root("/home/f/mod.nix", "/home/f"));
         assert!(under_readable_root("/home/f", "/home/f"));
         assert!(!under_readable_root("/home/frank/x", "/home/f"));

@@ -86,7 +86,10 @@ fn write_sidecar(
         duration_ms,
         warnings: warnings.to_vec(),
     };
-    std::fs::write(sidecar_path(out_dir, data_file), serde_json::to_string(&meta)?)?;
+    std::fs::write(
+        sidecar_path(out_dir, data_file),
+        serde_json::to_string(&meta)?,
+    )?;
     Ok(())
 }
 
@@ -96,7 +99,9 @@ fn guarded_blob_path(out_dir: &str, data_file: &str) -> anyhow::Result<PathBuf> 
     let blob = Path::new(out_dir).join(data_file);
     let out_canon = std::fs::canonicalize(out_dir)?;
     // The blob may not exist yet; canonicalize its parent.
-    let parent = blob.parent().ok_or_else(|| anyhow::anyhow!("bad dataFile: {data_file}"))?;
+    let parent = blob
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("bad dataFile: {data_file}"))?;
     let parent_canon = std::fs::canonicalize(parent)?;
     if !parent_canon.starts_with(&out_canon) {
         anyhow::bail!("refusing to write outside the data dir: {data_file}");
@@ -126,7 +131,11 @@ pub async fn extract_and_persist(
         flake_ref,
         r#ref.kind,
         &r#ref.name,
-        ExtractOptionsOpts { timeout, on_progress, ..Default::default() },
+        ExtractOptionsOpts {
+            timeout,
+            on_progress,
+            ..Default::default()
+        },
     )
     .await?;
     std::fs::write(&blob_path, serde_json::to_string(&r.data)?)?;
@@ -140,7 +149,10 @@ pub async fn extract_and_persist(
         r.duration_ms,
         &r.warnings,
     )?;
-    Ok(Extracted { result: r, extracted_at })
+    Ok(Extracted {
+        result: r,
+        extracted_at,
+    })
 }
 
 /// Record a finished extraction on a (current-manifest) ConfigRef.
@@ -164,8 +176,19 @@ pub async fn extract_and_persist_package(
     let r = extract_package(flake_ref, &r#ref.id, &r#ref.path, timeout).await?;
     std::fs::write(&blob_path, serde_json::to_string(&r.data)?)?;
     let extracted_at = now_iso();
-    write_sidecar(out_dir, &r#ref.data_file, key, &extracted_at, None, r.duration_ms, &r.warnings)?;
-    Ok(Extracted { result: r, extracted_at })
+    write_sidecar(
+        out_dir,
+        &r#ref.data_file,
+        key,
+        &extracted_at,
+        None,
+        r.duration_ms,
+        &r.warnings,
+    )?;
+    Ok(Extracted {
+        result: r,
+        extracted_at,
+    })
 }
 
 /// Record a finished extraction on a (current-manifest) PackageRef.

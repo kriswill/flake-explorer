@@ -26,11 +26,16 @@ pub fn import_graph(rel_paths: &[String], read: &ReadFn, id_of: &IdFn) -> Vec<Im
     for from in rel_paths {
         let Some(text) = read(from) else { continue };
         for m in REL_PATH_RE.find_iter(&text) {
-            let Some(to) = resolve_known_ref(from, m.as_str(), &known) else { continue };
+            let Some(to) = resolve_known_ref(from, m.as_str(), &known) else {
+                continue;
+            };
             if !seen.insert(format!("{from}\x00{to}")) {
                 continue;
             }
-            edges.push(ImportEdge { from: id_of(from), to: id_of(&to) });
+            edges.push(ImportEdge {
+                from: id_of(from),
+                to: id_of(&to),
+            });
         }
     }
     edges
@@ -54,11 +59,16 @@ pub fn scan_input_refs(
     for from in rel_paths {
         let Some(text) = read(from) else { continue };
         for c in INPUT_REF_RE.captures_iter(&text) {
-            let Some(input) = canonical.get(&c[1]) else { continue };
+            let Some(input) = canonical.get(&c[1]) else {
+                continue;
+            };
             if !seen.insert(format!("{from}\x00{input}")) {
                 continue;
             }
-            refs.push(InputRef { file: id_of(from), input: input.clone() });
+            refs.push(InputRef {
+                file: id_of(from),
+                input: input.clone(),
+            });
         }
     }
     refs
@@ -90,8 +100,9 @@ static ATTR_FORM_RE: LazyLock<FancyRegex> = LazyLock::new(|| {
     FancyRegex::new(r"(?<![\w'.-])(?:flake\.)?overlays\.([A-Za-z_][A-Za-z0-9_'-]*)\s*=[^=]")
         .unwrap()
 });
-static BLOCK_FORM_RE: LazyLock<FancyRegex> =
-    LazyLock::new(|| FancyRegex::new(r"(?<![\w'.-])(?:flake\.)?overlays\s*=\s*(?:rec\s+)?\{").unwrap());
+static BLOCK_FORM_RE: LazyLock<FancyRegex> = LazyLock::new(|| {
+    FancyRegex::new(r"(?<![\w'.-])(?:flake\.)?overlays\s*=\s*(?:rec\s+)?\{").unwrap()
+});
 static ENTRY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?:^|[;{])\s*([A-Za-z_][A-Za-z0-9_'-]*)\s*=([^;]*)").unwrap());
 
@@ -116,7 +127,9 @@ pub fn scan_overlay_defs(rel_paths: &[String], read: &ReadFn, id_of: &IdFn) -> V
     // Definition-site relPath: the import target when <rhs> is a resolvable
     // relative import, else `from`.
     let site_rel_of = |from: &str, rhs: &str| -> String {
-        let Some(m) = IMPORT_RHS_RE.captures(rhs) else { return from.to_string() };
+        let Some(m) = IMPORT_RHS_RE.captures(rhs) else {
+            return from.to_string();
+        };
         let token = REL_PATH_RE.find(&m[1]).map(|t| t.as_str().to_string());
         token
             .and_then(|t| resolve_known_ref(from, &t, &known))
@@ -131,7 +144,11 @@ pub fn scan_overlay_defs(rel_paths: &[String], read: &ReadFn, id_of: &IdFn) -> V
         let mut sites: Vec<(String, String, usize)> = Vec::new();
 
         for m in ATTR_FORM_RE.find_iter(&text).flatten() {
-            let caps = ATTR_FORM_RE.captures(&text[m.start()..]).ok().flatten().unwrap();
+            let caps = ATTR_FORM_RE
+                .captures(&text[m.start()..])
+                .ok()
+                .flatten()
+                .unwrap();
             // The match ends with `=` + one lookahead char, so the rhs begins
             // at its end - 1.
             let rhs_start = m.end() - 1;
@@ -171,7 +188,11 @@ pub fn scan_overlay_defs(rel_paths: &[String], read: &ReadFn, id_of: &IdFn) -> V
             let attrs = body
                 .map(|b| enumerate_overlay_attrs(&b, body_start))
                 .unwrap_or_default();
-            defs.push(OverlayDef { name, file, attrs: (!attrs.is_empty()).then_some(attrs) });
+            defs.push(OverlayDef {
+                name,
+                file,
+                attrs: (!attrs.is_empty()).then_some(attrs),
+            });
         }
     }
     defs
@@ -181,7 +202,9 @@ pub fn scan_overlay_defs(rel_paths: &[String], read: &ReadFn, id_of: &IdFn) -> V
 /// (after leading whitespace/comments) at `from` in `text`.
 fn enumerate_overlay_attrs(text: &str, from: usize) -> Vec<OverlayAttr> {
     let start = skip_trivia(text, from);
-    let Some(header) = OVERLAY_LAMBDA_RE.captures(&text[start..]) else { return Vec::new() };
+    let Some(header) = OVERLAY_LAMBDA_RE.captures(&text[start..]) else {
+        return Vec::new();
+    };
     let prev_name = header.get(2).unwrap().as_str(); // "prev"/"super"
     let brace_at = start + header.get(0).unwrap().end(); // just past the body-opening `{`
     let body = top_level_text(text, brace_at);
@@ -205,7 +228,11 @@ fn enumerate_overlay_attrs(text: &str, from: usize) -> Vec<OverlayAttr> {
             .unwrap_or(false);
         attrs.push(OverlayAttr {
             name,
-            kind: if override_ { OverlayAttrKind::Override } else { OverlayAttrKind::Add },
+            kind: if override_ {
+                OverlayAttrKind::Override
+            } else {
+                OverlayAttrKind::Add
+            },
         });
     }
     attrs

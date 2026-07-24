@@ -24,7 +24,10 @@ fn grammar(lang: &Language, vendored: &str, bundled: &str) -> Option<Grammar> {
     let query = Query::new(lang, vendored)
         .or_else(|_| Query::new(lang, bundled))
         .ok()?;
-    Some(Grammar { language: lang.clone(), query })
+    Some(Grammar {
+        language: lang.clone(),
+        query,
+    })
 }
 
 fn nix_grammar() -> Option<&'static Grammar> {
@@ -54,7 +57,9 @@ fn tokenize(g: &Grammar, text: &str) -> Vec<TokenRun> {
     if parser.set_language(&g.language).is_err() {
         return Vec::new();
     }
-    let Some(tree) = parser.parse(text, None) else { return Vec::new() };
+    let Some(tree) = parser.parse(text, None) else {
+        return Vec::new();
+    };
 
     struct Cap {
         start: usize,
@@ -124,7 +129,9 @@ pub fn tokenize_nix(text: &str) -> Vec<TokenRun> {
 }
 
 pub fn tokenize_bash(text: &str) -> Vec<TokenRun> {
-    bash_grammar().map(|g| tokenize(g, text)).unwrap_or_default()
+    bash_grammar()
+        .map(|g| tokenize(g, text))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -135,7 +142,10 @@ mod tests {
     fn nix_tokens_cover_keyword_and_comment() {
         let runs = tokenize_nix("# a comment\nlet x = 1; in x");
         assert!(!runs.is_empty());
-        let comment = runs.iter().find(|r| r.name == "comment").expect("comment run");
+        let comment = runs
+            .iter()
+            .find(|r| r.name == "comment")
+            .expect("comment run");
         assert_eq!(comment.start, 0);
         assert!(runs.iter().any(|r| r.name.starts_with("keyword")));
     }
@@ -145,7 +155,10 @@ mod tests {
         // "é" is 2 bytes UTF-8 but 1 UTF-16 unit; a token after it must use
         // UTF-16 units.
         let runs = tokenize_nix("# é\nlet x = 1; in x");
-        let kw = runs.iter().find(|r| r.name.starts_with("keyword")).expect("keyword");
+        let kw = runs
+            .iter()
+            .find(|r| r.name.starts_with("keyword"))
+            .expect("keyword");
         // "# é\n" = 4 UTF-16 units (# space é \n), so `let` starts at 4.
         assert_eq!(kw.start, 4);
     }
@@ -160,7 +173,12 @@ mod tests {
     fn runs_non_overlapping_and_sorted() {
         let runs = tokenize_nix("{ pkgs, lib, ... }: { imports = [ ./a.nix ]; }");
         for w in runs.windows(2) {
-            assert!(w[0].end <= w[1].start, "overlap: {:?} then {:?}", w[0], w[1]);
+            assert!(
+                w[0].end <= w[1].start,
+                "overlap: {:?} then {:?}",
+                w[0],
+                w[1]
+            );
         }
     }
 }

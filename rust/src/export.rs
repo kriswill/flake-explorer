@@ -35,7 +35,9 @@ pub async fn export_html(
     // validates the blob). Anything not ok here failed extraction.
     let mut config_data: IndexMap<String, ConfigData> = IndexMap::new();
     for id in &opts.wanted {
-        let Some(r#ref) = manifest.configurations.iter().find(|c| &c.id == id) else { continue };
+        let Some(r#ref) = manifest.configurations.iter().find(|c| &c.id == id) else {
+            continue;
+        };
         if r#ref.status != RefStatus::Ok {
             continue;
         }
@@ -53,7 +55,9 @@ pub async fn export_html(
 
     let mut package_data: IndexMap<String, PackageData> = IndexMap::new();
     for id in &opts.wanted_packages {
-        let Some(r#ref) = manifest.packages.iter().find(|p| &p.id == id) else { continue };
+        let Some(r#ref) = manifest.packages.iter().find(|p| &p.id == id) else {
+            continue;
+        };
         if r#ref.status != RefStatus::Ok {
             continue;
         }
@@ -77,9 +81,13 @@ pub async fn export_html(
         sources.insert(f.id.clone(), f.store_path.clone());
     }
     for input in manifest.inputs.values() {
-        let Some(store_path) = &input.store_path else { continue };
+        let Some(store_path) = &input.store_path else {
+            continue;
+        };
         let id = make_file_id_input(&input.name, "flake.nix");
-        sources.entry(id).or_insert_with(|| format!("{store_path}/flake.nix"));
+        sources
+            .entry(id)
+            .or_insert_with(|| format!("{store_path}/flake.nix"));
     }
     if opts.sources_all {
         let fx = FlakeIndexes::build(manifest);
@@ -136,7 +144,10 @@ pub async fn export_html(
     }
     embedded.package_reverse_deps = Some(build_package_reverse_deps(&package_data));
     embedded.warnings.extend(warnings.iter().cloned());
-    embeds.push(("manifest.json".to_string(), serde_json::to_value(&embedded)?));
+    embeds.push((
+        "manifest.json".to_string(),
+        serde_json::to_value(&embedded)?,
+    ));
 
     println!("building UI ...");
     let title = format!(
@@ -144,7 +155,14 @@ pub async fn export_html(
         manifest.flake.description.as_deref().unwrap_or(flake_ref)
     );
     let bundle = load_bundle(&find_app_dist()?)?;
-    let html = page_html(&bundle, &title, &PageOpts { dev: false, embeds: &embeds });
+    let html = page_html(
+        &bundle,
+        &title,
+        &PageOpts {
+            dev: false,
+            embeds: &embeds,
+        },
+    );
     let html_bytes = html.len();
     std::fs::write(&opts.html_path, html)?;
 
@@ -210,7 +228,9 @@ async fn read_source(
             }
         }
     }
-    warnings.push(format!("source not exported: {file_id} ({store_path} not readable)"));
+    warnings.push(format!(
+        "source not exported: {file_id} ({store_path} not readable)"
+    ));
     None
 }
 
@@ -239,32 +259,62 @@ impl FlakeIndexes {
             .iter()
             .map(|f| (f.store_path.clone(), (f.id.clone(), f.rel_path.clone())))
             .collect();
-        let with_paths: Vec<&InputInfo> =
-            manifest.inputs.values().filter(|i| i.store_path.is_some()).collect();
+        let with_paths: Vec<&InputInfo> = manifest
+            .inputs
+            .values()
+            .filter(|i| i.store_path.is_some())
+            .collect();
         let mut input_prefixes: Vec<(String, String)> = with_paths
             .iter()
-            .map(|i| (format!("{}/", i.store_path.as_ref().unwrap()), i.name.clone()))
+            .map(|i| {
+                (
+                    format!("{}/", i.store_path.as_ref().unwrap()),
+                    i.name.clone(),
+                )
+            })
             .collect();
         input_prefixes.sort_by_key(|(p, _)| std::cmp::Reverse(p.len()));
         let mut input_by_store_name = std::collections::HashMap::new();
         for i in &with_paths {
-            let base = i.store_path.as_ref().unwrap().rsplit('/').next().unwrap().to_string();
-            input_by_store_name.entry(base).or_insert_with(|| i.name.clone());
+            let base = i
+                .store_path
+                .as_ref()
+                .unwrap()
+                .rsplit('/')
+                .next()
+                .unwrap()
+                .to_string();
+            input_by_store_name
+                .entry(base)
+                .or_insert_with(|| i.name.clone());
         }
-        FlakeIndexes { self_by_store_path, input_prefixes, input_by_store_name }
+        FlakeIndexes {
+            self_by_store_path,
+            input_prefixes,
+            input_by_store_name,
+        }
     }
 }
 
 fn resolve_file(store_path: &str, manifest: &Manifest, fx: &FlakeIndexes) -> ResolvedFile {
     if store_path == "<unknown-file>" {
-        return ResolvedFile { id: "inline".into(), store_path: store_path.into() };
+        return ResolvedFile {
+            id: "inline".into(),
+            store_path: store_path.into(),
+        };
     }
     if let Some((id, _)) = fx.self_by_store_path.get(store_path) {
-        return ResolvedFile { id: id.clone(), store_path: store_path.into() };
+        return ResolvedFile {
+            id: id.clone(),
+            store_path: store_path.into(),
+        };
     }
     let self_prefix = format!("{}/", manifest.flake.path);
     if let Some(rel) = store_path.strip_prefix(&self_prefix) {
-        return ResolvedFile { id: make_file_id_self(rel), store_path: store_path.into() };
+        return ResolvedFile {
+            id: make_file_id_self(rel),
+            store_path: store_path.into(),
+        };
     }
     for (prefix, input) in &fx.input_prefixes {
         if let Some(rel) = store_path.strip_prefix(prefix.as_str()) {
@@ -290,7 +340,13 @@ fn resolve_file(store_path: &str, manifest: &Manifest, fx: &FlakeIndexes) -> Res
                 store_path: store_path.into(),
             };
         }
-        return ResolvedFile { id: format!("unknown:{root}:{rel}"), store_path: store_path.into() };
+        return ResolvedFile {
+            id: format!("unknown:{root}:{rel}"),
+            store_path: store_path.into(),
+        };
     }
-    ResolvedFile { id: format!("unknown:{store_path}"), store_path: store_path.into() }
+    ResolvedFile {
+        id: format!("unknown:{store_path}"),
+        store_path: store_path.into(),
+    }
 }

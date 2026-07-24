@@ -16,7 +16,10 @@ pub fn build_package_reverse_deps(
     let mut by_drv: HashMap<&str, Vec<&str>> = HashMap::new();
     for (id, data) in package_data {
         if let Some(drv) = &data.drv {
-            by_drv.entry(drv.drv_path.as_str()).or_default().push(id.as_str());
+            by_drv
+                .entry(drv.drv_path.as_str())
+                .or_default()
+                .push(id.as_str());
         }
     }
 

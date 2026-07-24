@@ -31,11 +31,16 @@ fn main() {
         println!("cargo:rerun-if-changed={}", f.display());
     }
     let digest = hex::encode(hasher.finalize());
-    println!("cargo:rustc-env=FLAKE_EXPLORER_FINGERPRINT=rs-{}", &digest[..14]);
+    println!(
+        "cargo:rustc-env=FLAKE_EXPLORER_FINGERPRINT=rs-{}",
+        &digest[..14]
+    );
 }
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.flatten() {
         let p = e.path();
         if p.is_dir() {

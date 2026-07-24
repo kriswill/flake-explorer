@@ -59,7 +59,9 @@ pub struct FlakeInfo {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum OutputNode {
     #[serde(rename = "attrset")]
-    Attrset { children: IndexMap<String, OutputNode> },
+    Attrset {
+        children: IndexMap<String, OutputNode>,
+    },
     #[serde(rename = "leaf")]
     Leaf {
         r#type: String,
@@ -135,7 +137,9 @@ pub enum ParsedFileId {
 
 pub fn parse_file_id(id: &str) -> Option<ParsedFileId> {
     if let Some(rel) = id.strip_prefix("self:") {
-        return Some(ParsedFileId::SelfFile { rel_path: rel.to_string() });
+        return Some(ParsedFileId::SelfFile {
+            rel_path: rel.to_string(),
+        });
     }
     let rest = id.strip_prefix("input:")?;
     let colon = rest.find(':')?;
@@ -143,7 +147,10 @@ pub fn parse_file_id(id: &str) -> Option<ParsedFileId> {
     if input.is_empty() || rel.is_empty() {
         return None;
     }
-    Some(ParsedFileId::InputFile { input: input.to_string(), rel_path: rel.to_string() })
+    Some(ParsedFileId::InputFile {
+        input: input.to_string(),
+        rel_path: rel.to_string(),
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -551,7 +558,9 @@ mod tests {
     fn file_id_round_trip() {
         assert_eq!(
             parse_file_id("self:modules/a.nix"),
-            Some(ParsedFileId::SelfFile { rel_path: "modules/a.nix".into() })
+            Some(ParsedFileId::SelfFile {
+                rel_path: "modules/a.nix".into()
+            })
         );
         assert_eq!(
             parse_file_id("input:nixpkgs:lib/default.nix"),
@@ -566,10 +575,20 @@ mod tests {
 
     #[test]
     fn output_node_tags() {
-        let leaf = OutputNode::Leaf { r#type: "derivation".into(), name: None, description: None };
-        assert_eq!(serde_json::to_string(&leaf).unwrap(), r#"{"kind":"leaf","type":"derivation"}"#);
+        let leaf = OutputNode::Leaf {
+            r#type: "derivation".into(),
+            name: None,
+            description: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&leaf).unwrap(),
+            r#"{"kind":"leaf","type":"derivation"}"#
+        );
         let omitted = OutputNode::Omitted;
-        assert_eq!(serde_json::to_string(&omitted).unwrap(), r#"{"kind":"omitted"}"#);
+        assert_eq!(
+            serde_json::to_string(&omitted).unwrap(),
+            r#"{"kind":"omitted"}"#
+        );
     }
 
     #[test]
@@ -579,8 +598,11 @@ mod tests {
             r#"{"kind":"self"}"#
         );
         assert_eq!(
-            serde_json::to_string(&FileOrigin::Input { input: "nixpkgs".into(), patched: None })
-                .unwrap(),
+            serde_json::to_string(&FileOrigin::Input {
+                input: "nixpkgs".into(),
+                patched: None
+            })
+            .unwrap(),
             r#"{"kind":"input","input":"nixpkgs"}"#
         );
     }

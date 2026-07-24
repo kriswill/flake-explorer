@@ -39,7 +39,9 @@ pub async fn extract_package(
         anyhow::bail!("{id} is not a derivation (output may have changed since the last refresh)");
     }
     if ev.meta_error {
-        warnings.push(format!("meta unavailable for {id} (broken/unfree package?)"));
+        warnings.push(format!(
+            "meta unavailable for {id} (broken/unfree package?)"
+        ));
     }
 
     let drv = match derivation_show(flake_ref, path, timeout).await {
@@ -104,7 +106,10 @@ pub async fn extract_package(
         outputs: ev
             .outputs
             .iter()
-            .map(|o| PackageOutput { name: o.name.clone(), out_path: o.path.clone() })
+            .map(|o| PackageOutput {
+                name: o.name.clone(),
+                out_path: o.path.clone(),
+            })
             .collect(),
         deps: ev.deps.clone(),
         drv,
@@ -112,7 +117,11 @@ pub async fn extract_package(
         warnings: warnings.clone(),
     };
 
-    Ok(PackageResult { data, warnings, duration_ms: start.elapsed().as_millis() as u64 })
+    Ok(PackageResult {
+        data,
+        warnings,
+        duration_ms: start.elapsed().as_millis() as u64,
+    })
 }
 
 // --------------------------------------------------------- classify_builder
@@ -137,9 +146,18 @@ pub fn classify_builder(
         return BuilderKind::Trivial;
     }
     let hooks: [(regex::Regex, BuilderKind); 3] = [
-        (regex::Regex::new(r"(?i)cargo-build-hook|rust-cargo").unwrap(), BuilderKind::RustPlatform),
-        (regex::Regex::new(r"(?i)go-modules-hook").unwrap(), BuilderKind::BuildGoModule),
-        (regex::Regex::new(r"(?i)npm-install-hook|node-gyp").unwrap(), BuilderKind::Node),
+        (
+            regex::Regex::new(r"(?i)cargo-build-hook|rust-cargo").unwrap(),
+            BuilderKind::RustPlatform,
+        ),
+        (
+            regex::Regex::new(r"(?i)go-modules-hook").unwrap(),
+            BuilderKind::BuildGoModule,
+        ),
+        (
+            regex::Regex::new(r"(?i)npm-install-hook|node-gyp").unwrap(),
+            BuilderKind::Node,
+        ),
     ];
     for dep in native_build_inputs {
         for (re, kind) in &hooks {
@@ -163,12 +181,20 @@ const PHASE_CAP: usize = 4000;
 const PHASE_ORDER: [(&str, Option<&str>, Option<&str>); 9] = [
     ("unpackPhase", Some("preUnpack"), Some("postUnpack")),
     ("patchPhase", Some("prePatch"), Some("postPatch")),
-    ("configurePhase", Some("preConfigure"), Some("postConfigure")),
+    (
+        "configurePhase",
+        Some("preConfigure"),
+        Some("postConfigure"),
+    ),
     ("buildPhase", Some("preBuild"), Some("postBuild")),
     ("checkPhase", Some("preCheck"), Some("postCheck")),
     ("installPhase", Some("preInstall"), Some("postInstall")),
     ("fixupPhase", Some("preFixup"), Some("postFixup")),
-    ("installCheckPhase", Some("preInstallCheck"), Some("postInstallCheck")),
+    (
+        "installCheckPhase",
+        Some("preInstallCheck"),
+        Some("postInstallCheck"),
+    ),
     ("buildCommand", None, None),
 ];
 
@@ -200,7 +226,11 @@ fn phases_from_env(env: &serde_json::Map<String, Value>) -> Vec<DrvPhase> {
         .into_iter()
         .map(|(name, script)| {
             let tokens = tokenize_bash(&script);
-            DrvPhase { name, script, tokens }
+            DrvPhase {
+                name,
+                script,
+                tokens,
+            }
         })
         .collect()
 }
@@ -209,7 +239,10 @@ fn name_from_drv_basename(basename: &str) -> String {
     let re = regex::Regex::new(r"^[a-z0-9]{32}-(.+)\.drv$").unwrap();
     match re.captures(basename) {
         Some(c) => c[1].to_string(),
-        None => basename.strip_suffix(".drv").unwrap_or(basename).to_string(),
+        None => basename
+            .strip_suffix(".drv")
+            .unwrap_or(basename)
+            .to_string(),
     }
 }
 
@@ -242,7 +275,9 @@ pub fn normalize_derivation_show(raw: &Value) -> Option<DrvInfo> {
                         .get("outputs")
                         .and_then(|o| o.as_array())
                         .map(|a| {
-                            a.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+                            a.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
                         })
                         .unwrap_or_default(),
                 })
@@ -253,13 +288,22 @@ pub fn normalize_derivation_show(raw: &Value) -> Option<DrvInfo> {
     let empty = serde_json::Map::new();
     let env = e.get("env").and_then(|v| v.as_object()).unwrap_or(&empty);
     let env_flag = |k: &str| {
-        env.contains_key(k).then(|| env.get(k).and_then(|v| v.as_str()) == Some("1"))
+        env.contains_key(k)
+            .then(|| env.get(k).and_then(|v| v.as_str()) == Some("1"))
     };
 
     Some(DrvInfo {
         drv_path: format!("/nix/store/{basename}"),
-        system: e.get("system").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        builder_path: e.get("builder").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        system: e
+            .get("system")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        builder_path: e
+            .get("builder")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         input_drvs,
         phases: phases_from_env(env),
         do_check: env_flag("doCheck"),
@@ -274,7 +318,9 @@ const MAX_MAINTAINERS: usize = 20;
 const MAX_PLATFORMS: usize = 64;
 
 fn as_string(v: Option<&Value>) -> Option<String> {
-    v.and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(String::from)
+    v.and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from)
 }
 
 fn normalize_license(v: &Value) -> Vec<PackageLicense> {
@@ -300,7 +346,9 @@ fn normalize_license(v: &Value) -> Vec<PackageLicense> {
 }
 
 fn normalize_maintainers(v: Option<&Value>) -> Vec<PackageMaintainer> {
-    let Some(Value::Array(a)) = v else { return Vec::new() };
+    let Some(Value::Array(a)) = v else {
+        return Vec::new();
+    };
     a.iter()
         .take(MAX_MAINTAINERS)
         .map(|m| {
@@ -316,7 +364,10 @@ fn normalize_maintainers(v: Option<&Value>) -> Vec<PackageMaintainer> {
 
 /// Shapes extract.nix's raw scrubbed `meta` attrset into PackageMeta.
 pub fn normalize_package_meta(raw: &serde_json::Map<String, Value>) -> PackageMeta {
-    let license = raw.get("license").map(normalize_license).unwrap_or_default();
+    let license = raw
+        .get("license")
+        .map(normalize_license)
+        .unwrap_or_default();
     let maintainers = normalize_maintainers(raw.get("maintainers"));
     let platforms: Option<Vec<String>> = raw.get("platforms").and_then(|p| p.as_array()).map(|a| {
         a.iter()
@@ -354,7 +405,10 @@ mod tests {
         });
         let old = json!({"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-pkg-1.0.drv": drv_body});
         let d = normalize_derivation_show(&old).unwrap();
-        assert_eq!(d.drv_path, "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-pkg-1.0.drv");
+        assert_eq!(
+            d.drv_path,
+            "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-pkg-1.0.drv"
+        );
         assert_eq!(d.input_drvs[0].name, "hello-2.12");
         assert_eq!(d.do_check, Some(true));
         assert_eq!(d.phases.len(), 1);
@@ -366,7 +420,10 @@ mod tests {
 
     #[test]
     fn license_shapes() {
-        assert_eq!(normalize_license(&json!("mit"))[0].short_name.as_deref(), Some("mit"));
+        assert_eq!(
+            normalize_license(&json!("mit"))[0].short_name.as_deref(),
+            Some("mit")
+        );
         let l = normalize_license(&json!([{"spdxId": "MIT", "free": true}, "gpl3"]));
         assert_eq!(l.len(), 2);
         assert_eq!(l[0].spdx_id.as_deref(), Some("MIT"));

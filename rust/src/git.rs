@@ -21,7 +21,10 @@ pub async fn repo_prefix(dir: &str) -> Option<String> {
 
 /// Map of repo-relative path -> last commit touching it. Empty map (with a
 /// warning pushed) when git log fails.
-pub async fn last_commits(checkout: &str, warnings: &mut Vec<String>) -> HashMap<String, GitFileInfo> {
+pub async fn last_commits(
+    checkout: &str,
+    warnings: &mut Vec<String>,
+) -> HashMap<String, GitFileInfo> {
     let mut result = HashMap::new();
     let out = Command::new("git")
         // \x01 marks a commit header so file lines can't be confused with it.
@@ -57,10 +60,16 @@ pub async fn last_commits(checkout: &str, warnings: &mut Vec<String>) -> HashMap
             let commit = parts.next().unwrap_or("").to_string();
             let date = parts.next().unwrap_or("").to_string();
             let subject = parts.collect::<Vec<_>>().join("\t");
-            current = Some(GitFileInfo { commit, date, subject });
+            current = Some(GitFileInfo {
+                commit,
+                date,
+                subject,
+            });
         } else if !line.trim().is_empty() {
             if let Some(cur) = &current {
-                result.entry(line.trim().to_string()).or_insert_with(|| cur.clone());
+                result
+                    .entry(line.trim().to_string())
+                    .or_insert_with(|| cur.clone());
             }
         }
     }

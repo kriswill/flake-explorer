@@ -33,9 +33,21 @@ struct Rung {
 }
 
 const LADDER: [Rung; 3] = [
-    Rung { with_values: true, with_descriptions: true, note: "" },
-    Rung { with_values: false, with_descriptions: true, note: "values skipped" },
-    Rung { with_values: false, with_descriptions: false, note: "values+descriptions skipped" },
+    Rung {
+        with_values: true,
+        with_descriptions: true,
+        note: "",
+    },
+    Rung {
+        with_values: false,
+        with_descriptions: true,
+        note: "values skipped",
+    },
+    Rung {
+        with_values: false,
+        with_descriptions: false,
+        note: "values+descriptions skipped",
+    },
 ];
 
 /// Below this depth a failing chunk is abandoned instead of split further.
@@ -93,7 +105,9 @@ pub async fn extract_options(
 ) -> anyhow::Result<OptionsResult> {
     let t0 = Instant::now();
     let concurrency = opts.concurrency.unwrap_or_else(|| {
-        let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+        let cores = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
         cores.saturating_sub(2).clamp(2, 8)
     });
     let label = format!("{}/{}", kind.as_str(), name);
@@ -114,7 +128,11 @@ pub async fn extract_options(
         queue: Mutex::new(
             namespaces
                 .into_iter()
-                .map(|n| Chunk { path: vec![n], children: None, rung: 0 })
+                .map(|n| Chunk {
+                    path: vec![n],
+                    children: None,
+                    rung: 0,
+                })
                 .collect(),
         ),
         results: Mutex::new(Vec::new()),
@@ -140,8 +158,17 @@ pub async fn extract_options(
             let skip_invisible = opts.skip_invisible;
             let on_progress = opts.on_progress.clone();
             handles.push(tokio::spawn(async move {
-                worker(&shared, &flake_ref, kind, &name, &label, timeout, skip_invisible, on_progress)
-                    .await;
+                worker(
+                    &shared,
+                    &flake_ref,
+                    kind,
+                    &name,
+                    &label,
+                    timeout,
+                    skip_invisible,
+                    on_progress,
+                )
+                .await;
             }));
         }
         for h in handles {
@@ -163,7 +190,11 @@ pub async fn extract_options(
         options,
         file_index,
     };
-    Ok(OptionsResult { data, warnings, duration_ms: t0.elapsed().as_millis() as u64 })
+    Ok(OptionsResult {
+        data,
+        warnings,
+        duration_ms: t0.elapsed().as_millis() as u64,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -183,13 +214,27 @@ async fn worker(
         let Some(chunk) = chunk else { return };
         shared.in_flight.fetch_add(1, Ordering::SeqCst);
         let current = chunk_label(&chunk);
-        run_chunk(shared, flake_ref, kind, name, label, timeout, skip_invisible, chunk).await;
+        run_chunk(
+            shared,
+            flake_ref,
+            kind,
+            name,
+            label,
+            timeout,
+            skip_invisible,
+            chunk,
+        )
+        .await;
         shared.in_flight.fetch_sub(1, Ordering::SeqCst);
         let done = shared.done.fetch_add(1, Ordering::SeqCst) + 1;
         if let Some(cb) = &on_progress {
             let total =
                 done + shared.queue.lock().await.len() + shared.in_flight.load(Ordering::SeqCst);
-            cb(OptionsProgress { done, total, current });
+            cb(OptionsProgress {
+                done,
+                total,
+                current,
+            });
         }
     }
 }
@@ -244,8 +289,14 @@ async fn run_chunk(
         if children.len() > 1 {
             let mid = children.len().div_ceil(2);
             let mut q = shared.queue.lock().await;
-            q.push_back(Chunk { children: Some(children[..mid].to_vec()), ..chunk.clone() });
-            q.push_back(Chunk { children: Some(children[mid..].to_vec()), ..chunk });
+            q.push_back(Chunk {
+                children: Some(children[..mid].to_vec()),
+                ..chunk.clone()
+            });
+            q.push_back(Chunk {
+                children: Some(children[mid..].to_vec()),
+                ..chunk
+            });
             return;
         }
     }
@@ -285,7 +336,10 @@ async fn run_chunk(
     }
     // Unsplittable: walk down the ladder, then give up.
     if chunk.rung + 1 < LADDER.len() {
-        shared.queue.lock().await.push_back(Chunk { rung: chunk.rung + 1, ..chunk });
+        shared.queue.lock().await.push_back(Chunk {
+            rung: chunk.rung + 1,
+            ..chunk
+        });
         return;
     }
     shared.warnings.lock().await.push(format!(
@@ -329,9 +383,15 @@ pub struct Unwrapped {
 }
 
 pub fn unwrap(v: &ValueEnvelope) -> Unwrapped {
-    let mut out =
-        Unwrapped { value: None, value_error: false, value_skipped: false, value_names: None };
-    let Some(Value::Object(o)) = v else { return out };
+    let mut out = Unwrapped {
+        value: None,
+        value_error: false,
+        value_skipped: false,
+        value_names: None,
+    };
+    let Some(Value::Object(o)) = v else {
+        return out;
+    };
     if let Some(ok) = o.get("ok") {
         out.value = Some(ok.clone());
     } else if o.contains_key("err") {
@@ -343,7 +403,10 @@ pub fn unwrap(v: &ValueEnvelope) -> Unwrapped {
         // skipped, but the drv names survive.
         out.value_skipped = true;
         out.value_names = Some(
-            names.iter().filter_map(|n| n.as_str().map(String::from)).collect(),
+            names
+                .iter()
+                .filter_map(|n| n.as_str().map(String::from))
+                .collect(),
         );
     }
     out
@@ -379,8 +442,7 @@ fn to_definition(file: String, value: &ValueEnvelope) -> DefinitionRef {
 pub fn to_entry(o: RawOption) -> OptionEntry {
     let val = unwrap(&o.value);
     let def = unwrap(&o.default);
-    let customized =
-        o.is_defined && o.highest_prio.is_some_and(|p| p < PRIO_OPTION_DEFAULT);
+    let customized = o.is_defined && o.highest_prio.is_some_and(|p| p < PRIO_OPTION_DEFAULT);
     OptionEntry {
         loc: o.loc,
         r#type: o.r#type,
@@ -401,10 +463,19 @@ pub fn to_entry(o: RawOption) -> OptionEntry {
             .into_iter()
             .map(|d| {
                 let (file, via) = split_via(&d.file);
-                DeclarationRef { file, line: d.line, column: d.column, via }
+                DeclarationRef {
+                    file,
+                    line: d.line,
+                    column: d.column,
+                    via,
+                }
             })
             .collect(),
-        definitions: o.definitions.into_iter().map(|d| to_definition(d.file, &d.value)).collect(),
+        definitions: o
+            .definitions
+            .into_iter()
+            .map(|d| to_definition(d.file, &d.value))
+            .collect(),
     }
 }
 
@@ -478,39 +549,37 @@ mod tests {
 
     #[test]
     fn file_index_defines_only_customized() {
-        let opts = vec![
-            OptionEntry {
-                loc: vec!["a".into()],
-                r#type: None,
-                description: None,
-                read_only: false,
-                is_defined: true,
-                highest_prio: Some(100),
-                customized: true,
+        let opts = vec![OptionEntry {
+            loc: vec!["a".into()],
+            r#type: None,
+            description: None,
+            read_only: false,
+            is_defined: true,
+            highest_prio: Some(100),
+            customized: true,
+            value: None,
+            value_error: None,
+            value_skipped: None,
+            value_names: None,
+            default: None,
+            default_names: None,
+            default_text: None,
+            declarations: vec![DeclarationRef {
+                file: "/decl.nix".into(),
+                line: None,
+                column: None,
+                via: None,
+            }],
+            definitions: vec![DefinitionRef {
+                file: "/def.nix".into(),
                 value: None,
                 value_error: None,
                 value_skipped: None,
                 value_names: None,
-                default: None,
-                default_names: None,
-                default_text: None,
-                declarations: vec![DeclarationRef {
-                    file: "/decl.nix".into(),
-                    line: None,
-                    column: None,
-                    via: None,
-                }],
-                definitions: vec![DefinitionRef {
-                    file: "/def.nix".into(),
-                    value: None,
-                    value_error: None,
-                    value_skipped: None,
-                    value_names: None,
-                    via: None,
-                    prio: None,
-                }],
-            },
-        ];
+                via: None,
+                prio: None,
+            }],
+        }];
         let idx = build_file_index(&opts);
         assert_eq!(idx["/decl.nix"].declares, vec![0]);
         assert_eq!(idx["/def.nix"].defines, vec![0]);

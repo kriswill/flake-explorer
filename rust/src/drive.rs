@@ -45,7 +45,10 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
     println!("extracting manifest of {flake_ref} ...");
     let mut manifest = build_manifest(
         flake_ref,
-        &ManifestOptions { all_systems: flags.all_systems, timeout: flags.timeout },
+        &ManifestOptions {
+            all_systems: flags.all_systems,
+            timeout: flags.timeout,
+        },
     )
     .await?;
     println!(
@@ -62,7 +65,11 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
     let cache_key = cache_key_of(&manifest);
 
     let wanted: Vec<String> = match &flags.configs {
-        Selection::All => manifest.configurations.iter().map(|c| c.id.clone()).collect(),
+        Selection::All => manifest
+            .configurations
+            .iter()
+            .map(|c| c.id.clone())
+            .collect(),
         Selection::Ids(ids) => {
             for c in ids {
                 if !c.contains('/') {
@@ -86,11 +93,12 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
             continue;
         }
         println!("extracting options of {id} ...");
-        let progress: crate::options::ProgressFn = Arc::new(|p: crate::options::OptionsProgress| {
-            let current: String = p.current.chars().take(40).collect();
-            print!("\r  {}/{} {:<40}", p.done, p.total, current);
-            std::io::stdout().flush().ok();
-        });
+        let progress: crate::options::ProgressFn =
+            Arc::new(|p: crate::options::OptionsProgress| {
+                let current: String = p.current.chars().take(40).collect();
+                print!("\r  {}/{} {:<40}", p.done, p.total, current);
+                std::io::stdout().flush().ok();
+            });
         match extract_and_persist(
             &flags.out,
             flake_ref,
@@ -107,8 +115,13 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
                     apply_extracted(cur, &r);
                 }
                 manifest.warnings.extend(r.result.warnings.clone());
-                let customized =
-                    r.result.data.options.iter().filter(|o| o.customized).count();
+                let customized = r
+                    .result
+                    .data
+                    .options
+                    .iter()
+                    .filter(|o| o.customized)
+                    .count();
                 println!(
                     "  {} options ({customized} customized) in {:.1}s",
                     r.result.data.options.len(),
@@ -187,5 +200,9 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
     std::fs::write(&manifest_path, serde_json::to_string(&manifest)?)?;
     println!("wrote {}", manifest_path.display());
 
-    Ok(DriveResult { manifest, wanted, wanted_packages })
+    Ok(DriveResult {
+        manifest,
+        wanted,
+        wanted_packages,
+    })
 }

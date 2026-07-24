@@ -47,7 +47,10 @@ pub fn find_app_dist() -> anyhow::Result<PathBuf> {
     }
 
     // Dev convenience: build the bundle via bun when running from the repo.
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf();
     if repo.join("scripts/bundle-app.ts").exists() {
         eprintln!("app bundle missing — running `bun scripts/bundle-app.ts` ...");
         let status = std::process::Command::new("bun")
@@ -82,12 +85,16 @@ pub fn load_bundle(dist: &Path) -> anyhow::Result<AppBundle> {
 /// An embedded-data tag loadJson resolves before fetching. Every "<" is
 /// JSON-unicode-escaped, so "</script" can never occur in the body.
 pub fn json_tag(name: &str, value: &Value) -> String {
-    let json = serde_json::to_string(value).unwrap().replace('<', "\\u003c");
+    let json = serde_json::to_string(value)
+        .unwrap()
+        .replace('<', "\\u003c");
     format!(r#"<script type="application/json" id="data:{name}">{json}</script>"#)
 }
 
 fn escape_html_text(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 pub struct PageOpts<'a> {

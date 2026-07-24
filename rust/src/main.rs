@@ -144,7 +144,9 @@ fn parse_flags(argv: &[String]) -> Flags {
 /// Canonicalize path-like flakerefs: nix with lazy-trees disabled refuses a
 /// flake root that is itself a symlink (/etc/nixos usually is one).
 fn canonical_ref(r#ref: &str) -> String {
-    let Some(dir) = manifest::local_flake_dir(r#ref) else { return r#ref.to_string() };
+    let Some(dir) = manifest::local_flake_dir(r#ref) else {
+        return r#ref.to_string();
+    };
     // Keep any ?query (e.g. ?dir=sub) — it's flake selection, not filesystem.
     let query = r#ref.find('?').map(|i| &r#ref[i..]).unwrap_or("");
     match std::fs::canonicalize(&dir) {
@@ -259,12 +261,10 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
             .await
         }
         "serve" => {
-            let flake_ref = canonical_ref(
-                flags
-                    .positional
-                    .first()
-                    .unwrap_or_else(|| die("usage: serve <flakeref> [--port N] [--out DIR] [--dev]")),
-            );
+            let flake_ref =
+                canonical_ref(flags.positional.first().unwrap_or_else(|| {
+                    die("usage: serve <flakeref> [--port N] [--out DIR] [--dev]")
+                }));
             serve::serve(
                 flake_ref,
                 serve::ServeFlags {
@@ -272,7 +272,10 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
                     all_systems: flags.all_systems,
                     timeout,
                     port: flags.port.unwrap_or(4321),
-                    host: flags.host.clone().unwrap_or_else(|| "127.0.0.1".to_string()),
+                    host: flags
+                        .host
+                        .clone()
+                        .unwrap_or_else(|| "127.0.0.1".to_string()),
                     dev: flags.dev,
                 },
             )
