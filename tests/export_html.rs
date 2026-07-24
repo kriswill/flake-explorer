@@ -113,6 +113,17 @@ async fn export_embeds_blobs_and_downgrades_unembedded_refs() {
     let config = embedded_json(&html, "config/nixos.mini.json").unwrap();
     assert_eq!(config["id"], "nixos/mini");
     assert!(!config["options"].as_array().unwrap().is_empty());
+    // The embed must be the blob VERBATIM, not a typed round-trip: serde's
+    // Option collapses an explicit `"value": null` into an absent field,
+    // which the UI renders differently from a present null.
+    let on_disk: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(out.0.join("config/nixos.mini.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        config, on_disk,
+        "embedded config blob differs from the on-disk blob"
+    );
 
     // --sources all additionally embeds every file the exported config's
     // fileIndex references (the resolve_file walk); everything the "self"

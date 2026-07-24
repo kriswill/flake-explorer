@@ -587,3 +587,27 @@ mod tests {
         assert_eq!(idx["/def.nix"].defines, vec![0]);
     }
 }
+
+#[cfg(test)]
+mod null_repro {
+    use super::*;
+
+    #[test]
+    fn ok_null_envelope_survives_to_json() {
+        let raw: crate::run_nix::RawOption = serde_json::from_str(
+            r#"{"loc":["a"],"type":"null or string","description":null,"readOnly":false,
+                "isDefined":true,"highestPrio":1500,"defaultText":null,
+                "default":{"ok":null},"value":{"ok":null},
+                "declarations":[{"file":"/f.nix","line":1,"column":1}],
+                "definitions":[{"file":"/f.nix","value":{"ok":null}}]}"#,
+        )
+        .unwrap();
+        let entry = to_entry(raw);
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(
+            json.contains(r#""value":null"#),
+            "merged value lost: {json}"
+        );
+        assert!(json.contains(r#""default":null"#), "default lost: {json}");
+    }
+}

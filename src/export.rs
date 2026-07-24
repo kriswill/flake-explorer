@@ -42,8 +42,8 @@ pub async fn export_html(
             continue;
         }
         match read_json::<ConfigData>(&opts.out_dir, &r#ref.data_file) {
-            Ok(data) => {
-                embeds.push((r#ref.data_file.clone(), serde_json::to_value(&data)?));
+            Ok((data, raw)) => {
+                embeds.push((r#ref.data_file.clone(), raw));
                 config_data.insert(id.clone(), data);
             }
             Err(e) => warnings.push(format!(
@@ -62,8 +62,8 @@ pub async fn export_html(
             continue;
         }
         match read_json::<PackageData>(&opts.out_dir, &r#ref.data_file) {
-            Ok(data) => {
-                embeds.push((r#ref.data_file.clone(), serde_json::to_value(&data)?));
+            Ok((data, raw)) => {
+                embeds.push((r#ref.data_file.clone(), raw));
                 package_data.insert(id.clone(), data);
             }
             Err(e) => warnings.push(format!(
@@ -180,10 +180,17 @@ pub async fn export_html(
     Ok(())
 }
 
-fn read_json<T: serde::de::DeserializeOwned>(out_dir: &str, data_file: &str) -> anyhow::Result<T> {
-    Ok(serde_json::from_str(&std::fs::read_to_string(
-        Path::new(out_dir).join(data_file),
-    )?)?)
+/// Parse a blob twice: typed (validation + downstream use) and as a raw
+/// Value for the embed. The embed must NOT be a re-serialization of the
+/// typed struct: serde's Option collapses an explicit `"value": null` (a
+/// legitimate Nix null, e.g. a "null or string" option) into an ABSENT
+/// field, which the UI renders differently from a present null.
+fn read_json<T: serde::de::DeserializeOwned>(
+    out_dir: &str,
+    data_file: &str,
+) -> anyhow::Result<(T, Value)> {
+    let text = std::fs::read_to_string(Path::new(out_dir).join(data_file))?;
+    Ok((serde_json::from_str(&text)?, serde_json::from_str(&text)?))
 }
 
 /// encodeURIComponent-alike for embed ids — must match the client's
