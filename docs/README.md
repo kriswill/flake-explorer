@@ -53,6 +53,7 @@ flowchart LR
 | [Build & infra](build-and-infra.md) | Bun bundling, Nix packaging, CI, and Pages publishing. |
 | [CLI reference](cli.md) | Every command and flag of the `flake-explorer` CLI. |
 | [Testing](testing.md) | The bun test suite, fixtures, and how to run it. |
+| [Rust port](rust-port.md) | The Rust extractor/server port: process, trade-offs, publishing gaps, roadmap. |
 | [Glossary](glossary.md) | Project-specific terms, each linked to its source. |
 
 ## Links

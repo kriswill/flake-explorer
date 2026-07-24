@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>flake-explorer — The Rust port</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --page: #ffffff; --ink: #1a1d21; --ink-2: #5a6270; --accent: #2563eb;
+    --rule: #e5e8ec; --card: #f6f7f9; --code: #eef0f3; --good: #15803d; --bad: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #14161a; --ink: #e6e9ed; --ink-2: #9aa3b0; --accent: #7aa2ff;
+      --rule: #2a2f37; --card: #1b1e24; --code: #22262d; --good: #4ade80; --bad: #f87171;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 46rem; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .5rem; letter-spacing: -.02em; }
+  .subtitle { color: var(--ink-2); margin: 0 0 2.5rem; }
+  h2 { font-size: 1.3rem; margin: 2.5rem 0 .75rem; letter-spacing: -.01em;
+       border-top: 1px solid var(--rule); padding-top: 1.75rem; }
+  h3 { font-size: 1.02rem; margin: 1.5rem 0 .5rem; }
+  p, li { color: var(--ink); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    background: var(--code); padding: .1em .35em; border-radius: 4px;
+    font: .875em/1.5 ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  }
+  ul, ol { padding-left: 1.4rem; }
+  li { margin: .35rem 0; }
+  li::marker { color: var(--ink-2); }
+  strong { font-weight: 650; }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  @media (max-width: 40rem) { .cards { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 1rem 1.15rem; }
+  .card h3 { margin-top: 0; }
+  .card.pro h3 { color: var(--good); }
+  .card.con h3 { color: var(--bad); }
+  .card ul { margin: 0; padding-left: 1.2rem; }
+  .facts { display: flex; flex-wrap: wrap; gap: .6rem; margin: 1.25rem 0 0; }
+  .fact { background: var(--card); border: 1px solid var(--rule); border-radius: 999px;
+          padding: .25rem .8rem; font-size: .85rem; color: var(--ink-2); white-space: nowrap; }
+  .fact b { color: var(--ink); font-weight: 650; }
+  blockquote { margin: 1.5rem 0; padding: .75rem 1.15rem; border-left: 3px solid var(--accent);
+               background: var(--card); border-radius: 0 8px 8px 0; color: var(--ink); }
+  blockquote p { margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>The Rust port</h1>
+  <p class="subtitle">flake-explorer's extractor, HTTP server, and static exporter in Rust —
+  how it was built, what it trades, and what should come next.</p>
+
+  <div class="facts">
+    <span class="fact"><b>~4,400</b> lines across 18 modules</span>
+    <span class="fact"><b>15,436</b>-option blob verified identical</span>
+    <span class="fact"><b>~80%</b> line coverage</span>
+    <span class="fact">tokens <b>byte-identical</b> to WASM grammars</span>
+    <span class="fact">SPA <b>unchanged</b></span>
+  </div>
+
+  <h2>How the port was done</h2>
+  <p>Everything except the Svelte SPA was ported module-per-module into
+  <code>rust/</code>, each file naming its TypeScript counterpart
+  (<code>rust/src/manifest.rs</code> ↔ <code>src/extract/manifest.ts</code>).
+  The schema came first: <code>src/schema.ts</code> became serde types with
+  camelCase renames and omit-when-absent optionals, because the exercise
+  stands or falls on byte-compatible JSON shape — the SPA consumes the same
+  documents either way and cannot tell which implementation produced them.</p>
+
+  <p><strong>The Nix side is shared, not ported.</strong>
+  <code>extract.nix</code> is embedded in the binary and materialized into the
+  user's cache directory keyed by content hash, so both implementations
+  evaluate literally the same Nix code. The port's real surface is
+  orchestration, parsing, and serving.</p>
+
+  <p><strong>Highlighting went native.</strong> web-tree-sitter's WASM
+  grammars were replaced by native tree-sitter linked with the same vendored
+  highlight queries. One contract detail mattered: token offsets are UTF-16
+  code units (the client slices JS strings with them), so byte offsets are
+  converted before runs are emitted. Output was verified byte-identical.</p>
+
+  <p><strong>The Svelte build stays in bun.</strong> A bundle script emits an
+  <code>app-dist/</code> (JS, CSS, theme tokens, About data) that the binary
+  locates at runtime — env var, exe-relative, repo checkout, or the Nix
+  package's <code>share/flake-explorer/app-dist</code>. <code>serve --dev</code>
+  shells back out to bun for rebuilds and pushes the same SSE reload.</p>
+
+  <p><strong>Verification was diff-based.</strong> Both extractors ran
+  against real flakes (including a 57-input NixOS configuration); manifests
+  compared field-for-field, the full options blob loc-by-loc. The one true
+  divergence became a fix: nixpkgs sometimes sets
+  <code>defaultText&nbsp;=&nbsp;false</code>, which untyped
+  <code>JSON.parse</code> passed silently — the Rust deserializer now coerces
+  stray scalars deliberately instead of failing the chunk.</p>
+
+  <p><strong>Tests were ported, not re-imagined.</strong> The real-nix
+  mini-flake suite runs against the same fixture; the serve and degradation
+  suites reuse the scripted-<code>nix</code>-shim technique. The crate split
+  into lib&nbsp;+&nbsp;thin&nbsp;bin so <code>tests/</code> can link, and shim
+  suites hold one test per file — env/PATH mutation is process-global, and
+  per-file test processes are what make it race-free.</p>
+
+  <p><strong>Packaging is crane; coverage is cargo-llvm-cov.</strong>
+  <code>buildDepsOnly</code> compiles the dependency tree as its own cached
+  derivation, so CI rebuilds only the crate on source changes. Coverage runs
+  twice: sandboxed as a flake check (build gate), and on the CI runner where
+  real <code>nix</code> exists so the integration tests count — reported
+  through octocov with its own artifact datastore.</p>
+
+  <h2>Pros and cons</h2>
+  <div class="cards">
+    <div class="card pro">
+      <h3>Pros</h3>
+      <ul>
+        <li><strong>Single native binary</strong> — no bun runtime on the serving path; millisecond startup; no WASM init.</li>
+        <li><strong>The type system audits the data</strong> — serde surfaced a real upstream quirk the untyped path hid.</li>
+        <li><strong>Compiler-checked concurrency</strong> — single-flight extraction and manifest swaps use RwLock/watch/broadcast, not convention.</li>
+        <li><strong>CI economics</strong> — crane's dep layer caches; source changes rebuild one crate, not 300 dependencies.</li>
+        <li><strong>Verified parity</strong> — stronger starting evidence than most rewrites: same manifest, same blobs, same tokens.</li>
+      </ul>
+    </div>
+    <div class="card con">
+      <h3>Cons</h3>
+      <ul>
+        <li><strong>Two implementations of one contract</strong> — <code>schema.rs</code> mirrors <code>schema.ts</code> by hand; drift is possible.</li>
+        <li><strong>Two toolchains</strong> — the SPA still needs bun; contributors face Rust + TypeScript.</li>
+        <li><strong>Extraction is no faster</strong> — wall time is bound by <code>nix eval</code> subprocesses either way.</li>
+        <li><strong>Deliberate divergences</strong> — <code>rs-</code> fingerprint and a different <code>safeName</code> hash make data dirs per-implementation.</li>
+        <li><strong><code>serve --dev</code> is checkout-only</strong> — live reload shells out to bun and watches <code>app/</code>.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>What full publishability still needs</h2>
+  <ol>
+    <li><strong>npm distribution</strong> — platform packages
+      (<code>-linux-x64</code>, <code>-linux-arm64</code>, <code>-darwin-arm64</code>,
+      <code>-darwin-x64</code>) under <code>optionalDependencies</code>, a small
+      launcher shim as the <code>bin</code> entry that resolves the platform
+      binary and points <code>FLAKE_EXPLORER_APP_DIST</code> at the main
+      package's <code>app-dist/</code>. The published binaries must be
+      <em>portable builds</em> (static musl for Linux, macOS-runner builds for
+      Darwin) — the nix-built binary links glibc from <code>/nix/store</code>
+      and runs nowhere else. Publish with <code>--provenance</code>; macOS
+      needs only the linker's automatic ad-hoc signature; WASM is a
+      non-starter (the program spawns <code>nix</code>/<code>git</code> and
+      binds TCP — neither exists in WASI).</li>
+    <li><strong>Version single-sourcing</strong> — the crate version and About
+      data must follow <code>package.json</code> before any release ships.</li>
+    <li><strong>Release workflow integration</strong> — a four-target build
+      matrix, five npm publishes, and an explicit rollout decision: a
+      dist-tag soak before switching the default, or a major-version cutover.
+      Verified parity argues for a short soak.</li>
+    <li><strong>Docs and packaging parity</strong> — README/CLI docs and the
+      flake's <code>packages.default</code> still point at the bun package;
+      both are decisions to make explicitly.</li>
+    <li><strong>Windows, or an explicit “no”</strong> — neither implementation
+      targets it; saying so costs one sentence.</li>
+  </ol>
+
+  <h2>Opinion: what to improve next</h2>
+  <h3>Performance</h3>
+  <p>The honest ranking. First, <strong>reduce nix invocations, not Rust
+  time</strong>: every options chunk is a full <code>nix eval</code> process.
+  Batching sibling chunks into one eval returning per-chunk
+  <code>tryEval</code> envelopes would cut process count severalfold without
+  losing the degrade ladder — and the change lives in <code>extract.nix</code>,
+  benefiting both implementations. Second, a <strong>persistent
+  evaluator</strong> via the Nix C API would eliminate subprocess + JSON
+  round-trips entirely, but couples the binary to a specific Nix and forfeits
+  the “your nix, your store paths” property — an opt-in backend, never the
+  default. Third, server niceties: pre-compress the page, <code>ETag</code>
+  on <code>manifest.json</code>, concurrent <code>path-info</code> calls.</p>
+
+  <h3>Maintainability</h3>
+  <p>End the hand-mirrored schema: generate <code>schema.ts</code> from the
+  Rust types (<code>ts-rs</code>) or validate both against one JSON Schema in
+  CI. Promote the one-time verification into a permanent <strong>parity
+  check</strong> — a CI job running both extractors against the mini-flake
+  fixture and diffing normalized output turns “verified once” into “verified
+  every commit,” and is the safety net for eventually retiring the bun
+  extractor. And simplify the options worker pool into a channel-based
+  work-stealing pattern now that the language offers better tools than the
+  spawn-N-and-rejoin shape inherited from TypeScript.</p>
+
+  <h3>Quality</h3>
+  <p>Fuzz the text scanners (the overlay walker and
+  <code>top_level_text</code> are classic targets). Add
+  <code>cargo-deny</code>/<code>cargo-audit</code> — nothing currently watches
+  the dependency tree's advisories. Adopt <code>tracing</code> behind a
+  <code>-v</code> flag instead of bare <code>println!</code>. Once the parity
+  check exists, turn the mini-flake blobs into golden fixtures so a schema
+  change must consciously update both implementations in one commit.</p>
+
+  <blockquote><p>The strategic opinion, briefly: keep the SPA in TypeScript
+  forever, keep <code>extract.nix</code> as the single shared evaluator, and
+  let the parity check — not enthusiasm — decide when the bun extractor
+  retires.</p></blockquote>
+</main>
+</body>
+</html>

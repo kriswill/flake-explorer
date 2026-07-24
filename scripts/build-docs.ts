@@ -29,6 +29,7 @@ const PAGES: { file: string; title: string }[] = [
   { file: "build-and-infra.md", title: "Build & infra" },
   { file: "cli.md", title: "CLI reference" },
   { file: "testing.md", title: "Testing" },
+  { file: "rust-port.md", title: "Rust port" },
   { file: "glossary.md", title: "Glossary" },
 ]
 
