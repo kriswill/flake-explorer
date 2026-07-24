@@ -8,16 +8,21 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { chmod, mkdir, mkdtemp, rm, unlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import type { ConfigData, Manifest } from "../src/schema"
 import { serve } from "../src/serve"
+import { BUN_NATIVES } from "./setup/happy-dom"
 
 // The happy-dom preload (test/setup/happy-dom.ts) replaces global fetch /
 // Response / ReadableStream with happy-dom's classes, and Bun.serve rejects
 // handler responses that aren't its own Response. This file needs the real
-// network stack, not a DOM — unregister happy-dom for its duration and
-// re-register in afterAll so later test files still get their DOM globals
-// (bun test runs all files sequentially in one process).
+// network stack, not a DOM — swap Bun's captured natives back in for its
+// duration and restore happy-dom's afterwards. Deliberately NOT
+// GlobalRegistrator.unregister()/register(): re-registering creates a fresh
+// window/document, and Svelte's already-initialized client runtime caches
+// document state — later component-test files then crash depending on file
+// order (see the BUN_NATIVES doc comment).
+const savedHappyDom: Record<string, unknown> = {}
+const g = globalThis as Record<string, unknown>
 const httpFetch = (input: string, init?: RequestInit): Promise<Response> =>
   globalThis.fetch(input, init)
 
@@ -184,7 +189,10 @@ const getManifest = async (): Promise<Manifest> =>
   (await (await httpFetch(`${base}/data/manifest.json`)).json()) as Manifest
 
 beforeAll(async () => {
-  await GlobalRegistrator.unregister()
+  for (const [key, native] of Object.entries(BUN_NATIVES)) {
+    savedHappyDom[key] = g[key]
+    g[key] = native
+  }
 
   shimDir = await mkdtemp(join(tmpdir(), "serve-shim-"))
   dataParent = await mkdtemp(join(tmpdir(), "serve-data-"))
@@ -228,19 +236,11 @@ afterAll(async () => {
   await rm(dataParent, { recursive: true, force: true })
   await rm(SELF, { recursive: true, force: true })
 
-  // Restore the DOM environment (and the preload's fallbacks) for any test
-  // files that run after this one.
-  GlobalRegistrator.register()
-  const g = globalThis as Record<string, unknown>
-  if (typeof g.matchMedia !== "function") {
-    g.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} })
-  }
-  if (typeof g.ResizeObserver !== "function") {
-    g.ResizeObserver = class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    }
+  // Restore happy-dom's globals for any test files that run after this one.
+  // The window/document were never touched, so Svelte's cached runtime state
+  // (and the preload's matchMedia/ResizeObserver fallbacks) stay valid.
+  for (const [key, value] of Object.entries(savedHappyDom)) {
+    g[key] = value
   }
 })
 
