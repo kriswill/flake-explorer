@@ -12,7 +12,6 @@ import { fileURLToPath } from "node:url"
 const PLATFORMS = {
   "linux-x64": "@kriswill/flake-explorer-linux-x64",
   "linux-arm64": "@kriswill/flake-explorer-linux-arm64",
-  "darwin-x64": "@kriswill/flake-explorer-darwin-x64",
   "darwin-arm64": "@kriswill/flake-explorer-darwin-arm64",
 }
 
