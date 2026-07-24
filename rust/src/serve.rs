@@ -34,16 +34,23 @@ pub struct ServeFlags {
     pub dev: bool,
 }
 
-struct AppState {
+/// Shared server state. Public so the integration tests (tests/serve_http.rs)
+/// can hold one and drive `router()` in-process; fields stay module-private.
+pub struct AppState {
     flake_ref: String,
     flags: ServeFlags,
+    title: String,
+    dist: std::path::PathBuf,
     manifest: RwLock<Manifest>,
     page: RwLock<String>,
     inflight: Mutex<HashMap<String, watch::Receiver<bool>>>,
     reload_tx: broadcast::Sender<()>,
 }
 
-pub async fn serve(flake_ref: String, flags: ServeFlags) -> anyhow::Result<()> {
+/// Everything serve does before binding a socket: nix check, data dirs, UI
+/// bundle, initial manifest + reconcile. Split from `serve` so tests can
+/// build the state and call `router()` without networking.
+pub async fn init(flake_ref: String, flags: ServeFlags) -> anyhow::Result<Arc<AppState>> {
     check_nix().await?;
     std::fs::create_dir_all(Path::new(&flags.out).join("config"))?;
     std::fs::create_dir_all(Path::new(&flags.out).join("package"))?;
@@ -73,17 +80,28 @@ pub async fn serve(flake_ref: String, flags: ServeFlags) -> anyhow::Result<()> {
     reconcile(&flags.out, &mut manifest);
 
     let (reload_tx, _) = broadcast::channel(8);
-    let state = Arc::new(AppState {
+    Ok(Arc::new(AppState {
         flake_ref,
+        title,
+        dist,
         manifest: RwLock::new(manifest),
         page: RwLock::new(page),
         inflight: Mutex::new(HashMap::new()),
         reload_tx,
         flags,
-    });
+    }))
+}
+
+/// The server's whole route surface, as an axum Router over the shared state.
+pub fn router(state: Arc<AppState>) -> axum::Router {
+    axum::Router::new().fallback(move |req: Request<Body>| handle(state.clone(), req))
+}
+
+pub async fn serve(flake_ref: String, flags: ServeFlags) -> anyhow::Result<()> {
+    let state = init(flake_ref, flags).await?;
 
     if state.flags.dev {
-        spawn_dev_watcher(state.clone(), dist, title.clone());
+        spawn_dev_watcher(state.clone(), state.dist.clone(), state.title.clone());
     }
 
     let addr = format!("{}:{}", state.flags.host, state.flags.port);
@@ -93,12 +111,7 @@ pub async fn serve(flake_ref: String, flags: ServeFlags) -> anyhow::Result<()> {
         "flake-explorer serving {} at http://localhost:{port}",
         state.flake_ref
     );
-
-    let app = axum::Router::new().fallback({
-        let state = state.clone();
-        move |req: Request<Body>| handle(state.clone(), req)
-    });
-    axum::serve(listener, app).await?;
+    axum::serve(listener, router(state)).await?;
     Ok(())
 }
 

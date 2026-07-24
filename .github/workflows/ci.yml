@@ -79,18 +79,29 @@ jobs:
       - uses: DeterminateSystems/flakehub-cache-action@3be0931021788e3bb4df65f59a555039c2fa2d46 # main 2026-07
       # Builds the checks: bun tests, treefmt, and the crane-driven rust
       # test/clippy/coverage (dep layer cached in FlakeHub Cache; only the
-      # crate itself recompiles on source changes).
+      # crate itself recompiles on source changes). The sandboxed rust checks
+      # run the shim-based integration suites too, but skip the real-nix
+      # mini-flake suite — the coverage step below covers that.
       - run: nix flake check -L
       # flake check builds only checks.* ("build skipped" for packages), so
       # the apps themselves never reached the cache — build them explicitly.
       - run: nix build .#default .#flake-explorer-rs -L
-      # Rust coverage: the rust-coverage check's output IS the lcov file
-      # (cargo-llvm-cov); rewrite the sandbox build paths to repo-relative so
-      # octocov can match sources, then report with the rust-specific config.
+      # Rust coverage, OUTSIDE the sandbox so the real-nix integration tests
+      # (tests/mini_flake.rs against the same fixture the bun suite uses) run
+      # and count — mirroring how the bun `test` job installs nix for
+      # mini-flake.test.ts. REQUIRE_NIX turns a silent skip into a failure.
+      # The devShell provides cargo/cargo-llvm-cov and pins LLVM_COV/
+      # LLVM_PROFDATA to rustc's own LLVM.
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: rust
+      - run: nix develop -c bash -c 'cd rust && cargo llvm-cov test --locked --lcov --output-path ../rust-coverage-raw.lcov'
+        env:
+          FLAKE_EXPLORER_REQUIRE_NIX: "1"
+      # Rewrite absolute SF paths repo-relative so octocov matches sources.
       - run: |
-          nix build .#checks.$(nix eval --raw --impure --expr builtins.currentSystem).rust-coverage -o rust-cov
           mkdir -p rust-coverage
-          sed 's|^SF:/build/source/|SF:|' rust-cov > rust-coverage/lcov.info
+          sed "s|^SF:$GITHUB_WORKSPACE/|SF:|" rust-coverage-raw.lcov > rust-coverage/lcov.info
       - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
         with:
           config: .octocov.rust.yml

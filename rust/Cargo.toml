@@ -33,3 +33,6 @@ hex = "0.4"
 
 [profile.release]
 lto = true
+
+[dev-dependencies]
+tower = { version = "0.5.3", features = ["util"] }

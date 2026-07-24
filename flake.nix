@@ -61,6 +61,14 @@
           # must use the host's nix so store paths and the flake registry
           # match the user's system (run-nix.ts checks for it at startup).
           devShells.default = pkgs.mkShell {
+            # cargo-llvm-cov looks for rustup's llvm-tools-preview; point it
+            # at the LLVM that built this rustc instead (same pinning as the
+            # rust-coverage check). CI's out-of-sandbox coverage run — the one
+            # that includes the real-nix integration tests — relies on these.
+            env = {
+              LLVM_COV = "${pkgs.rustc.llvmPackages.llvm}/bin/llvm-cov";
+              LLVM_PROFDATA = "${pkgs.rustc.llvmPackages.llvm}/bin/llvm-profdata";
+            };
             packages =
               builtins.attrValues {
                 inherit (pkgs)

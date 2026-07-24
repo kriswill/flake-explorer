@@ -247,6 +247,7 @@ dependencies = [
  "streaming-iterator",
  "tokio",
  "tokio-stream",
+ "tower",
  "tree-sitter",
  "tree-sitter-bash",
  "tree-sitter-nix",

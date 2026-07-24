@@ -3,23 +3,8 @@
 // file. A wrapper may set FLAKE_EXPLORER_PROG so usage shows the invoked
 // name.
 
-mod cache;
-mod drive;
-mod export;
-mod git;
-mod highlight;
-mod manifest;
-mod options;
-mod package;
-mod page;
-mod pathref;
-mod reverse_deps;
-mod run_nix;
-mod scan;
-mod schema;
-mod serve;
-
-use drive::{DriveFlags, Selection};
+use flake_explorer::drive::{self, DriveFlags, Selection};
+use flake_explorer::{export, manifest, serve};
 use std::process::exit;
 use std::time::Duration;
 
