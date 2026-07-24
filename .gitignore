@@ -11,3 +11,5 @@ coverage/
 _site/
 .docs-api/
 /.envrc
+/rust/target/
+/rust/app-dist/
