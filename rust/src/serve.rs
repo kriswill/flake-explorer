@@ -5,16 +5,16 @@
 // finishes). POST /api/refresh re-runs the manifest pass.
 
 use crate::cache::{
-    apply_extracted, apply_extracted_package, cache_key_of, extract_and_persist,
-    extract_and_persist_package, reconcile, CacheKey,
+    CacheKey, apply_extracted, apply_extracted_package, cache_key_of, extract_and_persist,
+    extract_and_persist_package, reconcile,
 };
 use crate::highlight::tokenize_nix;
-use crate::manifest::{build_manifest, ManifestOptions};
-use crate::page::{find_app_dist, load_bundle, page_html, PageOpts};
+use crate::manifest::{ManifestOptions, build_manifest};
+use crate::page::{PageOpts, find_app_dist, load_bundle, page_html};
 use crate::run_nix::{check_nix, read_input_file};
-use crate::schema::{parse_file_id, Manifest, ParsedFileId, RefStatus};
+use crate::schema::{Manifest, ParsedFileId, RefStatus, parse_file_id};
 use axum::body::Body;
-use axum::http::{header, Method, Request, StatusCode};
+use axum::http::{Method, Request, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use percent_encoding::percent_decode_str;
 use regex::Regex;
@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{broadcast, watch, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, broadcast, watch};
 
 pub struct ServeFlags {
     pub out: String,
@@ -442,8 +442,8 @@ fn normalize_path(p: &str) -> String {
 fn async_stream_events(
     rx: broadcast::Receiver<()>,
 ) -> impl futures::Stream<Item = Result<String, std::convert::Infallible>> {
-    use tokio_stream::wrappers::BroadcastStream;
     use tokio_stream::StreamExt;
+    use tokio_stream::wrappers::BroadcastStream;
     let hello = tokio_stream::once(Ok(": connected\n\n".to_string()));
     let reloads =
         BroadcastStream::new(rx).filter_map(|r| r.ok().map(|_| Ok("data: reload\n\n".to_string())));
@@ -498,12 +498,9 @@ fn spawn_dev_watcher(state: Arc<AppState>, dist: std::path::PathBuf, title: Stri
                 return;
             }
             // Debounce: absorb the burst of events a save produces.
-            loop {
-                match tokio::time::timeout(Duration::from_millis(150), rx.recv()).await {
-                    Ok(Some(())) => continue,
-                    _ => break,
-                }
-            }
+            while let Ok(Some(())) =
+                tokio::time::timeout(Duration::from_millis(150), rx.recv()).await
+            {}
             let t0 = std::time::Instant::now();
             let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
             let status = tokio::process::Command::new("bun")

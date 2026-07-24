@@ -14,6 +14,13 @@ bun scripts/bundle-app.ts   # compile the Svelte SPA into rust/app-dist/
 cargo build --release       # in rust/
 ```
 
+Or via the flake (crane-based, see `rust/package.nix`):
+
+```sh
+nix build .#flake-explorer-rs   # binary + app bundle in $out/share/flake-explorer/app-dist
+nix flake check                 # includes rust-test, rust-clippy, rust-coverage (cargo-llvm-cov lcov)
+```
+
 The binary embeds `extract.nix` and the vendored highlight queries; the app
 bundle (`app-dist/`) is located at runtime via `$FLAKE_EXPLORER_APP_DIST`,
 next to the executable, `../share/flake-explorer/app-dist`, or the repo

@@ -3,7 +3,7 @@
 // `nix path-info` per output. Instantiation only, never builds.
 
 use crate::highlight::tokenize_bash;
-use crate::run_nix::{derivation_show, eval_extract, path_info, ExtractArgs, PackageEval};
+use crate::run_nix::{ExtractArgs, PackageEval, derivation_show, eval_extract, path_info};
 use crate::schema::*;
 use indexmap::IndexMap;
 use serde_json::Value;
@@ -201,16 +201,16 @@ const PHASE_ORDER: [(&str, Option<&str>, Option<&str>); 9] = [
 fn phases_from_env(env: &serde_json::Map<String, Value>) -> Vec<DrvPhase> {
     let mut scripts: Vec<(String, String)> = Vec::new();
     let mut push_if_present = |name: &str| {
-        if let Some(Value::String(script)) = env.get(name) {
-            if !script.is_empty() {
-                let capped = if script.chars().count() > PHASE_CAP {
-                    let head: String = script.chars().take(PHASE_CAP).collect();
-                    format!("{head}\n… truncated")
-                } else {
-                    script.clone()
-                };
-                scripts.push((name.to_string(), capped));
-            }
+        if let Some(Value::String(script)) = env.get(name)
+            && !script.is_empty()
+        {
+            let capped = if script.chars().count() > PHASE_CAP {
+                let head: String = script.chars().take(PHASE_CAP).collect();
+                format!("{head}\n… truncated")
+            } else {
+                script.clone()
+            };
+            scripts.push((name.to_string(), capped));
         }
     };
     for (key, pre, post) in PHASE_ORDER {

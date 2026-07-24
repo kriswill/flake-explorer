@@ -31,11 +31,11 @@ pub fn find_app_dist() -> anyhow::Result<PathBuf> {
     if let Some(p) = std::env::var_os("FLAKE_EXPLORER_APP_DIST") {
         candidates.push(PathBuf::from(p));
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            candidates.push(dir.join("app-dist"));
-            candidates.push(dir.join("../share/flake-explorer/app-dist"));
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        candidates.push(dir.join("app-dist"));
+        candidates.push(dir.join("../share/flake-explorer/app-dist"));
     }
     let repo_dist = Path::new(env!("CARGO_MANIFEST_DIR")).join("app-dist");
     candidates.push(repo_dist.clone());

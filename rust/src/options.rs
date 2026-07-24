@@ -2,7 +2,7 @@
 // the options tree, walked in chunks so an uncatchable eval error degrades
 // instead of killing the whole configuration. Split first, degrade last.
 
-use crate::run_nix::{eval_extract, ExtractArgs, OptionsEval, RawOption, ValueEnvelope};
+use crate::run_nix::{ExtractArgs, OptionsEval, RawOption, ValueEnvelope, eval_extract};
 use crate::schema::*;
 use indexmap::IndexMap;
 use serde_json::Value;
@@ -285,20 +285,20 @@ async fn run_chunk(
 
     // Failed. Prefer splitting at the same detail level to isolate the bad
     // option; healthy siblings keep full detail.
-    if let Some(children) = &chunk.children {
-        if children.len() > 1 {
-            let mid = children.len().div_ceil(2);
-            let mut q = shared.queue.lock().await;
-            q.push_back(Chunk {
-                children: Some(children[..mid].to_vec()),
-                ..chunk.clone()
-            });
-            q.push_back(Chunk {
-                children: Some(children[mid..].to_vec()),
-                ..chunk
-            });
-            return;
-        }
+    if let Some(children) = &chunk.children
+        && children.len() > 1
+    {
+        let mid = children.len().div_ceil(2);
+        let mut q = shared.queue.lock().await;
+        q.push_back(Chunk {
+            children: Some(children[..mid].to_vec()),
+            ..chunk.clone()
+        });
+        q.push_back(Chunk {
+            children: Some(children[mid..].to_vec()),
+            ..chunk
+        });
+        return;
     }
     // Single child descends a level; a bare namespace splits by its children.
     let deeper: Vec<String> = match &chunk.children {
@@ -322,15 +322,15 @@ async fn run_chunk(
             timeout,
         )
         .await;
-        if let Ok(kids) = kids {
-            if !kids.is_empty() {
-                shared.queue.lock().await.push_back(Chunk {
-                    path: deeper,
-                    children: Some(kids),
-                    rung: chunk.rung,
-                });
-                return;
-            }
+        if let Ok(kids) = kids
+            && !kids.is_empty()
+        {
+            shared.queue.lock().await.push_back(Chunk {
+                path: deeper,
+                children: Some(kids),
+                rung: chunk.rung,
+            });
+            return;
         }
         // unlistable — fall through to rung escalation
     }
@@ -427,13 +427,15 @@ fn to_definition(file: String, value: &ValueEnvelope) -> DefinitionRef {
         prio: None,
     };
     let mut v = u.value;
-    if let Some(Value::Object(o)) = &v {
-        if o.len() == 2 && o.contains_key("mkOverride") && o.contains_key("content") {
-            if let Some(prio) = o.get("mkOverride").and_then(|p| p.as_i64()) {
-                r#ref.prio = Some(prio);
-            }
-            v = o.get("content").cloned();
+    if let Some(Value::Object(o)) = &v
+        && o.len() == 2
+        && o.contains_key("mkOverride")
+        && o.contains_key("content")
+    {
+        if let Some(prio) = o.get("mkOverride").and_then(|p| p.as_i64()) {
+            r#ref.prio = Some(prio);
         }
+        v = o.get("content").cloned();
     }
     r#ref.value = v;
     r#ref

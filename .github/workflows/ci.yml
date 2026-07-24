@@ -66,6 +66,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Artifact datastore reads for the octocov rust report (uploads use the
+      # runtime token, no extra permission).
+      actions: read
       # The OIDC JWT is the FlakeHub Cache credential (account-scoped, no
       # secret). Fork PRs get no id-token: the build still runs, the cache
       # push is skipped with a warning.
@@ -74,7 +77,20 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: DeterminateSystems/determinate-nix-action@2a0be2498974c2b6327e19780488744384637d88 # v3.21.7
       - uses: DeterminateSystems/flakehub-cache-action@3be0931021788e3bb4df65f59a555039c2fa2d46 # main 2026-07
+      # Builds the checks: bun tests, treefmt, and the crane-driven rust
+      # test/clippy/coverage (dep layer cached in FlakeHub Cache; only the
+      # crate itself recompiles on source changes).
       - run: nix flake check -L
       # flake check builds only checks.* ("build skipped" for packages), so
-      # the app itself never reached the cache — build it explicitly.
-      - run: nix build .#default -L
+      # the apps themselves never reached the cache — build them explicitly.
+      - run: nix build .#default .#flake-explorer-rs -L
+      # Rust coverage: the rust-coverage check's output IS the lcov file
+      # (cargo-llvm-cov); rewrite the sandbox build paths to repo-relative so
+      # octocov can match sources, then report with the rust-specific config.
+      - run: |
+          nix build .#checks.$(nix eval --raw --impure --expr builtins.currentSystem).rust-coverage -o rust-cov
+          mkdir -p rust-coverage
+          sed 's|^SF:/build/source/|SF:|' rust-cov > rust-coverage/lcov.info
+      - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
+        with:
+          config: .octocov.rust.yml

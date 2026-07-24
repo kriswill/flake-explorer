@@ -65,12 +65,12 @@ pub async fn last_commits(
                 date,
                 subject,
             });
-        } else if !line.trim().is_empty() {
-            if let Some(cur) = &current {
-                result
-                    .entry(line.trim().to_string())
-                    .or_insert_with(|| cur.clone());
-            }
+        } else if !line.trim().is_empty()
+            && let Some(cur) = &current
+        {
+            result
+                .entry(line.trim().to_string())
+                .or_insert_with(|| cur.clone());
         }
     }
     result

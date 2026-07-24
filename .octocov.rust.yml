@@ -1,0 +1,20 @@
+# Rust coverage report (cargo-llvm-cov lcov out of the rust-coverage flake
+# check; the nix CI job rewrites SF paths to repo-relative before this runs).
+# Separate config + artifact name from the TS report (.octocov.yml) so the
+# two coverage histories never mix. No PR comment: octocov keys its comment
+# on a fixed marker, so a second config's comment would hide the TS one —
+# the job summary + the acceptable gate carry the signal instead.
+coverage:
+  paths:
+    - rust-coverage/lcov.info
+  acceptable: current >= prev
+diff:
+  if: is_pull_request
+  datastores:
+    - artifact://${GITHUB_REPOSITORY}/octocov-rust
+summary:
+  if: true
+report:
+  if: is_default_branch
+  datastores:
+    - artifact://${GITHUB_REPOSITORY}/octocov-rust

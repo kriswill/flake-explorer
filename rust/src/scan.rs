@@ -4,7 +4,7 @@
 // scans, not parsers, mirroring the TS stance: false positives are harmless
 // in a visualization.
 
-use crate::pathref::{resolve_known_ref, REL_PATH_RE};
+use crate::pathref::{REL_PATH_RE, resolve_known_ref};
 use crate::schema::{ImportEdge, InputRef, OverlayAttr, OverlayAttrKind, OverlayDef};
 use fancy_regex::Regex as FancyRegex;
 use regex::Regex;

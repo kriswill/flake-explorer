@@ -3,9 +3,9 @@
 // (extractor fingerprint + flake identity + lock hash). Sidecars live next
 // to the blobs (config/<kind>.<name>.meta.json).
 
-use crate::manifest::{now_iso, FINGERPRINT};
-use crate::options::{extract_options, ExtractOptionsOpts, OptionsResult, ProgressFn};
-use crate::package::{extract_package, PackageResult};
+use crate::manifest::{FINGERPRINT, now_iso};
+use crate::options::{ExtractOptionsOpts, OptionsResult, ProgressFn, extract_options};
+use crate::package::{PackageResult, extract_package};
 use crate::schema::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

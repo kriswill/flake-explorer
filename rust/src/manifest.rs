@@ -4,8 +4,8 @@
 
 use crate::git::{last_commits, repo_prefix};
 use crate::run_nix::{
-    eval_extract, flake_metadata, flake_show, ExtractArgs, FlakeMetadataJson, InputsTreeNode,
-    LockInputRef, LockNode, ManifestEval, NixError,
+    ExtractArgs, FlakeMetadataJson, InputsTreeNode, LockInputRef, LockNode, ManifestEval, NixError,
+    eval_extract, flake_metadata, flake_show,
 };
 use crate::scan::{canonical_input_names, import_graph, scan_input_refs, scan_overlay_defs};
 use crate::schema::*;

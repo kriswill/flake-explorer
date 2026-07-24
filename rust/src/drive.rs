@@ -6,7 +6,7 @@ use crate::cache::{
     apply_extracted, apply_extracted_package, cache_key_of, extract_and_persist,
     extract_and_persist_package, reconcile,
 };
-use crate::manifest::{build_manifest, ManifestOptions};
+use crate::manifest::{ManifestOptions, build_manifest};
 use crate::run_nix::check_nix;
 use crate::schema::{Manifest, RefStatus};
 use std::io::Write;

@@ -5,7 +5,7 @@
 // ported at the bottom.
 
 use crate::highlight::tokenize_nix;
-use crate::page::{find_app_dist, load_bundle, page_html, PageOpts};
+use crate::page::{PageOpts, find_app_dist, load_bundle, page_html};
 use crate::reverse_deps::build_package_reverse_deps;
 use crate::run_nix::read_input_file;
 use crate::schema::*;
