@@ -44,7 +44,10 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: bun install --frozen-lockfile
-      - run: bunx biome ci .
+      # bun run resolves the vendored node_modules binary — the version the
+      # lockfile pins — so a new Biome release can never disagree with
+      # biome.json in CI (bunx resolves latest and drifted repeatedly).
+      - run: bun run lint:ci
       - run: bun run typecheck
       - run: bun run docs
 
