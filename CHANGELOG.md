@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-07-24
+
+### Changed
+
+- The program — CLI, extractor, HTTP server, and static exporter — is now
+  a single native Rust binary instead of a bun-run TypeScript tree. The
+  JSON data contract is unchanged and 0.4.x data directories keep
+  working: extraction output was verified field-for-field against the
+  previous implementation on real flakes (this repo, a 57-input dotfiles
+  flake, and a full 15,436-option NixOS configuration). The one visible
+  effect is a new `rs-` extractor fingerprint, so existing cached blobs
+  re-extract once on next access.
+- The npm package now ships per-platform native binaries — Linux and
+  macOS, x64 and arm64 — installed via `optionalDependencies` and
+  resolved by a Node >= 20 launcher that also points the binary at the
+  SPA bundle shipped in the main package. bun is no longer a runtime
+  requirement: `npx @kriswill/flake-explorer` works as well as `bunx`.
+  (`nix` on PATH is still required at runtime.)
+
+### Added
+
+- The flake package (`nix run`) installs the native binary together with
+  the SPA bundle, so the explorer works out of the box without a
+  JavaScript runtime on the host.
+- A cargo test suite, including integration tests that drive real `nix`
+  against fixture flakes (extraction, serve routes, degradation paths,
+  static export), with its own coverage gate in CI alongside the
+  existing SPA suite's.
+
+### Fixed
+
+- Static exports preserve explicit `null` option values instead of
+  silently dropping them.
+- Options whose `defaultText` is a non-string scalar (nixpkgs'
+  bluesky-pds sets `false`) no longer derail extraction — scalars are
+  rendered as their literal text.
+- Component tests no longer crash order-dependently after the serve
+  suite: the serve tests now swap in only Bun's native network globals
+  for their duration instead of replacing the whole happy-dom realm,
+  which invalidated Svelte's cached document state (#74).
+
+### Removed
+
+- The TypeScript implementation of the program (CLI, extractor, server,
+  exporter) — the Svelte SPA and its bun toolchain remain.
+- `web-tree-sitter` and its WASM grammars: syntax highlighting is native
+  tree-sitter with token output verified identical.
+
 ## [0.4.0] — 2026-07-21
 
 ### Added
@@ -279,7 +327,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI guardrails: tests with a coverage ratchet (78% → 97% line coverage),
   typecheck, Biome lint, `nix flake check`, Dependabot.
 
-[Unreleased]: https://github.com/kriswill/flake-explorer/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/kriswill/flake-explorer/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/kriswill/flake-explorer/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/kriswill/flake-explorer/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kriswill/flake-explorer/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kriswill/flake-explorer/compare/v0.1.3...v0.2.0
