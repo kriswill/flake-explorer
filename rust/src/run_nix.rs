@@ -435,15 +435,30 @@ pub struct PackageEvalSrc {
 /// value | error | skipped-as-unsafe | drv names only — or null.
 pub type ValueEnvelope = Option<Value>;
 
+/// String-or-null that tolerates stray scalars: nixpkgs modules occasionally
+/// set e.g. `defaultText = false` (bluesky-pds does, live), which the module
+/// system passes through untyped. The bun extractor's untyped JSON.parse let
+/// those sail into the blob; here they coerce to their JSON rendering.
+fn lenient_string<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Ok(match Option::<Value>::deserialize(d)? {
+        None | Some(Value::Null) => None,
+        Some(Value::String(s)) => Some(s),
+        Some(other) => Some(other.to_string()),
+    })
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RawOption {
     pub loc: Vec<String>,
+    #[serde(default, deserialize_with = "lenient_string")]
     pub r#type: Option<String>,
+    #[serde(default, deserialize_with = "lenient_string")]
     pub description: Option<String>,
     pub read_only: bool,
     pub is_defined: bool,
     pub highest_prio: Option<i64>,
+    #[serde(default, deserialize_with = "lenient_string")]
     pub default_text: Option<String>,
     pub default: ValueEnvelope,
     pub value: ValueEnvelope,
