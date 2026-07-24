@@ -15,10 +15,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# The three job names below are required check contexts in main's ruleset
+# ("main-guardrails") — rename them only together with the ruleset.
 jobs:
   # SPA test suite (Svelte components, client indexes, page composition).
-  # Job id stays `test`: main's ruleset requires that exact check context.
-  test:
+  test-typescript:
+    name: test typescript
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -31,26 +33,22 @@ jobs:
       - run: bun test --coverage
       - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
 
-  typecheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      # Smoke-check the docs site build (no nix needed) so a broken docs
-      # pipeline surfaces on the PR, not on the Pages deploy.
-      - run: bun run docs
-
-  lint:
+  # Static checks share one runner + one bun install: biome, tsc +
+  # svelte-check, and the docs-site smoke build (so a broken docs pipeline
+  # surfaces on the PR, not on the Pages deploy). Fastest check first so the
+  # cheap failure short-circuits the job.
+  check-typescript:
+    name: check typescript
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: bun install --frozen-lockfile
       - run: bunx biome ci .
+      - run: bun run typecheck
+      - run: bun run docs
 
-  nix:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read

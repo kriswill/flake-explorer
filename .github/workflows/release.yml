@@ -1,14 +1,14 @@
 # Cut a release: bump package.json (package.nix reads its version at eval
 # time, the About modal at runtime), roll CHANGELOG's [Unreleased] into the
 # new version section, land the bump on main THROUGH A PULL REQUEST (main's
-# ruleset requires PRs + the four CI checks; the Actions app cannot bypass
+# ruleset requires PRs + the three CI checks; the Actions app cannot bypass
 # rulesets on user-owned repos), then tag the merge commit, publish a GitHub
 # release with the changelog section as notes, and publish to npm.
 #
 # GITHUB_TOKEN quirks this flow works around:
 #   - PRs created with GITHUB_TOKEN emit no pull_request events, so CI is
 #     dispatched explicitly on the release branch (same check contexts —
-#     test/typecheck/lint/nix — so the ruleset accepts them).
+#     test typescript / check typescript / build — so the ruleset accepts them).
 #   - Pushes/merges made with GITHUB_TOKEN trigger no on:push workflows, so
 #     CI and Pages are dispatched explicitly for main after the merge —
 #     and the tag push triggers nothing either, so flakehub-publish is
