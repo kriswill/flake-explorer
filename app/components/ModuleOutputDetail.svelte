@@ -1,7 +1,7 @@
 <script lang="ts">
-import type { OutputNode } from "../../src/schema"
 import type { FileMeta } from "../lib/indexes"
 import { resolveFile } from "../lib/indexes"
+import type { OutputNode } from "../lib/schema"
 import { app, loadedConfig } from "../lib/state.svelte"
 import AsyncSlot from "./AsyncSlot.svelte"
 

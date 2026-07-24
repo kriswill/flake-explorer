@@ -4,8 +4,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { flushSync, mount, unmount } from "svelte"
 import OptionRow from "../app/components/OptionRow.svelte"
+import { type OptionEntry, PRIO } from "../app/lib/schema"
 import { app } from "../app/lib/state.svelte"
-import { type OptionEntry, PRIO } from "../src/schema"
 import { opt } from "./fixtures/data"
 import { withMount } from "./helpers"
 

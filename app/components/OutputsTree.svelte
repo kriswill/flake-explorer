@@ -1,9 +1,9 @@
 <script lang="ts">
-import type { GraftInfo, InputInfo, OutputNode } from "../../src/schema"
 import { colorFor } from "../lib/color"
 import { inputLabel } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
 import { revealWhen } from "../lib/reveal.svelte"
+import type { GraftInfo, InputInfo, OutputNode } from "../lib/schema"
 import { app, loadedConfig } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"
 import AsyncSlot from "./AsyncSlot.svelte"

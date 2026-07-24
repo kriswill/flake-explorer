@@ -12,8 +12,8 @@
 import { copyFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs"
 import { join, normalize } from "node:path"
 import { Marked } from "marked"
-import { themeCss } from "../src/build-app"
-import { type DepLicense, packageDir, readDepLicense } from "../src/licenses"
+import { themeCss } from "./build-app"
+import { type DepLicense, packageDir, readDepLicense } from "./licenses"
 
 const REPO_URL = "https://github.com/kriswill/flake-explorer"
 const DOCS_DIR = join(import.meta.dir, "..", "docs")

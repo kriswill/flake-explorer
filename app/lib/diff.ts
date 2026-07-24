@@ -3,7 +3,7 @@
 // blob is self-contained, so this is a join over the two optionsByLoc
 // indexes that buildConfigIndexes already built.
 
-import type { ConfigData, OptionEntry } from "../../src/schema"
+import type { ConfigData, OptionEntry } from "../lib/schema"
 import type { ConfigIndexes } from "./indexes"
 
 export type DiffKind =

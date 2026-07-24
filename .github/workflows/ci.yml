@@ -15,8 +15,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# The three job names below are required check contexts in main's ruleset
+# ("main-guardrails") — rename them only together with the ruleset.
 jobs:
-  test:
+  # SPA test suite (Svelte components, client indexes, page composition).
+  test-typescript:
+    name: test typescript
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -25,47 +29,35 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      # nix is needed so the real-nix integration tests (test/mini-flake.test.ts)
-      # run here and count toward coverage; the fixture is builtins-only, so no
-      # store downloads happen beyond the install itself.
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-        with:
-          # Plain upstream Nix: this job only evals (builtins-only fixture,
-          # no builds), so the FlakeHub cache buys nothing here and skipping
-          # the OIDC login keeps fork PRs warning-free. The `nix` job below
-          # is the one that builds — it uses Determinate Nix + the cache.
-          determinate: false
       - run: bun install --frozen-lockfile
       - run: bun test --coverage
-        env:
-          # Fail loudly if nix ever goes missing instead of silently skipping
-          # the integration suite (which would only show up as a coverage drop).
-          FLAKE_EXPLORER_REQUIRE_NIX: "1"
       - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
 
-  typecheck:
+  # Static checks share one runner + one bun install: biome, tsc +
+  # svelte-check, and the docs-site smoke build (so a broken docs pipeline
+  # surfaces on the PR, not on the Pages deploy). Fastest check first so the
+  # cheap failure short-circuits the job.
+  check-typescript:
+    name: check typescript
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: bun install --frozen-lockfile
+      # bun run resolves the vendored node_modules binary — the version the
+      # lockfile pins — so a new Biome release can never disagree with
+      # biome.json in CI (bunx resolves latest and drifted repeatedly).
+      - run: bun run lint:ci
       - run: bun run typecheck
-      # Smoke-check the docs site build (no nix needed) so a broken docs
-      # pipeline surfaces on the PR, not on the Pages deploy.
       - run: bun run docs
 
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - run: bun install --frozen-lockfile
-      - run: bunx biome ci .
-
-  nix:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Artifact datastore reads for the octocov report (uploads use the
+      # runtime token, no extra permission).
+      actions: read
       # The OIDC JWT is the FlakeHub Cache credential (account-scoped, no
       # secret). Fork PRs get no id-token: the build still runs, the cache
       # push is skipped with a warning.
@@ -74,7 +66,27 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: DeterminateSystems/determinate-nix-action@2a0be2498974c2b6327e19780488744384637d88 # v3.21.7
       - uses: DeterminateSystems/flakehub-cache-action@3be0931021788e3bb4df65f59a555039c2fa2d46 # main 2026-07
+      # Builds the checks: cargo test/clippy/coverage over the crane dep
+      # layer (cached in FlakeHub Cache; only the crate itself recompiles on
+      # source changes), the offline SPA test suite, and treefmt. The
+      # sandboxed cargo tests run the shim-based integration suites but skip
+      # the real-nix mini-flake suite — the coverage step below covers that.
       - run: nix flake check -L
       # flake check builds only checks.* ("build skipped" for packages), so
       # the app itself never reached the cache — build it explicitly.
       - run: nix build .#default -L
+      # Coverage, OUTSIDE the sandbox so the real-nix integration tests
+      # (tests/mini_flake.rs) run and count. REQUIRE_NIX turns a silent skip
+      # into a failure. The devShell provides cargo/cargo-llvm-cov and pins
+      # LLVM_COV/LLVM_PROFDATA to rustc's own LLVM.
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - run: nix develop -c cargo llvm-cov test --locked --lcov --output-path coverage-raw.lcov
+        env:
+          FLAKE_EXPLORER_REQUIRE_NIX: "1"
+      # Rewrite absolute SF paths repo-relative so octocov matches sources.
+      - run: |
+          mkdir -p rust-coverage
+          sed "s|^SF:$GITHUB_WORKSPACE/|SF:|" coverage-raw.lcov > rust-coverage/lcov.info
+      - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
+        with:
+          config: .octocov.rust.yml

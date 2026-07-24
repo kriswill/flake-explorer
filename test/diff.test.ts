@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test"
 import { cellText, type DiffSide, diffConfigs, diffCounts } from "../app/lib/diff"
 import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
-import type { ConfigData, OptionEntry } from "../src/schema"
+import type { ConfigData, OptionEntry } from "../app/lib/schema"
 import { fixtureManifest, opt, SELF } from "./fixtures/data"
 
 const manifest = fixtureManifest()

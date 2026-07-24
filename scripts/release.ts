@@ -74,6 +74,23 @@ export async function main(args: string[], root?: string): Promise<number> {
     const changelog = releaseChangelog(await Bun.file(changelogPath).text(), prev, next, date)
     await Bun.write(pkgPath, pkgText.replace(`"version": "${prev}"`, `"version": "${next}"`))
     await Bun.write(changelogPath, changelog)
+    // The crate version follows package.json (single version source); the
+    // binary's package metadata and npm packages must agree. Cargo.lock's
+    // own entry must follow too or --locked builds refuse the tree.
+    const cargoPath = join(dir, "Cargo.toml")
+    if (await Bun.file(cargoPath).exists()) {
+      const cargoText = await Bun.file(cargoPath).text()
+      await Bun.write(cargoPath, cargoText.replace(`version = "${prev}"`, `version = "${next}"`))
+      const lockPath = join(dir, "Cargo.lock")
+      const lockText = await Bun.file(lockPath).text()
+      await Bun.write(
+        lockPath,
+        lockText.replace(
+          `name = "flake-explorer"\nversion = "${prev}"`,
+          `name = "flake-explorer"\nversion = "${next}"`,
+        ),
+      )
+    }
     console.log(next)
     return 0
   }

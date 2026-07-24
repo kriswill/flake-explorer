@@ -10,7 +10,7 @@ import {
   makeFileId,
   parseFileId,
   SCHEMA_VERSION,
-} from "../src/schema"
+} from "../app/lib/schema"
 
 describe("file id codec", () => {
   test("self and input ids round-trip through make/parse", () => {

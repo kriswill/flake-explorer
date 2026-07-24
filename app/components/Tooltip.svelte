@@ -1,5 +1,5 @@
 <script lang="ts">
-import { PRIO } from "../../src/schema"
+import { PRIO } from "../lib/schema"
 import { app } from "../lib/state.svelte"
 
 const prioLabel = (p: number | undefined) => {

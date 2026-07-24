@@ -4,15 +4,9 @@
 // swapped in as raw references.
 
 import { SvelteSet } from "svelte/reactivity"
-import type { AboutData } from "../../src/licenses"
-import type { ConfigData, FileSource, Manifest, OptionEntry, PackageData } from "../../src/schema"
-import {
-  isConfigData,
-  isManifest,
-  isPackageData,
-  parseFileId,
-  SCHEMA_VERSION,
-} from "../../src/schema"
+import type { AboutData } from "../../scripts/licenses"
+import type { ConfigData, FileSource, Manifest, OptionEntry, PackageData } from "../lib/schema"
+import { isConfigData, isManifest, isPackageData, parseFileId, SCHEMA_VERSION } from "../lib/schema"
 import { registerSlotKeys } from "./color"
 import { hasEmbedded, isStatic, loadJson } from "./data"
 import { decodeHash, encodeHash, type Filters, type Selection, sameSelection } from "./hash"

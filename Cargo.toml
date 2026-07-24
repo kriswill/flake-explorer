@@ -1,0 +1,38 @@
+[package]
+name = "flake-explorer"
+version = "0.4.0"
+edition = "2024"
+license = "MIT"
+description = "Interactive visualizer for Nix flakes: outputs/module tree, option provenance, file map"
+build = "build.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs", "net", "sync", "time", "io-util", "signal"] }
+axum = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+hex = "0.4"
+regex = "1"
+fancy-regex = "0.14"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+percent-encoding = "2"
+tree-sitter = "0.25"
+tree-sitter-bash = "0.23"
+tree-sitter-nix = "0.3"
+anyhow = "1"
+indexmap = { version = "2.14.0", features = ["serde"] }
+notify = "8.2.0"
+streaming-iterator = "0.1.9"
+tokio-stream = { version = "0.1.19", features = ["sync"] }
+futures = "0.3.33"
+
+[build-dependencies]
+sha2 = "0.10"
+hex = "0.4"
+
+[profile.release]
+lto = true
+
+[dev-dependencies]
+tower = { version = "0.5.3", features = ["util"] }

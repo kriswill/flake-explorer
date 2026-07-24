@@ -4,7 +4,7 @@
 // on-demand documents), so the corpus honestly reflects what is loaded —
 // the dropdown's footer surfaces the configurations that are not.
 
-import type { Manifest, OptionEntry } from "../../src/schema"
+import type { Manifest, OptionEntry } from "../lib/schema"
 import type { Selection } from "./hash"
 
 export interface SearchHit {

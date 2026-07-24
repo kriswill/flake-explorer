@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from "bun:test"
 import InputProvenance from "../app/components/InputProvenance.svelte"
-import type { InputInfo } from "../src/schema"
+import type { InputInfo } from "../app/lib/schema"
 import { withMount } from "./helpers"
 
 const github: InputInfo = {

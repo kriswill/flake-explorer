@@ -23,19 +23,25 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # FlakeHub Cache credential (see ci.yml) — without it the build still
+      # runs, just cold.
+      id-token: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      # The export shells out to nix for the manifest + source resolution.
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-        with:
-          determinate: false # see ci.yml — no FlakeHub OIDC here
+      # The export shells out to nix for the manifest + source resolution;
+      # Determinate Nix + FlakeHub cache also make `nix run .#` cheap (the
+      # binary and its dep layer come from the cache pushed by CI).
+      - uses: DeterminateSystems/determinate-nix-action@2a0be2498974c2b6327e19780488744384637d88 # v3.21.7
+      - uses: DeterminateSystems/flakehub-cache-action@3be0931021788e3bb4df65f59a555039c2fa2d46 # main 2026-07
       - run: bun install --frozen-lockfile
       # This flake has no nixos/darwin configurations, so --all/--sources all
       # cost nothing today; they keep the demo complete if that changes.
       - run: |
           mkdir -p _site
-          bun flake-explorer.ts export . --all --sources all --html _site/flake.html
+          nix run .# -- export . --all --sources all --html _site/flake.html
           cp _site/flake.html _site/index.html
       # Docs: curated pages + TypeDoc API reference (markdown), both rendered
       # through the shared theme template into _site/docs/.

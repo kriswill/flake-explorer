@@ -1,7 +1,7 @@
 <script lang="ts">
-import type { InputInfo } from "../../src/schema"
 import { colorFor } from "../lib/color"
 import { prefs } from "../lib/prefs.svelte"
+import type { InputInfo } from "../lib/schema"
 import { THEMES } from "../lib/themes"
 import { commitUrl, webUrl } from "../lib/url"
 import Dot from "./Dot.svelte"

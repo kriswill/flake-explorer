@@ -1,9 +1,9 @@
 <script lang="ts">
-import { REL_PATH_RE, resolveKnownRef } from "../../src/pathref"
-import { displayLabel, type FileOrigin, parseFileId } from "../../src/schema"
 import { colorFor } from "../lib/color"
 import { crumbsForFile, parsePosition, resolveFile } from "../lib/indexes"
+import { REL_PATH_RE, resolveKnownRef } from "../lib/pathref"
 import { prefs } from "../lib/prefs.svelte"
+import { displayLabel, type FileOrigin, parseFileId } from "../lib/schema"
 import { type Interval, segmentLines } from "../lib/segments"
 import { app, loadedConfig, loadedPackage } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"

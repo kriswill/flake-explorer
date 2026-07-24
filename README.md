@@ -48,11 +48,12 @@ flake-explorer serving /etc/nixos at http://localhost:4321
 ```
 
 Or from npm ([@kriswill/flake-explorer](https://www.npmjs.com/package/@kriswill/flake-explorer)) —
-`nix` must be on PATH either way:
+a native binary per platform (Linux x64/arm64, macOS x64/arm64); `nix` must
+be on PATH either way:
 
 ```console
+$ npx @kriswill/flake-explorer serve /etc/nixos
 $ bunx @kriswill/flake-explorer serve /etc/nixos
-$ npx @kriswill/flake-explorer serve /etc/nixos   # installs bun on demand
 ```
 
 `serve` extracts the cheap manifest up front and evaluates each
@@ -119,18 +120,21 @@ same, copy that workflow and set the repo's Pages source to "GitHub Actions"
 
 ## Development
 
+The extractor/server is a Rust crate at the repo root; the SPA is Svelte 5
+(runes) bundled by `Bun.build` + `bun-plugin-svelte` — no Vite. The
+extractor emits the JSON contract from `src/schema.rs`; the SPA's
+client-side typing of the same contract lives in `app/lib/schema.ts`.
+
 ```console
-$ nix develop          # bun + git
+$ nix develop          # cargo + bun + git (plus a live-source `flake-explorer` shim)
 $ bun install
-$ bun flake-explorer.ts serve /etc/nixos
-$ bun test             # unit tests (happy-dom)
+$ cargo run -- serve /etc/nixos
+$ cargo test           # unit + integration tests (real nix + scripted-nix shims)
+$ bun test             # SPA tests (happy-dom)
 $ bunx svelte-check --tsconfig ./tsconfig.json
-$ nix build            # package + offline test derivation
+$ nix build            # package: binary + bundled SPA + offline checks
 $ bun run docs         # build the docs site into _site/docs
 ```
-
-Svelte 5 (runes) bundled by `Bun.build` + `bun-plugin-svelte` — no Vite.
-Data contract between the extractor and the SPA lives in `src/schema.ts`.
 
 ## License
 

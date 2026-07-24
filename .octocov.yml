@@ -1,7 +1,13 @@
+# SPA test-suite coverage. The stored baseline on main predates the
+# extractor/server moving out of the TS corpus (its coverage now lives in
+# the cargo report, .octocov.rust.yml), so a `current >= prev` ratchet would
+# compare against a differently-shaped denominator — a fixed floor holds the
+# line instead. Once a post-restructure baseline lands on main, the ratchet
+# can return.
 coverage:
   paths:
     - coverage/lcov.info
-  acceptable: current >= prev
+  acceptable: 96%
 diff:
   if: is_pull_request
   datastores:

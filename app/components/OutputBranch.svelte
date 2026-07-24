@@ -1,6 +1,6 @@
 <script lang="ts">
-import type { OutputNode } from "../../src/schema"
 import { revealWhen } from "../lib/reveal.svelte"
+import type { OutputNode } from "../lib/schema"
 import { app } from "../lib/state.svelte"
 import Dot from "./Dot.svelte"
 import OutputBranch from "./OutputBranch.svelte"

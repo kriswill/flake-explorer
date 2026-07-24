@@ -11,3 +11,6 @@ coverage/
 _site/
 .docs-api/
 /.envrc
+/target/
+/app-dist/
+/dist-npm/

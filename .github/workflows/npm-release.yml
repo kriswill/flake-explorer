@@ -1,0 +1,121 @@
+# Build portable binaries for every npm target and publish the five packages
+# (four platform packages + the main launcher package). The nix/crane build
+# links glibc from /nix/store and runs nowhere else, so npm gets dedicated
+# portable builds: static musl on Linux (cargo-zigbuild cross-compiles both
+# architectures from one runner), plain cargo on macOS runners (the linker's
+# automatic ad-hoc signature is sufficient for npm-distributed CLIs).
+#
+# Triggered manually with the version to publish; the version must already be
+# on main (the Release workflow bumps package.json). --provenance attaches a
+# Sigstore attestation via the job's OIDC token — no npm token scopes beyond
+# publish are needed.
+
+name: npm release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Build and stage everything, skip npm publish"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - rust-target: x86_64-unknown-linux-musl
+            npm-target: linux-x64
+          - rust-target: aarch64-unknown-linux-musl
+            npm-target: linux-arm64
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: ${{ matrix.rust-target }}
+      - run: rustup target add ${{ matrix.rust-target }}
+      - run: pip install cargo-zigbuild
+      - run: cargo zigbuild --release --locked --target ${{ matrix.rust-target }}
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v4.6.1
+        with:
+          name: binary-${{ matrix.npm-target }}
+          path: target/${{ matrix.rust-target }}/release/flake-explorer
+          if-no-files-found: error
+
+  darwin:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-13
+            rust-target: x86_64-apple-darwin
+            npm-target: darwin-x64
+          - runner: macos-14
+            rust-target: aarch64-apple-darwin
+            npm-target: darwin-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: ${{ matrix.rust-target }}
+      - run: rustup target add ${{ matrix.rust-target }}
+      - run: cargo build --release --locked --target ${{ matrix.rust-target }}
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v4.6.1
+        with:
+          name: binary-${{ matrix.npm-target }}
+          path: target/${{ matrix.rust-target }}/release/flake-explorer
+          if-no-files-found: error
+
+  publish:
+    needs: [linux, darwin]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The OIDC token backs npm --provenance (Sigstore attestation).
+      id-token: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+      # OIDC trusted publishing needs npm >= 11.5.1; don't trust the bundled
+      # one (same pattern release.yml used when it owned the publish).
+      - run: npm install -g npm@latest
+      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          path: binaries
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/bundle-app.ts
+      - name: Stage packages
+        run: |
+          for t in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            bun scripts/build-npm.ts --binary "binaries/binary-$t/flake-explorer" --target "$t"
+          done
+          bun scripts/build-npm.ts --main
+      - name: Smoke-test the staged layout
+        run: |
+          node dist-npm/flake-explorer/bin/flake-explorer.mjs --help >/dev/null 2>&1 && echo "unexpected: platform pkg resolved" && exit 1 || true
+          test -x dist-npm/flake-explorer-linux-x64/bin/flake-explorer
+          test -f dist-npm/flake-explorer/app-dist/app.js
+      # Tokenless: npm exchanges this job's OIDC id-token for a one-shot
+      # publish credential and attaches provenance automatically. EVERY
+      # package published here must have a trusted publisher configured on
+      # npmjs.com binding kriswill/flake-explorer + THIS EXACT FILENAME
+      # (npm-release.yml). npm cannot create a NEW package via OIDC, so the
+      # four platform packages need a one-time manual bootstrap publish
+      # (placeholder version) before their bindings can exist.
+      - name: Publish
+        if: ${{ !inputs.dry-run }}
+        run: |
+          # Platform packages first so the main package's optionalDependencies
+          # never point at versions npm doesn't have yet.
+          for d in dist-npm/flake-explorer-*; do
+            (cd "$d" && npm publish --provenance --access public)
+          done
+          (cd dist-npm/flake-explorer && npm publish --provenance --access public)
