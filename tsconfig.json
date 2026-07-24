@@ -11,5 +11,5 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["*.ts", "src/**/*.ts", "app/**/*.ts", "app/**/*.svelte", "test/**/*.ts"]
+  "include": ["*.ts", "scripts/**/*.ts", "app/**/*.ts", "app/**/*.svelte", "test/**/*.ts"]
 }

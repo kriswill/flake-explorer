@@ -4,8 +4,8 @@
 import { beforeEach, describe, expect, test } from "bun:test"
 import OverlayDetail from "../app/components/OverlayDetail.svelte"
 import { buildFlakeIndexes } from "../app/lib/indexes"
+import type { OutputNode } from "../app/lib/schema"
 import { app } from "../app/lib/state.svelte"
-import type { OutputNode } from "../src/schema"
 import { fixtureManifest } from "./fixtures/data"
 import { withMount } from "./helpers"
 

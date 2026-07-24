@@ -5,8 +5,8 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { resetSlotKeys } from "../app/lib/color"
 import { buildFlakeIndexes } from "../app/lib/indexes"
+import { SCHEMA_VERSION } from "../app/lib/schema"
 import { app, loadedConfig, loadedPackage } from "../app/lib/state.svelte"
-import { SCHEMA_VERSION } from "../src/schema"
 import { fixtureConfig, fixtureManifest, fixturePackageRefs } from "./fixtures/data"
 
 const injected = new Map<string, HTMLElement>()

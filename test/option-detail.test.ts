@@ -5,8 +5,8 @@
 import { beforeEach, describe, expect, test } from "bun:test"
 import OptionDetail from "../app/components/OptionDetail.svelte"
 import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
+import { PRIO } from "../app/lib/schema"
 import { app } from "../app/lib/state.svelte"
-import { PRIO } from "../src/schema"
 import { fixtureConfig, fixtureManifest, opt, SELF, SOPS } from "./fixtures/data"
 import { withMount } from "./helpers"
 

@@ -3,7 +3,7 @@
 // break out of the tag, and serve-mode output keeps exactly the about tag.
 
 import { describe, expect, test } from "bun:test"
-import { pageHtml } from "../src/build-app"
+import { pageHtml } from "../scripts/build-app"
 
 const bundle = { js: "console.log('</script> < ok')", css: "body{}" }
 

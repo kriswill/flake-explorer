@@ -3,8 +3,8 @@
 // and InputDetail (via SourceView).
 
 import { describe, expect, test } from "bun:test"
+import type { TokenRun } from "../app/lib/schema"
 import { segmentLines, tokenClass } from "../app/lib/segments"
-import type { TokenRun } from "../src/schema"
 
 describe("tokenClass", () => {
   test("maps known tree-sitter captures to their CSS class", () => {

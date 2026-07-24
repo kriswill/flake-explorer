@@ -8,10 +8,10 @@
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # Rust builds: chosen for buildDepsOnly (the dep tree compiles once per
-    # Cargo.lock and stays in the binary cache — CI recompiles only our
-    # crate) and its cargoClippy/cargoLlvmCov check drivers. Lib-only flake,
-    # no inputs of its own; uses nixpkgs' stable rustc.
+    # Rust builds: buildDepsOnly compiles the dep tree once per Cargo.lock
+    # (only the crate itself rebuilds on source changes) and provides the
+    # cargoClippy/cargoLlvmCov check drivers. Lib-only flake, no inputs of
+    # its own; uses nixpkgs' stable rustc.
     crane.url = "github:ipetkov/crane";
   };
 
@@ -30,40 +30,38 @@
         { pkgs, config, ... }:
         {
           packages = {
-            flake-explorer = pkgs.callPackage ./package.nix { };
-            flake-explorer-rs = pkgs.callPackage ./rust/package.nix {
+            flake-explorer = pkgs.callPackage ./package.nix {
               craneLib = inputs.crane.mkLib pkgs;
-              node_modules = config.packages.flake-explorer.passthru.node_modules;
             };
             default = config.packages.flake-explorer;
           };
 
-          # Offline `bun test` against the vendored node_modules (happy-dom +
-          # svelte-loader preloads from bunfig.toml; no network).
           checks = {
-            test = config.packages.flake-explorer.passthru.tests.unit;
             # cargo test/clippy/llvm-cov over the shared crane dep layer.
             # Coverage is a check (not just a CI step) so `nix flake check`
             # exercises the instrumented build everywhere; CI additionally
-            # reads its lcov output for the octocov report.
-            rust-test = config.packages.flake-explorer-rs.passthru.checks.test;
-            rust-clippy = config.packages.flake-explorer-rs.passthru.checks.clippy;
-            rust-coverage = config.packages.flake-explorer-rs.passthru.checks.coverage;
+            # runs the out-of-sandbox variant (real nix, integration tests
+            # included) and reads its lcov for the octocov report.
+            test = config.packages.flake-explorer.passthru.checks.test;
+            clippy = config.packages.flake-explorer.passthru.checks.clippy;
+            coverage = config.packages.flake-explorer.passthru.checks.coverage;
+            # Offline `bun test` of the SPA against the vendored node_modules.
+            app-test = config.packages.flake-explorer.passthru.checks.app-test;
           };
 
           # `nix fmt` + checks.treefmt come from the flakeModule; Biome keeps
-          # owning TS/Svelte via its own biome.json, so treefmt is Nix-only
-          # (plus rustfmt for the rust/ crate).
+          # owning TS/Svelte via its own biome.json, so treefmt covers Nix
+          # and Rust.
           treefmt.programs.nixfmt.enable = true;
           treefmt.programs.rustfmt.enable = true;
 
           # nix itself is deliberately NOT in the shell or wrapper: the CLI
           # must use the host's nix so store paths and the flake registry
-          # match the user's system (run-nix.ts checks for it at startup).
+          # match the user's system (src/run_nix.rs checks for it at startup).
           devShells.default = pkgs.mkShell {
             # cargo-llvm-cov looks for rustup's llvm-tools-preview; point it
             # at the LLVM that built this rustc instead (same pinning as the
-            # rust-coverage check). CI's out-of-sandbox coverage run — the one
+            # coverage check). CI's out-of-sandbox coverage run — the one
             # that includes the real-nix integration tests — relies on these.
             env = {
               LLVM_COV = "${pkgs.rustc.llvmPackages.llvm}/bin/llvm-cov";
@@ -84,17 +82,16 @@
               }
               ++ [
                 config.treefmt.build.wrapper
-                # Live-source `flake-explorer`: runs the enclosing checkout's
-                # flake-explorer.ts (a flake only sees a store copy of itself, so
-                # the working tree must be resolved at call time) — edits apply
-                # with no rebuild.
+                # Live-source `flake-explorer`: builds and runs the enclosing
+                # checkout's crate (a flake only sees a store copy of itself,
+                # so the working tree must be resolved at call time).
                 (pkgs.writeShellScriptBin "flake-explorer" ''
                   root=$(git rev-parse --show-toplevel 2>/dev/null)
-                  if [ ! -f "$root/flake-explorer.ts" ]; then
-                    echo "flake-explorer(dev shim): no flake-explorer.ts at the git toplevel ('$root') — run inside the flake-explorer checkout" >&2
+                  if [ ! -f "$root/Cargo.toml" ]; then
+                    echo "flake-explorer(dev shim): no Cargo.toml at the git toplevel ('$root') — run inside the flake-explorer checkout" >&2
                     exit 1
                   fi
-                  FLAKE_EXPLORER_PROG=flake-explorer exec bun "$root/flake-explorer.ts" "$@"
+                  FLAKE_EXPLORER_PROG=flake-explorer exec cargo run --quiet --manifest-path "$root/Cargo.toml" -- "$@"
                 '')
               ];
           };

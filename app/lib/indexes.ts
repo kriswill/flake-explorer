@@ -10,8 +10,8 @@ import type {
   FileOrigin,
   InputInfo,
   Manifest,
-} from "../../src/schema"
-import { makeFileId, UNKNOWN_FILE } from "../../src/schema"
+} from "../lib/schema"
+import { makeFileId, UNKNOWN_FILE } from "../lib/schema"
 import type { Selection } from "./hash"
 
 export interface FileMeta {

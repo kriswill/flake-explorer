@@ -23,14 +23,14 @@ The three panes:
 
 ## System at a glance
 
-One CLI entry point ([`flake-explorer.ts`](../flake-explorer.ts)) dispatches
+One CLI entry point ([`src/main.rs`](../src/main.rs)) dispatches
 `extract`, `export`, and `serve`. All three run the same extraction driver,
 which shells out to the host `nix` binary to evaluate
-[`src/extract/extract.nix`](../src/extract/extract.nix) and writes a data
+[`src/extract.nix`](../src/extract.nix) and writes a data
 directory: a cheap `manifest.json` plus one expensive per-configuration blob.
-`serve` builds the SPA in-memory and extracts configurations on demand;
-`export` embeds the SPA and data into one HTML file
-([`src/export.ts`](../src/export.ts)).
+`serve` serves the prebuilt SPA bundle and extracts configurations on
+demand; `export` embeds the SPA and data into one HTML file
+([`src/export.rs`](../src/export.rs)).
 
 ```mermaid
 flowchart LR
@@ -47,19 +47,19 @@ flowchart LR
 | Page | What it answers |
 | --- | --- |
 | [Architecture](architecture.md) | How the pieces fit together; key design decisions and the directory map. |
-| [Data schema](data-schema.md) | The manifest / config-blob contract in [`src/schema.ts`](../src/schema.ts). |
+| [Data schema](data-schema.md) | The manifest / config-blob contract in [`src/schema.rs`](../src/schema.rs). |
 | [Extraction pipeline](extraction-pipeline.md) | How `extract.nix`, the chunk walk, and the narHash cache work. |
 | [Frontend](frontend.md) | The Svelte 5 SPA: state, indexes, components, theming. |
 | [Build & infra](build-and-infra.md) | Bun bundling, Nix packaging, CI, and Pages publishing. |
 | [CLI reference](cli.md) | Every command and flag of the `flake-explorer` CLI. |
 | [Testing](testing.md) | The bun test suite, fixtures, and how to run it. |
-| [Rust port](rust-port.md) | The Rust extractor/server port: process, trade-offs, publishing gaps, roadmap. |
 | [Glossary](glossary.md) | Project-specific terms, each linked to its source. |
 
 ## Links
 
 - Live demo: <https://kris.net/flake-explorer/> — the tool exploring its own flake.
 - API reference: <https://kris.net/flake-explorer/docs/api/> — generated in CI
-  from [`src/schema.ts`](../src/schema.ts) via typedoc; only on the site.
+  from the SPA's client-side typing of the data contract
+  ([`app/lib/schema.ts`](../app/lib/schema.ts)) via typedoc; only on the site.
 - Repository: <https://github.com/kriswill/flake-explorer>
 - [CHANGELOG](../CHANGELOG.md)

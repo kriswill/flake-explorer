@@ -19,22 +19,17 @@
     "dendritic",
     "visualization",
     "svelte",
-    "bun"
+    "rust"
   ],
   "bin": {
     "flake-explorer": "bin/flake-explorer.mjs"
   },
   "files": [
     "bin/",
-    "flake-explorer.ts",
-    "src/",
-    "app/",
-    "!app/**/*.test.ts",
-    "!src/**/*.test.ts",
-    "tsconfig.json"
+    "app-dist/"
   ],
   "engines": {
-    "bun": ">=1.2"
+    "node": ">=20"
   },
   "scripts": {
     "test": "bun test",
@@ -45,15 +40,12 @@
     "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "build:app": "bun scripts/bundle-app.ts"
   },
   "dependencies": {
     "bun-plugin-svelte": "^0.0.6",
-    "svelte": "^5.56.4",
-    "web-tree-sitter": "^0.26.10"
-  },
-  "optionalDependencies": {
-    "bun": "^1.2.0"
+    "svelte": "^5.56.4"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",

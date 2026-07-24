@@ -18,12 +18,9 @@
 # and the run fails with the release PR left open for inspection — no tag,
 # no GitHub release, no npm publish. Close or fix the PR, then re-dispatch.
 #
-# npm publish uses OIDC trusted publishing (okflight pattern) — no token
-# anywhere. The npmjs.com settings for @kriswill/flake-explorer bind
-# kriswill/flake-explorer + THIS EXACT FILENAME (release.yml) as the trusted
-# publisher; npm exchanges the runner's id-token for a one-shot publish
-# credential and attaches provenance automatically. Renaming this file
-# breaks the binding until the package settings are updated to match.
+# npm publishing lives in the `npm release` workflow (per-platform binary
+# matrix), dispatched here on the fresh tag. Its trusted-publisher/token
+# requirements are documented in npm-release.yml.
 #
 # The node_modules outputHash in package.nix is unaffected by version bumps
 # (it only depends on package.json deps + bun.lock contents).
@@ -68,8 +65,13 @@ jobs:
         env:
           VERSION: ${{ steps.bump.outputs.version }}
 
-      # Packaging must be sound before anything is pushed anywhere.
-      - run: npm pack --dry-run
+      # Packaging must be sound before anything is pushed anywhere: the npm
+      # main package ships the launcher + the SPA bundle, so build the bundle
+      # and stage the package exactly as `npm release` will.
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/bundle-app.ts
+      - run: bun scripts/build-npm.ts --main
+      - run: cd dist-npm/flake-explorer && npm pack --dry-run
 
       - name: Open the release PR and arm auto-merge
         run: |
@@ -114,12 +116,11 @@ jobs:
           VERSION: ${{ steps.bump.outputs.version }}
           MERGE_SHA: ${{ steps.merged.outputs.sha }}
 
-      # Publish the exact released tree.
-      - run: git checkout "v$VERSION" && npm publish
-        env:
-          VERSION: ${{ steps.bump.outputs.version }}
-
+      # npm publishing needs per-platform binaries (musl/macOS matrix), so it
+      # is its own workflow — dispatched on the fresh tag so it builds the
+      # exact released tree.
       - run: |
+          gh workflow run "npm release" --ref "v$VERSION" -f dry-run=false
           gh workflow run flakehub-publish --ref "v$VERSION"
           gh workflow run CI --ref main
           gh workflow run Pages --ref main

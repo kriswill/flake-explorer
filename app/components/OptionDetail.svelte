@@ -1,7 +1,7 @@
 <script lang="ts">
-import { PRIO } from "../../src/schema"
 import { type Crumb, type FileMeta, resolveFile } from "../lib/indexes"
 import { jsonSegments } from "../lib/json-segments"
+import { PRIO } from "../lib/schema"
 import { app, configError, loadedConfig } from "../lib/state.svelte"
 import Breadcrumb from "./Breadcrumb.svelte"
 

@@ -1,8 +1,8 @@
 <script lang="ts">
-import { displayLabel, makeFileId } from "../../src/schema"
 import { colorFor } from "../lib/color"
 import type { FileMeta } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
+import { displayLabel, makeFileId } from "../lib/schema"
 import { segmentLines } from "../lib/segments"
 import { app, loadedConfig } from "../lib/state.svelte"
 import { THEMES } from "../lib/themes"

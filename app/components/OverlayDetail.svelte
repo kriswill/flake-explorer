@@ -1,5 +1,5 @@
 <script lang="ts">
-import { displayLabel, type OutputNode } from "../../src/schema"
+import { displayLabel, type OutputNode } from "../lib/schema"
 import { app } from "../lib/state.svelte"
 
 interface Props {

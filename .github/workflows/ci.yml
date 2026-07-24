@@ -16,6 +16,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # SPA test suite (Svelte components, client indexes, page composition).
+  # Job id stays `test`: main's ruleset requires that exact check context.
   test:
     runs-on: ubuntu-latest
     permissions:
@@ -25,22 +27,8 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      # nix is needed so the real-nix integration tests (test/mini-flake.test.ts)
-      # run here and count toward coverage; the fixture is builtins-only, so no
-      # store downloads happen beyond the install itself.
-      - uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
-        with:
-          # Plain upstream Nix: this job only evals (builtins-only fixture,
-          # no builds), so the FlakeHub cache buys nothing here and skipping
-          # the OIDC login keeps fork PRs warning-free. The `nix` job below
-          # is the one that builds — it uses Determinate Nix + the cache.
-          determinate: false
       - run: bun install --frozen-lockfile
       - run: bun test --coverage
-        env:
-          # Fail loudly if nix ever goes missing instead of silently skipping
-          # the integration suite (which would only show up as a coverage drop).
-          FLAKE_EXPLORER_REQUIRE_NIX: "1"
       - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
 
   typecheck:
@@ -66,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Artifact datastore reads for the octocov rust report (uploads use the
+      # Artifact datastore reads for the octocov report (uploads use the
       # runtime token, no extra permission).
       actions: read
       # The OIDC JWT is the FlakeHub Cache credential (account-scoped, no
@@ -77,31 +65,27 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: DeterminateSystems/determinate-nix-action@2a0be2498974c2b6327e19780488744384637d88 # v3.21.7
       - uses: DeterminateSystems/flakehub-cache-action@3be0931021788e3bb4df65f59a555039c2fa2d46 # main 2026-07
-      # Builds the checks: bun tests, treefmt, and the crane-driven rust
-      # test/clippy/coverage (dep layer cached in FlakeHub Cache; only the
-      # crate itself recompiles on source changes). The sandboxed rust checks
-      # run the shim-based integration suites too, but skip the real-nix
-      # mini-flake suite — the coverage step below covers that.
+      # Builds the checks: cargo test/clippy/coverage over the crane dep
+      # layer (cached in FlakeHub Cache; only the crate itself recompiles on
+      # source changes), the offline SPA test suite, and treefmt. The
+      # sandboxed cargo tests run the shim-based integration suites but skip
+      # the real-nix mini-flake suite — the coverage step below covers that.
       - run: nix flake check -L
       # flake check builds only checks.* ("build skipped" for packages), so
-      # the apps themselves never reached the cache — build them explicitly.
-      - run: nix build .#default .#flake-explorer-rs -L
-      # Rust coverage, OUTSIDE the sandbox so the real-nix integration tests
-      # (tests/mini_flake.rs against the same fixture the bun suite uses) run
-      # and count — mirroring how the bun `test` job installs nix for
-      # mini-flake.test.ts. REQUIRE_NIX turns a silent skip into a failure.
-      # The devShell provides cargo/cargo-llvm-cov and pins LLVM_COV/
-      # LLVM_PROFDATA to rustc's own LLVM.
+      # the app itself never reached the cache — build it explicitly.
+      - run: nix build .#default -L
+      # Coverage, OUTSIDE the sandbox so the real-nix integration tests
+      # (tests/mini_flake.rs) run and count. REQUIRE_NIX turns a silent skip
+      # into a failure. The devShell provides cargo/cargo-llvm-cov and pins
+      # LLVM_COV/LLVM_PROFDATA to rustc's own LLVM.
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          workspaces: rust
-      - run: nix develop -c bash -c 'cd rust && cargo llvm-cov test --locked --lcov --output-path ../rust-coverage-raw.lcov'
+      - run: nix develop -c cargo llvm-cov test --locked --lcov --output-path coverage-raw.lcov
         env:
           FLAKE_EXPLORER_REQUIRE_NIX: "1"
       # Rewrite absolute SF paths repo-relative so octocov matches sources.
       - run: |
           mkdir -p rust-coverage
-          sed "s|^SF:$GITHUB_WORKSPACE/|SF:|" rust-coverage-raw.lcov > rust-coverage/lcov.info
+          sed "s|^SF:$GITHUB_WORKSPACE/|SF:|" coverage-raw.lcov > rust-coverage/lcov.info
       - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
         with:
           config: .octocov.rust.yml

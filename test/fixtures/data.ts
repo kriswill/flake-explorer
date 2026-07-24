@@ -1,6 +1,6 @@
 // Shared hand-written fixtures for unit and component tests.
 
-import type { ConfigData, Manifest, OptionEntry, PackageRef } from "../../src/schema"
+import type { ConfigData, Manifest, OptionEntry, PackageRef } from "../../app/lib/schema"
 
 export const SELF = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-source"
 export const SOPS = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-source"

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { REL_PATH_RE, resolveKnownRef, resolveRelRef } from "../src/pathref"
+import { REL_PATH_RE, resolveKnownRef, resolveRelRef } from "../app/lib/pathref"
 
 const matches = (text: string): string[] => text.match(REL_PATH_RE) ?? []
 

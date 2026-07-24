@@ -4,7 +4,7 @@
 // union their boundaries so a segment can carry both a token class and a ref
 // link (e.g. a colored, clickable path literal).
 
-import type { TokenRun } from "../../src/schema"
+import type { TokenRun } from "../lib/schema"
 
 export interface Segment {
   text: string

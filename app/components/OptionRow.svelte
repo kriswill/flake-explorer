@@ -1,7 +1,7 @@
 <script lang="ts">
 import { onDestroy } from "svelte"
-import { type OptionEntry, PRIO } from "../../src/schema"
 import { jsonSegments } from "../lib/json-segments"
+import { type OptionEntry, PRIO } from "../lib/schema"
 import { app } from "../lib/state.svelte"
 import Dot from "./Dot.svelte"
 
