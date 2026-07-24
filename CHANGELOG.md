@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-07-24
+
 ### Changed
 
 - The program — CLI, extractor, HTTP server, and static exporter — is now
@@ -325,7 +327,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI guardrails: tests with a coverage ratchet (78% → 97% line coverage),
   typecheck, Biome lint, `nix flake check`, Dependabot.
 
-[Unreleased]: https://github.com/kriswill/flake-explorer/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/kriswill/flake-explorer/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/kriswill/flake-explorer/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/kriswill/flake-explorer/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kriswill/flake-explorer/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kriswill/flake-explorer/compare/v0.1.3...v0.2.0
