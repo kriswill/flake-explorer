@@ -96,7 +96,7 @@ onDestroy(() => {
     >{preview}</button>
   </div>
   {#if open}
-    <pre class="mono">{#if fullSegments}{#each fullSegments as seg, i (i)}<span class={seg.cls}>{seg.text}</span>{/each}{:else if shownValueNames?.length}{shownValueNames.join("\n")}{:else}{preview}{/if}</pre>
+    <pre class="mono">{#if fullSegments}{#each fullSegments as seg}<span class={seg.cls}>{seg.text}</span>{/each}{:else if shownValueNames?.length}{shownValueNames.join("\n")}{:else}{preview}{/if}</pre>
   {/if}
 </li>
 

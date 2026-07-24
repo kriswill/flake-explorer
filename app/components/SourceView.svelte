@@ -17,9 +17,9 @@ const { lines, onref, highlight }: Props = $props()
 </script>
 
 <ol class="src">
-  {#each lines as segs, i (i)}
+  {#each lines as segs, i}
     <li class={{ hl: i + 1 === highlight }} {@attach revealWhen(i + 1 === highlight, "center")}>
-      {#each segs as seg, j (j)}
+      {#each segs as seg}
         {#if seg.ref && onref}
           <button class="ref {seg.cls ?? ''}" onclick={() => onref(seg.ref!)}>{seg.text}</button>
         {:else if seg.cls}

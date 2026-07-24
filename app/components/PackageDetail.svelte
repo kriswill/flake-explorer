@@ -371,7 +371,7 @@ function loadAllPackages() {
     <details>
       <summary>{data.warnings.length} extraction warnings</summary>
       <ul>
-        {#each data.warnings as w, i (`${w}#${i}`)}<li class="mono warn">{w}</li>{/each}
+        {#each data.warnings as w}<li class="mono warn">{w}</li>{/each}
       </ul>
     </details>
   {/if}

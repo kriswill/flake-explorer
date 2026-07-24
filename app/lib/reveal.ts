@@ -8,6 +8,6 @@ import type { Attachment } from "svelte/attachments"
 /** Scroll the element into view when `active` is true. */
 export function revealWhen(active: boolean, block: ScrollLogicalPosition = "nearest"): Attachment {
   return (el) => {
-    if (active) (el as HTMLElement).scrollIntoView?.({ block })
+    if (active) el.scrollIntoView?.({ block })
   }
 }

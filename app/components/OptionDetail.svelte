@@ -112,7 +112,7 @@ const presenceIn = (id: string): string | null => {
   {:else if valueSkipped}
     <p class="muted">(value skipped — package-typed, or from a degraded extraction chunk)</p>
   {:else if value !== undefined}
-    <pre class="mono">{#each jsonSegments(value, "") as seg, i (i)}<span class={seg.cls}>{seg.text}</span>{/each}</pre>
+    <pre class="mono">{#each jsonSegments(value, "") as seg}<span class={seg.cls}>{seg.text}</span>{/each}</pre>
   {:else}
     <p class="muted">—</p>
   {/if}
@@ -132,7 +132,7 @@ const presenceIn = (id: string): string | null => {
   <p class="muted">Not present in this configuration.</p>
   {#if relatedWarnings.length}
     <ul class="warns">
-      {#each relatedWarnings as w, i (`${w}#${i}`)}<li class="mono warn">{w}</li>{/each}
+      {#each relatedWarnings as w}<li class="mono warn">{w}</li>{/each}
     </ul>
   {/if}
 {:else}

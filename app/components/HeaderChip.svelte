@@ -67,4 +67,7 @@ const { label, onclick, icon }: Props = $props()
   .chip:hover .arrow {
     opacity: 1;
   }
+  .mono {
+    font-family: ui-monospace, monospace;
+  }
 </style>
