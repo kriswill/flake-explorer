@@ -1,4 +1,5 @@
 <script lang="ts">
+import { innerHeight, innerWidth } from "svelte/reactivity/window"
 import { PRIO } from "../lib/schema"
 import { app } from "../lib/state.svelte"
 
@@ -16,11 +17,12 @@ const short = (v: unknown) => {
   return s === undefined ? "—" : s.length > 120 ? `${s.slice(0, 120)}…` : s
 }
 
-// Clamp to the viewport so the tip never runs off-screen.
+// Clamp to the viewport so the tip never runs off-screen. The reactive
+// window values re-derive the clamp on resize (.current is undefined off-DOM).
 const pos = $derived.by(() => {
   if (!app.tip) return { left: 0, top: 0 }
-  const w = typeof window === "undefined" ? 1200 : window.innerWidth
-  const h = typeof window === "undefined" ? 800 : window.innerHeight
+  const w = innerWidth.current ?? 1200
+  const h = innerHeight.current ?? 800
   return { left: Math.min(app.tip.x + 14, w - 360), top: Math.min(app.tip.y + 14, h - 180) }
 })
 </script>

@@ -110,7 +110,7 @@ const packageRef = $derived.by(() => {
       <details>
         <summary>{app.manifest.warnings.length} extraction warnings</summary>
         <ul>
-          {#each app.manifest.warnings as w}<li class="mono warn">{w}</li>{/each}
+          {#each app.manifest.warnings as w, i (`${w}#${i}`)}<li class="mono warn">{w}</li>{/each}
         </ul>
       </details>
     {/if}

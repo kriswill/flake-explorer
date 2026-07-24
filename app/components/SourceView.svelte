@@ -3,6 +3,7 @@
      lib/segments.ts; ref segments render as links only when `onref` is
      given (InputDetail passes none). -->
 <script lang="ts">
+import { revealWhen } from "../lib/reveal"
 import type { Segment } from "../lib/segments"
 
 interface Props {
@@ -13,18 +14,11 @@ interface Props {
   highlight?: number
 }
 const { lines, onref, highlight }: Props = $props()
-
-/** Scroll the highlighted line to center once it renders (and on change). */
-function revealLine(el: HTMLElement, line: number) {
-  $effect(() => {
-    if (line === highlight) el.scrollIntoView?.({ block: "center" })
-  })
-}
 </script>
 
 <ol class="src">
   {#each lines as segs, i (i)}
-    <li class:hl={i + 1 === highlight} use:revealLine={i + 1}>
+    <li class={{ hl: i + 1 === highlight }} {@attach revealWhen(i + 1 === highlight, "center")}>
       {#each segs as seg, j (j)}
         {#if seg.ref && onref}
           <button class="ref {seg.cls ?? ''}" onclick={() => onref(seg.ref!)}>{seg.text}</button>

@@ -6,7 +6,6 @@ import { prefs } from "../lib/prefs.svelte"
 import { displayLabel, type FileOrigin, parseFileId } from "../lib/schema"
 import { type Interval, segmentLines } from "../lib/segments"
 import { app, loadedConfig, loadedPackage } from "../lib/state.svelte"
-import { THEMES } from "../lib/themes"
 import AsyncSlot from "./AsyncSlot.svelte"
 import Breadcrumb from "./Breadcrumb.svelte"
 import Dot from "./Dot.svelte"
@@ -16,7 +15,6 @@ import SourceView from "./SourceView.svelte"
 
 const { fileId }: { fileId: string } = $props()
 
-const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 const manifestEntry = $derived(app.manifest?.files.find((f) => f.id === fileId) ?? null)
 
 /** Config-side view of this file (any loaded config that references it). */
@@ -107,7 +105,9 @@ const sameOrigin = (a: FileOrigin, b: FileOrigin): boolean => {
   return true
 }
 
-/** relPaths this file can address with a "./"/"../" reference: files in the same origin tree. */
+/** relPaths this file can address with a "./"/"../" reference: files in the same origin tree.
+ *  Plain Set/Map, not SvelteSet/SvelteMap: built fresh per derivation and never
+ *  mutated afterward, so reactive proxies would be pure overhead. */
 const siblingIndex = $derived.by(() => {
   const known = new Set<string>()
   const byRelPath = new Map<string, string>()
@@ -187,7 +187,7 @@ const crumbs = $derived.by(() => {
 
 <div class="file-detail">
   {#if notFound}
-    <div class="head" style="--c:{colorFor(fileId, gen)}">
+    <div class="head" style="--c:{colorFor(fileId, prefs.gen)}">
       <Dot />
       <h2 class="mono">{fileId}</h2>
     </div>
@@ -198,7 +198,7 @@ const crumbs = $derived.by(() => {
   {:else}
   <div class="fd-head">
     {#if crumbs.length > 1}<Breadcrumb segments={crumbs} />{/if}
-    <div class="head" style="--c:{colorFor(colorKey, gen)}">
+    <div class="head" style="--c:{colorFor(colorKey, prefs.gen)}">
       <Dot />
       <h2 class="mono">{relPath}</h2>
       {#if configView}
@@ -267,13 +267,11 @@ const crumbs = $derived.by(() => {
         loadingText="loading source…"
         retry={() => app.retryFileContent(fileId, storePath!)}
       >
-        {#snippet children()}
-          <SourceView
-            {lines}
-            onref={(id) => app.select({ kind: "file", fileId: id })}
-            highlight={app.line ?? undefined}
-          />
-        {/snippet}
+        <SourceView
+          {lines}
+          onref={(id) => app.select({ kind: "file", fileId: id })}
+          highlight={app.line ?? undefined}
+        />
       </AsyncSlot>
     {/if}
   </div>

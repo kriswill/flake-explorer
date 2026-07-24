@@ -71,8 +71,7 @@ onDestroy(() => {
 
 <li>
   <div
-    class="opt"
-    class:customized={entry.customized}
+    class={["opt", { customized: entry.customized }]}
     role="group"
     onpointerenter={enter}
     onpointerleave={leave}
@@ -91,14 +90,13 @@ onDestroy(() => {
     {#if prioChip}<span class="chip {prioChip.cls}">{prioChip.label}</span>{/if}
     {#if entry.readOnly}<span class="chip ro">read-only</span>{/if}
     <button
-      class="expand val mono"
-      class:muted={!entry.customized}
+      class={["expand val mono", { muted: !entry.customized }]}
       aria-expanded={open}
       onclick={() => (open = !open)}
     >{preview}</button>
   </div>
   {#if open}
-    <pre class="mono">{#if fullSegments}{#each fullSegments as seg}<span class={seg.cls}>{seg.text}</span>{/each}{:else if shownValueNames?.length}{shownValueNames.join("\n")}{:else}{preview}{/if}</pre>
+    <pre class="mono">{#if fullSegments}{#each fullSegments as seg, i (i)}<span class={seg.cls}>{seg.text}</span>{/each}{:else if shownValueNames?.length}{shownValueNames.join("\n")}{:else}{preview}{/if}</pre>
   {/if}
 </li>
 

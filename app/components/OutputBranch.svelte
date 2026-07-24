@@ -1,5 +1,5 @@
 <script lang="ts">
-import { revealWhen } from "../lib/reveal.svelte"
+import { revealWhen } from "../lib/reveal"
 import type { OutputNode } from "../lib/schema"
 import { app } from "../lib/state.svelte"
 import Dot from "./Dot.svelte"
@@ -40,10 +40,8 @@ const isSel = (name: string) =>
         <!-- Deep links (#/o/…) expand the ancestor chain; this is what
              actually brings the selected leaf into view. -->
         <button
-          class="row leaf"
-          class:dim={child.kind !== "leaf"}
-          class:sel={isSel(name)}
-          use:revealWhen={() => isSel(name)}
+          class={["row leaf", { dim: child.kind !== "leaf", sel: isSel(name) }]}
+          {@attach revealWhen(isSel(name))}
           onclick={() => app.select({ kind: "output", path: [...path, name] })}
         >
           <Dot hollow={child.kind !== "leaf"} />

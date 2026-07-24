@@ -4,7 +4,6 @@ import { parsePosition, resolveFile } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
 import { segmentLines } from "../lib/segments"
 import { app, loadedPackage } from "../lib/state.svelte"
-import { THEMES } from "../lib/themes"
 import { webUrl } from "../lib/url"
 import AsyncSlot from "./AsyncSlot.svelte"
 import Dot from "./Dot.svelte"
@@ -16,7 +15,6 @@ interface Props {
 }
 const { refId }: Props = $props()
 
-const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 const ref = $derived(app.manifest?.packages.find((p) => p.id === refId) ?? null)
 const slot = $derived(app.packages[refId])
 const loaded = $derived(loadedPackage(slot))
@@ -134,9 +132,8 @@ function loadAllPackages() {
   loadingText="Evaluating package… (first run takes a few seconds)"
   retry={() => app.retryPackage(refId)}
 >
-{#snippet children()}
 {#if data}
-  <div class="head" style="--c:{colorFor(colorKey, gen)}">
+  <div class="head" style="--c:{colorFor(colorKey, prefs.gen)}">
     <Dot />
     <h2 class="mono">{title}</h2>
     {#if roleBadge}<span class="badge builder">{roleBadge}</span>{/if}
@@ -374,12 +371,11 @@ function loadAllPackages() {
     <details>
       <summary>{data.warnings.length} extraction warnings</summary>
       <ul>
-        {#each data.warnings as w}<li class="mono warn">{w}</li>{/each}
+        {#each data.warnings as w, i (`${w}#${i}`)}<li class="mono warn">{w}</li>{/each}
       </ul>
     </details>
   {/if}
 {/if}
-{/snippet}
 </AsyncSlot>
 {/if}
 
