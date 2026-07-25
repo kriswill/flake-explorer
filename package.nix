@@ -12,6 +12,7 @@
   lib,
   stdenvNoCC,
   bun,
+  cargo-llvm-cov,
   git,
   makeBinaryWrapper,
   rustc,
@@ -46,7 +47,39 @@ let
     strictDeps = true;
   };
 
+  # cargo-llvm-cov hunts for rustup's llvm-tools-preview and refuses to start
+  # without it; point it at the LLVM that built this rustc instead (the profraw
+  # format has to match). Resolved at startup even when it is only compiling,
+  # so the coverage dep layer below needs it as much as the check itself does.
+  llvmToolEnv = {
+    LLVM_COV = "${rustc.llvmPackages.llvm}/bin/llvm-cov";
+    LLVM_PROFDATA = "${rustc.llvmPackages.llvm}/bin/llvm-profdata";
+  };
+
   cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
+  # A second dep layer, for the coverage check only. cargo-llvm-cov compiles
+  # through its own RUSTC_WRAPPER, and cargo folds the wrapper into the
+  # compiler fingerprint of *every* unit — so `cargoArtifacts` above is a total
+  # miss and the coverage run rebuilds the entire dependency tree (~100 crates)
+  # rather than just this crate. Building this layer by running cargo-llvm-cov
+  # over crane's dummy sources makes the wrapper, and the environment it keys
+  # off, match the check by construction; hand-copying the flags would drift
+  # silently the first time either side changed.
+  coverageArtifacts = craneLib.buildDepsOnly (
+    commonArgs
+    // llvmToolEnv
+    // {
+      nativeBuildInputs = [ cargo-llvm-cov ];
+      # crane's cargoLlvmCov invocation minus the report, which has nothing to
+      # report on: the dummy sources carry no tests.
+      buildPhaseCargoCommand = "cargoWithProfile llvm-cov test --locked --no-report";
+      # That command already compiles the dev-dependency test binaries the
+      # check phase exists to cache; letting it run would only add a second,
+      # uninstrumented copy of them.
+      doCheck = false;
+    }
+  );
 
   # The lock is pure JS — no os/cpu-conditional packages, no install scripts —
   # so one hash serves every platform. --omit=optional: the only optional dep
@@ -154,7 +187,12 @@ craneLib.buildPackage (
     '';
 
     passthru = {
-      inherit cargoArtifacts appDist node_modules;
+      inherit
+        cargoArtifacts
+        coverageArtifacts
+        appDist
+        node_modules
+        ;
       checks = {
         clippy = craneLib.cargoClippy (
           commonArgs
@@ -165,15 +203,13 @@ craneLib.buildPackage (
         );
         test = craneLib.cargoTest (commonArgs // { inherit cargoArtifacts; });
         # lcov at $out (crane's default cargoLlvmCovExtraArgs) — CI runs the
-        # richer out-of-sandbox variant and feeds octocov. cargo-llvm-cov
-        # looks for rustup's llvm-tools-preview; point it at the LLVM that
-        # built this rustc instead (profraw format must match).
+        # richer out-of-sandbox variant and feeds octocov. Note this rides on
+        # `coverageArtifacts`, not the dep layer the other two checks share.
         coverage = craneLib.cargoLlvmCov (
           commonArgs
+          // llvmToolEnv
           // {
-            inherit cargoArtifacts;
-            LLVM_COV = "${rustc.llvmPackages.llvm}/bin/llvm-cov";
-            LLVM_PROFDATA = "${rustc.llvmPackages.llvm}/bin/llvm-profdata";
+            cargoArtifacts = coverageArtifacts;
           }
         );
         # Offline `bun test` for the SPA against the vendored node_modules
