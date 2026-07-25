@@ -5,7 +5,7 @@ The JSON contract between the extraction CLI and the SPA lives in a single file,
 | Document | File | Cost | Lifecycle |
 | --- | --- | --- | --- |
 | `Manifest` | `manifest.json` | Cheap | Always regenerated on every run (see [Extraction pipeline](extraction-pipeline.md)) |
-| `ConfigData` | `config/<kind>.<name>.json` | Expensive (full options eval) | Extracted on demand, cached by extractor fingerprint + flake identity + lock hash |
+| `ConfigData` | `config/<kind>.<name>.json` | Expensive (full options eval) | Extracted on demand, cached by extractor fingerprint + flake identity + lock hash + nix version |
 
 `storePath` is the universal join key: `FileEntry.storePath` matches the file strings in each option's declarations and definitions.
 
@@ -15,7 +15,7 @@ The JSON contract between the extraction CLI and the SPA lives in a single file,
 | --- | --- | --- |
 | `SCHEMA_VERSION` | `1` | Stamped into both documents; the SPA rejects a `ConfigData` blob whose `version` mismatches (per its JSDoc in [`crates/extract/src/schema.rs`](../crates/extract/src/schema.rs)) |
 
-There is no manually-bumped extractor version: the cache key's code half is a content hash of the extraction sources ([`crates/extract/build.rs`](../crates/extract/build.rs)), so any change to the `flake-explorer-extract` crate — `crates/extract/src/schema.rs` included — makes every cached blob stale at once. Changes to the CLI, server and exporter in the root crate deliberately do not, which is what the crate split is for (see [The extraction crate boundary](extraction-pipeline.md#the-extraction-crate-boundary)). `reconcile` in [`crates/extract/src/cache.rs`](../crates/extract/src/cache.rs) additionally requires the sidecar's flake identity (`narHash`, or the self store path when absent) and resolved-input `lockHash` to match — see [Extraction pipeline](extraction-pipeline.md).
+There is no manually-bumped extractor version: the cache key's code half is a content hash of the extraction sources ([`crates/extract/build.rs`](../crates/extract/build.rs)), so any change to the `flake-explorer-extract` crate — `crates/extract/src/schema.rs` included — makes every cached blob stale at once. Changes to the CLI, server and exporter in the root crate deliberately do not, which is what the crate split is for (see [The extraction crate boundary](extraction-pipeline.md#the-extraction-crate-boundary)). `reconcile` in [`crates/extract/src/cache.rs`](../crates/extract/src/cache.rs) additionally requires the sidecar's flake identity (`narHash`, or the self store path when absent), resolved-input `lockHash`, and `nixVersion` to match — see [Extraction pipeline](extraction-pipeline.md).
 
 ## Type overview
 

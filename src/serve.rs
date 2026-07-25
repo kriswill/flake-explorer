@@ -44,6 +44,10 @@ pub struct AppState {
     manifest: RwLock<Manifest>,
     page: RwLock<String>,
     inflight: Mutex<HashMap<String, watch::Receiver<bool>>>,
+    /// `nix --version` for this process, captured once at init. Part of the
+    /// cache key (cache.rs::CacheKey), so it has to be the same string for the
+    /// whole run rather than re-read per extraction.
+    nix_version: String,
     reload_tx: broadcast::Sender<()>,
 }
 
@@ -51,7 +55,7 @@ pub struct AppState {
 /// bundle, initial manifest + reconcile. Split from `serve` so tests can
 /// build the state and call `router()` without networking.
 pub async fn init(flake_ref: String, flags: ServeFlags) -> anyhow::Result<Arc<AppState>> {
-    check_nix().await?;
+    let nix_version = check_nix().await?;
     std::fs::create_dir_all(Path::new(&flags.out).join("config"))?;
     std::fs::create_dir_all(Path::new(&flags.out).join("package"))?;
 
@@ -77,7 +81,7 @@ pub async fn init(flake_ref: String, flags: ServeFlags) -> anyhow::Result<Arc<Ap
         },
     )
     .await?;
-    reconcile(&flags.out, &mut manifest);
+    reconcile(&flags.out, &mut manifest, &nix_version);
 
     let (reload_tx, _) = broadcast::channel(8);
     Ok(Arc::new(AppState {
@@ -87,6 +91,7 @@ pub async fn init(flake_ref: String, flags: ServeFlags) -> anyhow::Result<Arc<Ap
         manifest: RwLock::new(manifest),
         page: RwLock::new(page),
         inflight: Mutex::new(HashMap::new()),
+        nix_version,
         reload_tx,
         flags,
     }))
@@ -167,7 +172,7 @@ async fn handle(state: Arc<AppState>, req: Request<Body>) -> Response {
         .await;
         return match built {
             Ok(mut m) => {
-                reconcile(&state.flags.out, &mut m);
+                reconcile(&state.flags.out, &mut m, &state.nix_version);
                 *state.manifest.write().await = m;
                 axum::Json(json!({"ok": true})).into_response()
             }
@@ -259,7 +264,7 @@ async fn on_demand(state: &Arc<AppState>, is_package: bool, id: &str) {
             let state = state.clone();
             let id = id.to_string();
             tokio::spawn(async move {
-                let cache_key = cache_key_of(&*state.manifest.read().await);
+                let cache_key = cache_key_of(&*state.manifest.read().await, &state.nix_version);
                 run_extraction(&state, is_package, &id, &cache_key).await;
                 // Drop the entry BEFORE signalling, so an entry always means
                 // live work: `wait_for` returns immediately on an already-true

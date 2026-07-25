@@ -14,6 +14,7 @@ use flake_explorer::cache::{
 };
 use flake_explorer::manifest::{ManifestOptions, build_manifest};
 use flake_explorer::options::{ExtractOptionsOpts, OptionsProgress, extract_options};
+use flake_explorer::run_nix::check_nix;
 use flake_explorer::schema::*;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -23,6 +24,14 @@ fn opts() -> ManifestOptions {
         all_systems: false,
         timeout: Duration::from_secs(60),
     }
+}
+
+/// The nix version is part of the cache key, so a blob written under it only
+/// reconciles against the same string. These suites already require nix, so
+/// asking the real binary keeps them exercising the production path rather
+/// than a stand-in constant.
+async fn nix_version() -> String {
+    check_nix().await.expect("nix --version")
 }
 
 fn fixture_ref() -> String {
@@ -280,7 +289,7 @@ async fn extract_and_persist_writes_blob_and_sidecar_reconcile_accepts() {
     std::fs::create_dir_all(tmp.0.join("config")).unwrap();
 
     let mut m = build_manifest(&flake_ref, &opts()).await.unwrap();
-    let key = cache_key_of(&m);
+    let key = cache_key_of(&m, &nix_version().await);
     let r#ref = m.configurations[0].clone();
     let progress: Arc<Mutex<Vec<OptionsProgress>>> = Arc::new(Mutex::new(Vec::new()));
     let sink = progress.clone();
@@ -329,7 +338,7 @@ async fn extract_and_persist_writes_blob_and_sidecar_reconcile_accepts() {
 
     // A fresh manifest reconciles against the persisted sidecar → no re-eval.
     let mut m2 = build_manifest(&flake_ref, &opts()).await.unwrap();
-    reconcile(&out_dir, &mut m2);
+    reconcile(&out_dir, &mut m2, &nix_version().await);
     assert_eq!(m2.configurations[0].status, RefStatus::Ok);
     assert_eq!(
         m2.configurations[0].option_count,
@@ -348,7 +357,7 @@ async fn extract_package_writes_blob_and_sidecar_reconcile_accepts() {
     std::fs::create_dir_all(tmp.0.join("package")).unwrap();
 
     let mut m = build_manifest(&flake_ref, &opts()).await.unwrap();
-    let key = cache_key_of(&m);
+    let key = cache_key_of(&m, &nix_version().await);
     let idx = m
         .packages
         .iter()
@@ -383,7 +392,7 @@ async fn extract_package_writes_blob_and_sidecar_reconcile_accepts() {
 
     // A fresh manifest reconciles against the persisted sidecar → no re-eval.
     let mut m2 = build_manifest(&flake_ref, &opts()).await.unwrap();
-    reconcile(&out_dir, &mut m2);
+    reconcile(&out_dir, &mut m2, &nix_version().await);
     let ref2 = m2
         .packages
         .iter()
@@ -403,7 +412,7 @@ async fn dev_shells_checks_formatter_extract_as_builder_unknown() {
     std::fs::create_dir_all(tmp.0.join("package")).unwrap();
 
     let m = build_manifest(&flake_ref, &opts()).await.unwrap();
-    let key = cache_key_of(&m);
+    let key = cache_key_of(&m, &nix_version().await);
     for id in [
         "devShells/x86_64-linux/default",
         "checks/x86_64-linux/mini-check",
@@ -443,7 +452,7 @@ async fn broken_meta_degrades_to_a_warning_not_a_failure() {
     std::fs::create_dir_all(tmp.0.join("package")).unwrap();
 
     let mut m = build_manifest(&flake_ref, &opts()).await.unwrap();
-    let key = cache_key_of(&m);
+    let key = cache_key_of(&m, &nix_version().await);
     let idx = m
         .packages
         .iter()

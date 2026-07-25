@@ -18,9 +18,29 @@ pub struct CacheKey {
     pub flake_key: String,
     /// Fingerprint over the resolved input set (the effective flake.lock).
     pub lock_hash: String,
+    /// `nix --version` verbatim, e.g. "nix (Determinate Nix 3.21.5) 2.34.8".
+    ///
+    /// The host `nix` is the largest uncontrolled input to a blob: every eval
+    /// runs `--impure`, `nix derivation show` and `nix flake show` have both
+    /// changed output shape across releases (package.rs and manifest.rs each
+    /// branch on which shape they got), and `path_info` reflects local store
+    /// state. Before this was in the key, a nix upgrade could change what
+    /// extraction produced while the key sat unmoved, and the stale blob was
+    /// served with no signal at all.
+    ///
+    /// Deliberately the whole string rather than a parsed major.minor. Coarser
+    /// would still close most of the hole and would re-extract less often, but
+    /// it means choosing which of the two numbers here to keep, and dropping
+    /// the Determinate wrapper version discards exactly the signal the
+    /// lazy-trees concern in run_nix.rs turns on — a wrapper change at a
+    /// constant underlying version. Erring coarse errs toward silently serving
+    /// stale data, which is the direction this whole cache key is built to
+    /// avoid. If the churn ever outweighs that, truncating here is a one-line
+    /// change and the sidecar keeps enough to tell what happened.
+    pub nix_version: String,
 }
 
-pub fn cache_key_of(manifest: &Manifest) -> CacheKey {
+pub fn cache_key_of(manifest: &Manifest, nix_version: &str) -> CacheKey {
     let mut hasher = Sha256::new();
     let mut names: Vec<&String> = manifest.inputs.keys().collect();
     names.sort();
@@ -41,16 +61,20 @@ pub fn cache_key_of(manifest: &Manifest) -> CacheKey {
             .clone()
             .unwrap_or_else(|| manifest.flake.path.clone()),
         lock_hash: hex::encode(hasher.finalize())[..16].to_string(),
+        nix_version: nix_version.to_string(),
     }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SidecarMeta {
-    /// Both optional only so pre-CacheKey sidecars still parse; absent always
-    /// means stale.
+    /// All three optional only so older sidecars still parse; absent always
+    /// means stale. nix_version is absent in every sidecar written before it
+    /// joined the key, which is why adding it re-extracts once — see the field
+    /// on CacheKey.
     flake_key: Option<String>,
     lock_hash: Option<String>,
+    nix_version: Option<String>,
     extractor: String,
     extracted_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -80,6 +104,7 @@ fn write_sidecar(
     let meta = SidecarMeta {
         flake_key: Some(key.flake_key.clone()),
         lock_hash: Some(key.lock_hash.clone()),
+        nix_version: Some(key.nix_version.clone()),
         extractor: FINGERPRINT.to_string(),
         extracted_at: extracted_at.to_string(),
         option_count,
@@ -212,6 +237,7 @@ fn reconcile_one(out_dir: &str, key: &CacheKey, data_file: &str) -> Option<(Side
     }
     if meta.flake_key.as_deref() != Some(&key.flake_key)
         || meta.lock_hash.as_deref() != Some(&key.lock_hash)
+        || meta.nix_version.as_deref() != Some(&key.nix_version)
     {
         return None;
     }
@@ -219,9 +245,11 @@ fn reconcile_one(out_dir: &str, key: &CacheKey, data_file: &str) -> Option<(Side
 }
 
 /// Reconcile a freshly built manifest with blobs already on disk: refs whose
-/// sidecar matches the current cache key flip to "ok".
-pub fn reconcile(out_dir: &str, manifest: &mut Manifest) {
-    let key = cache_key_of(manifest);
+/// sidecar matches the current cache key flip to "ok". `nix_version` is the
+/// string `check_nix` returned for this run — the caller has already had to
+/// call it, so there is nothing to discover here.
+pub fn reconcile(out_dir: &str, manifest: &mut Manifest, nix_version: &str) {
+    let key = cache_key_of(manifest, nix_version);
     let mut cached_warnings: Vec<String> = Vec::new();
     for r#ref in &mut manifest.configurations {
         if let Some((meta, ())) = reconcile_one(out_dir, &key, &r#ref.data_file) {
@@ -243,4 +271,123 @@ pub fn reconcile(out_dir: &str, manifest: &mut Manifest) {
         }
     }
     manifest.warnings.extend(cached_warnings);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use indexmap::IndexMap;
+
+    /// The narrowest manifest reconcile will look at: one pending config ref
+    /// pointing at `data_file`, and the flake identity + inputs that
+    /// cache_key_of reads.
+    fn manifest_with(data_file: &str) -> Manifest {
+        Manifest {
+            version: SCHEMA_VERSION,
+            generated_at: "1970-01-01T00:00:00.000Z".into(),
+            extractor: FINGERPRINT.to_string(),
+            flake: FlakeInfo {
+                r#ref: "/flake".into(),
+                path: "/nix/store/flake".into(),
+                description: None,
+                rev: None,
+                nar_hash: Some("sha256-aaaa".into()),
+            },
+            outputs: OutputNode::Attrset {
+                children: IndexMap::new(),
+            },
+            inputs: IndexMap::new(),
+            files: vec![],
+            import_edges: vec![],
+            input_refs: vec![],
+            overlay_defs: None,
+            input_follows: vec![],
+            configurations: vec![ConfigRef {
+                id: "nixos/host".into(),
+                kind: ConfigKind::Nixos,
+                name: "host".into(),
+                data_file: data_file.into(),
+                status: RefStatus::Pending,
+                error: None,
+                extracted_at: None,
+                option_count: None,
+                duration_ms: None,
+            }],
+            packages: vec![],
+            package_reverse_deps: None,
+            grafts: vec![],
+            output_names: IndexMap::new(),
+            warnings: vec![],
+        }
+    }
+
+    /// A blob plus the sidecar a run under `nix_version` would have left.
+    fn seed(dir: &Path, data_file: &str, nix_version: &str) {
+        std::fs::create_dir_all(dir.join("config")).unwrap();
+        std::fs::write(dir.join(data_file), "{}").unwrap();
+        let key = cache_key_of(&manifest_with(data_file), nix_version);
+        write_sidecar(
+            dir.to_str().unwrap(),
+            data_file,
+            &key,
+            "1970-01-01T00:00:00.000Z",
+            Some(7),
+            42,
+            &[],
+        )
+        .unwrap();
+    }
+
+    /// The reason nix_version is in the key at all: a nix upgrade can change
+    /// what extraction produces, and before this the blob stayed "fresh".
+    #[test]
+    fn nix_version_change_invalidates_the_blob() {
+        let dir = std::env::temp_dir().join(format!("fe-cache-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let data_file = "config/nixos.host.json";
+        seed(&dir, data_file, "nix (Nix) 2.34.8");
+
+        // Same nix → reused.
+        let mut same = manifest_with(data_file);
+        reconcile(dir.to_str().unwrap(), &mut same, "nix (Nix) 2.34.8");
+        assert_eq!(same.configurations[0].status, RefStatus::Ok);
+        assert_eq!(same.configurations[0].option_count, Some(7));
+
+        // Upgraded nix → stays pending, so the config is re-extracted.
+        let mut upgraded = manifest_with(data_file);
+        reconcile(dir.to_str().unwrap(), &mut upgraded, "nix (Nix) 2.35.0");
+        assert_eq!(upgraded.configurations[0].status, RefStatus::Pending);
+
+        // A patch bump counts too — the key is the whole version string, so
+        // this is the deliberate cost of not parsing out major.minor.
+        let mut patch = manifest_with(data_file);
+        reconcile(dir.to_str().unwrap(), &mut patch, "nix (Nix) 2.34.9");
+        assert_eq!(patch.configurations[0].status, RefStatus::Pending);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Sidecars written before nix_version joined the key have no such field.
+    /// Absent must read as stale, not as "matches".
+    #[test]
+    fn sidecar_without_nix_version_is_stale() {
+        let dir = std::env::temp_dir().join(format!("fe-cache-old-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let data_file = "config/nixos.host.json";
+        seed(&dir, data_file, "nix (Nix) 2.34.8");
+
+        // Rewrite the sidecar as a pre-upgrade one: drop nixVersion entirely.
+        let path = sidecar_path(dir.to_str().unwrap(), data_file);
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let mut v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        v.as_object_mut().unwrap().remove("nixVersion");
+        assert!(v.get("flakeKey").is_some(), "kept the rest of the sidecar");
+        std::fs::write(&path, serde_json::to_string(&v).unwrap()).unwrap();
+
+        let mut m = manifest_with(data_file);
+        reconcile(dir.to_str().unwrap(), &mut m, "nix (Nix) 2.34.8");
+        assert_eq!(m.configurations[0].status, RefStatus::Pending);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
