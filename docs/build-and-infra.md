@@ -35,15 +35,36 @@ The repo's `package.json` is not the published manifest — it is marked `privat
 
 ## CI
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs three jobs on PRs and pushes to main:
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs five jobs on PRs and pushes to main:
 
 | Job | What it does |
 |---|---|
-| `test typescript` | `bun test --coverage` for the SPA and build scripts; uploads coverage via octocov |
+| `test typescript` | `bun test --coverage` for the SPA and build scripts; reports coverage via octocov |
 | `check typescript` | `bun run lint:ci` (the lockfile's Biome, not `bunx`'s latest), `tsc --noEmit` + `svelte-check`, then `bun run docs` as a smoke check so a broken docs pipeline surfaces on the PR, not on the Pages deploy |
-| `build` | `nix flake check -L` (cargo test/clippy/coverage, the offline SPA test derivation, treefmt), `nix build .#default`, then `cargo llvm-cov test` **outside** the sandbox with `FLAKE_EXPLORER_REQUIRE_NIX=1` so the real-nix suites run and cannot silently skip; uploads the crate's coverage via octocov |
+| `nix` | `nix flake check -L` (cargo test/clippy/coverage, the offline SPA test derivation, treefmt) and `nix build .#default`, sharing one nix store |
+| `rust-coverage` | `cargo llvm-cov test` **outside** the sandbox with `FLAKE_EXPLORER_REQUIRE_NIX=1` so the real-nix suites run and cannot silently skip; reports the crate's coverage via octocov |
+| `build` | Turns `nix` and `rust-coverage` into the pass/fail the ruleset requires, and posts the coverage comment |
 
 Two coverage reports, kept separate so their histories never mix: [`.octocov.yml`](../.octocov.yml) reads `dist/coverage/lcov.info` for the SPA against a fixed `acceptable: 96%` floor, and [`.octocov.rust.yml`](../.octocov.rust.yml) reads `rust-coverage/lcov.info` for the crate as a `current >= prev` ratchet. See [Testing](testing.md).
+
+Each runs octocov in its own job, gates its own job, and reads and writes its own datastore:
+
+| | Title | Datastore artifact |
+|---|---|---|
+| SPA (`.octocov.yml`) | `Code Metrics Report` | `octocov-report` |
+| Crate (`.octocov.rust.yml`) | `Code Metrics Report (rust)` | `octocov-rust` |
+
+The crate's `repository: ${GITHUB_REPOSITORY}/rust` produces both of its cells. It is octocov's monorepo key: it goes into the report title and — the trap — onto the end of the artifact name, which is why `.octocov.rust.yml` names its datastore `octocov` and still reads and writes `octocov-rust`. Change one without the other and the ratchet loses the baseline it compares against, with no visible error.
+
+### One comment, two reports
+
+The PR gets a **single** coverage comment carrying both. octocov cannot produce that itself: it renders one report per invocation and posts it as its own comment, and its only aggregation mode merges several lcov files into one percentage — which would put the crate behind the SPA's floor and bury a crate regression in the much larger TS corpus. (Central mode is not an alternative; it builds an index page and badges for a rollup repository and returns before any comment code runs.)
+
+So the comment is composed rather than delegated. octocov renders the same markdown for the job summary as for a comment, and `OCTOCOV_GITHUB_STEP_SUMMARY` — its documented `OCTOCOV_`-prefixed env override — redirects that markdown to a file in the workspace. Each coverage job replays the file into its real job summary, uploads it as an artifact, and posts nothing. `build`, which already waits on the coverage jobs, downloads both and posts them as one comment under its own `<!-- coverage-report -->` marker, updating that comment in place on every run.
+
+Being the sole writer is what keeps the two suites from clobbering each other. Under the old two-comment arrangement that job fell to octocov's per-report markers; now no producer writes the comment at all, so there is nothing for their finishing order to race over.
+
+`build` runs under `if: always()`, so it sees failed dependencies by design. A suite whose job died before octocov ran uploads nothing, and its section becomes a warning naming the job and its result rather than a blank or a stale number — a failing `nix` job cannot empty a coverage section, because `nix` measures no coverage. When neither suite reported and there is no existing comment to correct, nothing is posted at all.
 
 ## GitHub Pages
 

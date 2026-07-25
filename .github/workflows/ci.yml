@@ -27,13 +27,37 @@ jobs:
     permissions:
       contents: read
       actions: read
-      pull-requests: write
+      # Read-only: octocov lists the PR's files for the per-file table but no
+      # longer comments — `build` composes the one coverage comment.
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: bun install --frozen-lockfile
       - run: bun test --coverage
+      # octocov appends its rendered report to whatever GITHUB_STEP_SUMMARY
+      # points at, and refuses if the file is missing. Pointing it at the
+      # workspace hands `build` the exact markdown octocov would have posted
+      # itself; the next step puts the same bytes in the real job summary.
+      # (OCTOCOV_-prefixed vars are octocov's documented env override — the
+      # runner would ignore a plain GITHUB_STEP_SUMMARY here.)
+      - run: touch coverage-report.md
       - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
+        env:
+          OCTOCOV_GITHUB_STEP_SUMMARY: ${{ github.workspace }}/coverage-report.md
+      # always(): octocov writes the report before it fails on `acceptable:`,
+      # so a coverage *failure* is exactly when the numbers are worth seeing.
+      # hashFiles() is the existence test — an earlier step failing means the
+      # touch above never ran, and this should stay quiet rather than pile a
+      # second red step onto the real one.
+      - if: always() && hashFiles('coverage-report.md') != ''
+        run: cat coverage-report.md >> "$GITHUB_STEP_SUMMARY"
+      - if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report-spa
+          path: coverage-report.md
+          retention-days: 1
 
   # Static checks share one runner + one bun install: biome, tsc +
   # svelte-check, and the docs-site smoke build (so a broken docs pipeline
@@ -118,9 +142,23 @@ jobs:
       - run: |
           mkdir -p rust-coverage
           sed "s|^SF:$GITHUB_WORKSPACE/|SF:|" coverage-raw.lcov > rust-coverage/lcov.info
+      # Captured for the `build` job's single coverage comment, exactly as in
+      # `test typescript` — see the note there for why GITHUB_STEP_SUMMARY is
+      # redirected and then replayed into the real summary.
+      - run: touch coverage-report.md
       - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
         with:
           config: .octocov.rust.yml
+        env:
+          OCTOCOV_GITHUB_STEP_SUMMARY: ${{ github.workspace }}/coverage-report.md
+      - if: always() && hashFiles('coverage-report.md') != ''
+        run: cat coverage-report.md >> "$GITHUB_STEP_SUMMARY"
+      - if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report-rust
+          path: coverage-report.md
+          retention-days: 1
 
   # The name the ruleset requires. Splitting the old `build` job in two would
   # otherwise have left `build` reporting nothing, and a required check that
@@ -132,10 +170,81 @@ jobs:
   # above: not failed, just never conclusive. With it the job always runs and
   # turns its dependencies' results into a real pass or fail.
   build:
-    needs: [nix, rust-coverage]
+    # `test typescript` is here only so its coverage report is available to
+    # the comment below — it is its own required context and the gate at the
+    # end deliberately does not re-judge it. It finishes long before the two
+    # nix jobs, so waiting on it costs nothing.
+    needs: [nix, rust-coverage, test-typescript]
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
+      # Both suites report coverage, and both want to say so on the PR.
+      # octocov renders one report per invocation and would give each its own
+      # comment, so the two rendered reports are carried here as artifacts and
+      # posted as one. This job is the only writer of that comment: the two
+      # producers cannot race each other because neither of them writes it.
+      - if: github.event_name == 'pull_request'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: coverage-report-*
+          path: reports
+        # A suite that failed before octocov ran uploaded nothing, and
+        # download fails outright when its pattern matches no artifact at all.
+        # The step below reports each missing suite instead.
+        continue-on-error: true
+      - if: github.event_name == 'pull_request'
+        run: |
+          # shellcheck disable=SC2016 # the awk program below is single-quoted on purpose
+          # Each captured file ends with octocov's own "---\nReported by
+          # octocov" footer; drop it per section and add one for the comment.
+          section() { # $1 report file, $2 suite label, $3 job result
+            if [ -s "$1" ]; then
+              awk '{ l[n++] = $0 } END { if (n >= 2 && l[n-1] ~ /^Reported by/) n -= 2; for (i = 0; i < n; i++) print l[i] }' "$1"
+            else
+              printf '> [!WARNING]\n> **%s** — no coverage report: that job finished with result `%s`.\n' "$2" "$3"
+            fi
+            echo
+          }
+          spa=reports/coverage-report-spa/coverage-report.md
+          rust=reports/coverage-report-rust/coverage-report.md
+          {
+            echo "$MARKER"
+            section "$spa" "SPA test suite" "${{ needs.test-typescript.result }}"
+            section "$rust" "Rust crate" "${{ needs.rust-coverage.result }}"
+            echo "---"
+            echo "Reported by octocov, composed by the \`build\` job."
+          } > body.md
+
+          # Take the first line in the shell rather than piping to `head`,
+          # which would SIGPIPE gh and trip the runner's `pipefail`.
+          ids=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+                  | jq -r --arg m "$MARKER" '.[] | select(.body | contains($m)) | .id')
+          id=${ids%%$'\n'*}
+          # Nothing measured and nothing to correct — say nothing rather than
+          # opening a comment that carries no numbers.
+          if [ ! -s "$spa" ] && [ ! -s "$rust" ] && [ -z "$id" ]; then
+            echo "no coverage reports and no comment to update"
+            exit 0
+          fi
+          jq -n --rawfile body body.md '{body: $body}' > payload.json
+          # A fork PR's token is read-only. Losing the comment is not worth
+          # failing the required check over.
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" --input payload.json --silent \
+              || echo "::warning::could not update the coverage comment"
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --input payload.json --silent \
+              || echo "::warning::could not post the coverage comment"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          # Not one of octocov's `<!-- octocov… -->` markers: this comment is
+          # ours, and octocov must never adopt or minimise it.
+          MARKER: "<!-- coverage-report -->"
       - run: |
           echo "nix=${{ needs.nix.result }} rust-coverage=${{ needs.rust-coverage.result }}"
           [ "${{ needs.nix.result }}" = success ] && [ "${{ needs.rust-coverage.result }}" = success ]
