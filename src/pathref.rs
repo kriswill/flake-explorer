@@ -1,5 +1,5 @@
 // Relative-path reference matching — plain string ops only, matching the
-// client's resolution logic (app/lib/pathref.ts) exactly.
+// client's resolution logic (web/lib/pathref.ts) exactly.
 
 use regex::Regex;
 use std::collections::HashSet;

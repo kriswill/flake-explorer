@@ -1,4 +1,4 @@
-// Stage the npm packages into dist-npm/: one platform package per compiled
+// Stage the npm packages into dist/npm/: one platform package per compiled
 // binary, plus the main package (launcher + SPA bundle) whose
 // optionalDependencies pin the platform packages at the same version.
 //
@@ -11,7 +11,7 @@
 //   bun scripts/build-npm.ts --binary ... --target darwin-arm64
 //   bun scripts/build-npm.ts --main            # launcher + app-dist + rewritten package.json
 //
-// Then: for d in dist-npm/*; do (cd $d && npm publish --provenance --access public); done
+// Then: for d in dist/npm/*; do (cd $d && npm publish --provenance --access public); done
 // (platform packages first, main last — npm resolves optionalDependencies at
 // install time, not publish time, but publishing main first would leave a
 // window where installs miss their binary).
@@ -20,7 +20,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs
 import { join } from "node:path"
 
 const ROOT = join(import.meta.dir, "..")
-const OUT = join(ROOT, "dist-npm")
+const OUT = join(ROOT, "dist", "npm")
 const TARGETS = ["linux-x64", "linux-arm64", "darwin-arm64"] as const
 type Target = (typeof TARGETS)[number]
 
@@ -78,9 +78,9 @@ function stagePlatform(binary: string, target: Target) {
 }
 
 async function stageMain() {
-  const appDist = join(ROOT, "app-dist")
+  const appDist = join(ROOT, "dist", "app")
   if (!existsSync(join(appDist, "app.js"))) {
-    throw new Error("app-dist/ missing — run `bun scripts/bundle-app.ts` first")
+    throw new Error("dist/app/ missing — run `bun scripts/bundle-app.ts` first")
   }
   const dir = join(OUT, "flake-explorer")
   mkdirSync(dir, { recursive: true })

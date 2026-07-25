@@ -97,9 +97,9 @@ jobs:
           bun scripts/build-npm.ts --main
       - name: Smoke-test the staged layout
         run: |
-          node dist-npm/flake-explorer/bin/flake-explorer.mjs --help >/dev/null 2>&1 && echo "unexpected: platform pkg resolved" && exit 1 || true
-          test -x dist-npm/flake-explorer-linux-x64/bin/flake-explorer
-          test -f dist-npm/flake-explorer/app-dist/app.js
+          node dist/npm/flake-explorer/bin/flake-explorer.mjs --help >/dev/null 2>&1 && echo "unexpected: platform pkg resolved" && exit 1 || true
+          test -x dist/npm/flake-explorer-linux-x64/bin/flake-explorer
+          test -f dist/npm/flake-explorer/app-dist/app.js
       # Tokenless: npm exchanges this job's OIDC id-token for a one-shot
       # publish credential and attaches provenance automatically. EVERY
       # package published here must have a trusted publisher configured on
@@ -112,7 +112,7 @@ jobs:
         run: |
           # Platform packages first so the main package's optionalDependencies
           # never point at versions npm doesn't have yet.
-          for d in dist-npm/flake-explorer-*; do
+          for d in dist/npm/flake-explorer-*; do
             (cd "$d" && npm publish --provenance --access public)
           done
-          (cd dist-npm/flake-explorer && npm publish --provenance --access public)
+          (cd dist/npm/flake-explorer && npm publish --provenance --access public)

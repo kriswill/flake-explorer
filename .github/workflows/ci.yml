@@ -69,8 +69,9 @@ jobs:
       # Builds the checks: cargo test/clippy/coverage over the crane dep
       # layer (cached in FlakeHub Cache; only the crate itself recompiles on
       # source changes), the offline SPA test suite, and treefmt. The
-      # sandboxed cargo tests run the shim-based integration suites but skip
-      # the real-nix mini-flake suite — the coverage step below covers that.
+      # sandboxed cargo tests run the shim-based integration suites; the
+      # real-nix ones skip (no `nix` on PATH in the sandbox, and the fixtures
+      # are outside the crate fileset) — the coverage step below covers those.
       - run: nix flake check -L
       # flake check builds only checks.* ("build skipped" for packages), so
       # the app itself never reached the cache — build it explicitly.

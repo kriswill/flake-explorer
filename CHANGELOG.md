@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Repository layout reorganized for discoverability. The SPA moved from `app/`
+  to `web/`, so `src/` unambiguously means the Rust crate. Every `*.test.ts`
+  now sits beside the module it covers (`web/lib/indexes.test.ts` next to
+  `indexes.ts`), with shared preloads, helpers, and fixture builders under
+  `web/testing/` — the old `test/` directory is gone, which also removes its
+  one-letter collision with cargo's `tests/`. The nix fixture flakes moved to
+  a top-level `fixtures/`. All build output now lands in a single git-ignored
+  `dist/` (`app/`, `npm/`, `site/`, `api/`, `coverage/`) instead of six
+  separate roots. The published npm layout and the Nix install layout are
+  unchanged.
+
+### Fixed
+
+- `nix flake check` now actually runs the Rust integration suites. The crate's
+  Nix fileset omitted `./tests`, so `cargoTest` and `cargoClippy
+  --all-targets` silently compiled nothing but the lib/bin unit tests — the
+  five integration suites only ever ran in CI's out-of-sandbox coverage step.
+  Adding them to the fileset surfaced two clippy violations in
+  `tests/mini_flake.rs` that had never been linted, plus the panic below.
+- `extract.nix` materialization no longer panics when `HOME` is set but
+  unwritable (a read-only home, a container, a nix build sandbox's
+  `/homeless-shelter`). The directory-creation error was discarded and the
+  subsequent write `expect()`ed; it now falls back to the temp dir, which is
+  appropriate for a content-hashed cache.
+
 ## [0.5.0] — 2026-07-24
 
 ### Changed

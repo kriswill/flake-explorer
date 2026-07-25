@@ -4,8 +4,8 @@
 
 import { join } from "node:path"
 import { SveltePlugin } from "bun-plugin-svelte"
-import { THEMES } from "../app/lib/themes"
-import { TEXT_DEFAULT_STEP, textSizeRem, textTokenCss } from "../app/lib/type-scale"
+import { THEMES } from "../web/lib/themes"
+import { TEXT_DEFAULT_STEP, textSizeRem, textTokenCss } from "../web/lib/type-scale"
 import { type AboutData, collectAbout } from "./licenses"
 
 export interface AppBundle {
@@ -38,7 +38,7 @@ export function buildApp(development = false, opts: { fresh?: boolean } = {}): P
 
 async function buildAppUncached(development: boolean): Promise<AppBundle> {
   const build = await Bun.build({
-    entrypoints: [join(import.meta.dir, "..", "app", "main.ts")],
+    entrypoints: [join(import.meta.dir, "..", "web", "main.ts")],
     target: "browser",
     format: "esm",
     // Whitespace minification stays ON in dev: bun-plugin-svelte derives
@@ -90,7 +90,7 @@ export function pageHtml(
   // checks embedded <script> tags before fetching). The exporter adds
   // manifest/config/file documents through the same mechanism; serve must
   // never pass a manifest.json embed — its presence is the client's
-  // static-mode signal (see app/lib/data.ts isStatic).
+  // static-mode signal (see web/lib/data.ts isStatic).
   const about: AboutData = collectAbout(join(import.meta.dir, ".."))
   const dataTags = [
     jsonTag("about.json", about),

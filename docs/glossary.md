@@ -59,7 +59,7 @@ grafts, and warnings ([`src/schema.ts`](../src/schema.ts), built in
 **Mounting structure** — The left pane shows a configuration's own module files
 in their directory layout — where import-tree "mounts" them — rather than as a
 flat list; the tree is shaped client-side in
-[`app/lib/indexes.ts`](../app/lib/indexes.ts) ([README](../README.md)).
+[`web/lib/indexes.ts`](../web/lib/indexes.ts) ([README](../README.md)).
 
 **narHash** — The content hash of the locked flake tree; the cache key that
 decides whether a config blob is still fresh, recorded in each sidecar

@@ -1,19 +1,19 @@
 // Emit the prebuilt SPA bundle for the Rust server (rust/src/page.rs):
 // app.js + app.css plus a meta.json carrying the theme/base CSS and About
-// data that build-app.ts computes from app/lib at bundle time. The Rust
+// data that build-app.ts computes from web/lib at bundle time. The Rust
 // binary composes these into the same page HTML the bun server serves.
 //
 //   bun scripts/bundle-app.ts [--out DIR] [--dev]
 
 import { mkdirSync } from "node:fs"
 import { join } from "node:path"
-import { TEXT_DEFAULT_STEP, textSizeRem } from "../app/lib/type-scale"
+import { TEXT_DEFAULT_STEP, textSizeRem } from "../web/lib/type-scale"
 import { buildApp, themeCss } from "./build-app"
 import { collectAbout } from "./licenses"
 
 const args = process.argv.slice(2)
 const outIdx = args.indexOf("--out")
-const outDir = outIdx >= 0 ? args[outIdx + 1]! : join(import.meta.dir, "..", "app-dist")
+const outDir = outIdx >= 0 ? args[outIdx + 1]! : join(import.meta.dir, "..", "dist", "app")
 const dev = args.includes("--dev")
 
 const bundle = await buildApp(dev, { fresh: true })

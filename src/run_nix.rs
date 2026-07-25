@@ -176,23 +176,44 @@ pub async fn flake_show(
     }
 }
 
+/// Write `content` to `name` in the first of `dirs` that accepts it. An
+/// existing file counts as success — the caller keys the name by content hash,
+/// so a hit is already the right bytes.
+fn cache_into(
+    dirs: impl IntoIterator<Item = PathBuf>,
+    name: &str,
+    content: &str,
+) -> Option<String> {
+    for dir in dirs {
+        if std::fs::create_dir_all(&dir).is_err() {
+            continue;
+        }
+        let path = dir.join(name);
+        if path.exists() || std::fs::write(&path, content).is_ok() {
+            return Some(path.to_string_lossy().into_owned());
+        }
+    }
+    None
+}
+
 /// Materialize the embedded extract.nix into the cache dir once per process,
 /// keyed by content hash so upgrades never reuse a stale copy.
 fn extract_nix_path() -> &'static str {
     static PATH: OnceLock<String> = OnceLock::new();
     PATH.get_or_init(|| {
         let hash = hex::encode(Sha256::digest(EXTRACT_NIX.as_bytes()));
-        let dir = std::env::var_os("XDG_CACHE_HOME")
+        let name = format!("extract-{}.nix", &hash[..16]);
+        let cache = std::env::var_os("XDG_CACHE_HOME")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
             .unwrap_or_else(std::env::temp_dir)
             .join("flake-explorer");
-        std::fs::create_dir_all(&dir).ok();
-        let path = dir.join(format!("extract-{}.nix", &hash[..16]));
-        if !path.exists() {
-            std::fs::write(&path, EXTRACT_NIX).expect("cannot write extract.nix to cache dir");
-        }
-        path.to_string_lossy().into_owned()
+        // HOME can be set but unwritable — a read-only home, a container, or a
+        // nix build sandbox's /homeless-shelter. Fall back to the temp dir
+        // rather than panicking; this is a cache, not a user data directory.
+        let temp = std::env::temp_dir().join("flake-explorer");
+        cache_into([cache, temp], &name, EXTRACT_NIX)
+            .expect("cannot write extract.nix to the cache dir or the temp dir")
     })
 }
 
@@ -512,4 +533,37 @@ pub struct RawDeclaration {
 pub struct RawDefinition {
     pub file: String,
     pub value: ValueEnvelope,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An uncreatable first candidate stands in for an unwritable HOME (a
+    /// read-only home, a container, a sandbox's /homeless-shelter): the
+    /// fallback must win rather than the whole thing panicking. The blocker is
+    /// a directory path *under a regular file* — that fails for root too,
+    /// whereas mode bits on a read-only directory do not.
+    #[test]
+    fn cache_into_falls_back_past_an_uncreatable_dir() {
+        let root = std::env::temp_dir().join(format!("fe-cache-test-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("not-a-dir");
+        std::fs::write(&file, "").unwrap();
+        let good = root.join("good");
+
+        let got = cache_into([file.join("nested"), good.clone()], "x.nix", "hello");
+        assert_eq!(got.as_deref(), good.join("x.nix").to_str());
+        assert_eq!(
+            std::fs::read_to_string(good.join("x.nix")).unwrap(),
+            "hello"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn cache_into_reports_failure_when_no_candidate_works() {
+        assert_eq!(cache_into([], "x.nix", "hello"), None);
+    }
 }

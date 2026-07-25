@@ -123,7 +123,7 @@ same, copy that workflow and set the repo's Pages source to "GitHub Actions"
 The extractor/server is a Rust crate at the repo root; the SPA is Svelte 5
 (runes) bundled by `Bun.build` + `bun-plugin-svelte` — no Vite. The
 extractor emits the JSON contract from `src/schema.rs`; the SPA's
-client-side typing of the same contract lives in `app/lib/schema.ts`.
+client-side typing of the same contract lives in `web/lib/schema.ts`.
 
 ```console
 $ nix develop          # cargo + bun + git (plus a live-source `flake-explorer` shim)
@@ -133,7 +133,7 @@ $ cargo test           # unit + integration tests (real nix + scripted-nix shims
 $ bun test             # SPA tests (happy-dom)
 $ bunx svelte-check --tsconfig ./tsconfig.json
 $ nix build            # package: binary + bundled SPA + offline checks
-$ bun run docs         # build the docs site into _site/docs
+$ bun run docs         # build the docs site into dist/site/docs
 ```
 
 ## License

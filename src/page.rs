@@ -1,5 +1,7 @@
 // Page composition: the SPA bundle is prebuilt by `bun scripts/bundle-app.ts`
-// into app-dist/ (app.js, app.css, meta.json) and located at runtime.
+// (app.js, app.css, meta.json) and located at runtime. In a repo checkout it
+// lands in dist/app/; the published npm package and the Nix install both keep
+// the historical name app-dist/ — that layout is a shipped contract.
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -21,10 +23,11 @@ struct BundleMeta {
     about: Value,
 }
 
-/// Locate app-dist: $FLAKE_EXPLORER_APP_DIST, next to the executable
-/// (../share/flake-explorer/app-dist for installs), or the repo checkout
-/// (compile-time path, for `cargo run`). When only the repo is found and the
-/// bundle is missing, `bun scripts/bundle-app.ts` is invoked to produce it.
+/// Locate the bundle: $FLAKE_EXPLORER_APP_DIST, next to the executable
+/// (`app-dist/` beside it, or ../share/flake-explorer/app-dist for installs),
+/// or the repo checkout at dist/app (compile-time path, for `cargo run`). When
+/// only the repo is found and the bundle is missing, `bun
+/// scripts/bundle-app.ts` is invoked to produce it.
 pub fn find_app_dist() -> anyhow::Result<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(p) = std::env::var_os("FLAKE_EXPLORER_APP_DIST") {
@@ -36,7 +39,7 @@ pub fn find_app_dist() -> anyhow::Result<PathBuf> {
         candidates.push(dir.join("app-dist"));
         candidates.push(dir.join("../share/flake-explorer/app-dist"));
     }
-    let repo_dist = Path::new(env!("CARGO_MANIFEST_DIR")).join("app-dist");
+    let repo_dist = Path::new(env!("CARGO_MANIFEST_DIR")).join("dist/app");
     candidates.push(repo_dist.clone());
 
     for c in &candidates {
@@ -60,7 +63,7 @@ pub fn find_app_dist() -> anyhow::Result<PathBuf> {
         }
     }
     anyhow::bail!(
-        "cannot find the app bundle (app-dist/). Build it with `bun scripts/bundle-app.ts` \
+        "cannot find the app bundle (dist/app/). Build it with `bun scripts/bundle-app.ts` \
          or set FLAKE_EXPLORER_APP_DIST."
     )
 }
