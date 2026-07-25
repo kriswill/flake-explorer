@@ -26,7 +26,7 @@ The three panes:
 One CLI entry point ([`src/main.rs`](../src/main.rs)) dispatches
 `extract`, `export`, and `serve`. All three run the same extraction driver,
 which shells out to the host `nix` binary to evaluate
-[`src/extract.nix`](../src/extract.nix) and writes a data
+[`crates/extract/src/extract.nix`](../crates/extract/src/extract.nix) and writes a data
 directory: a cheap `manifest.json` plus one expensive per-configuration blob.
 `serve` serves the prebuilt SPA bundle and extracts configurations on
 demand; `export` embeds the SPA and data into one HTML file
@@ -47,7 +47,7 @@ flowchart LR
 | Page | What it answers |
 | --- | --- |
 | [Architecture](architecture.md) | How the pieces fit together; key design decisions and the directory map. |
-| [Data schema](data-schema.md) | The manifest / config-blob contract in [`src/schema.rs`](../src/schema.rs). |
+| [Data schema](data-schema.md) | The manifest / config-blob contract in [`crates/extract/src/schema.rs`](../crates/extract/src/schema.rs). |
 | [Extraction pipeline](extraction-pipeline.md) | How `extract.nix`, the chunk walk, and the narHash cache work. |
 | [Frontend](frontend.md) | The Svelte 5 SPA: state, indexes, components, theming. |
 | [Build & infra](build-and-infra.md) | Bun bundling, Nix packaging, CI, and Pages publishing. |

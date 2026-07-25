@@ -2,7 +2,7 @@
 
 Two suites, split by language and run by different tools:
 
-- **`cargo test`** — the Rust crate: extractor, server, export, CLI. Unit tests live inline in `src/*.rs`; integration suites live in [`tests/`](../tests) and drive the real binary or an in-process `axum` router.
+- **`cargo test`** — the Rust workspace: extractor, server, export, CLI. Unit tests live inline in each crate's sources (`src/*.rs` and `crates/extract/src/*.rs`); integration suites live in [`tests/`](../tests), belong to the root crate, and drive the real binary or an in-process `axum` router. Both members are in the workspace's `default-members`, so a bare `cargo test` covers both — without that, cargo would select only the root package and silently skip the extraction crate's unit tests.
 - **`bun test`** — the Svelte SPA and the bun build scripts. Every `*.test.ts` sits beside the module it covers.
 
 See [Build & infra](build-and-infra.md) for the CI jobs that run them.
@@ -36,7 +36,7 @@ Tests are **co-located**: [`web/lib/indexes.test.ts`](../web/lib/indexes.test.ts
 
 ## The Rust suite
 
-Unit tests live inline in `src/*.rs`. The integration suites in [`tests/`](../tests) share helpers via [`tests/common/mod.rs`](../tests/common/mod.rs):
+Unit tests live inline beside the code, in `src/*.rs` for the root crate and `crates/extract/src/*.rs` for the extractor. The integration suites in [`tests/`](../tests) share helpers via [`tests/common/mod.rs`](../tests/common/mod.rs):
 
 | Suite | Covers |
 |---|---|
