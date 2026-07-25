@@ -91,18 +91,47 @@ fn main() {
     let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
 
     let mut files: Vec<PathBuf> = Vec::new();
-    collect(&root.join("src"), &mut files);
+    // EVERY file under src/, whatever its extension — not the .rs files plus a
+    // list of the others. extract.nix and the two vendored .scm queries used to
+    // be named here one by one, which made the "there is no list to forget an
+    // entry from" claim above false: a third grammar added tomorrow would have
+    // silently escaped the fingerprint and served every user stale blobs. The
+    // claim is now true by construction, which was the whole point.
+    //
+    // Two consequences, both chosen rather than tolerated. It over-hashes:
+    // vendor/nix-highlights.scm is provably NOT blob-affecting, since
+    // tokenize_nix reaches only export.rs and serve.rs and both are render
+    // paths, so editing it costs one spurious re-extraction. And a stray file
+    // under src/ — a .DS_Store, an editor backup — feeds the hash too, so a
+    // local build can disagree with a build from the git tree. Both are the
+    // over-invalidation direction, which is the affordable one; any exclusion
+    // rule sharp enough to avoid them would be a list, and a forgotten list
+    // entry is the silent-staleness failure this exists to prevent.
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    collect(&root.join("src"), &mut files, &mut dirs);
+    // These two are outside src/ and cargo fixes their names, so naming them is
+    // not an open-ended list. build.rs so the hash covers how it is computed;
+    // Cargo.toml because it declares which dependencies this crate takes and,
+    // where it spells them out locally rather than deferring to the workspace,
+    // at which features.
     files.push(root.join("build.rs"));
-    files.push(root.join("src/extract.nix"));
-    files.push(root.join("src/vendor/nix-highlights.scm"));
-    files.push(root.join("src/vendor/bash-highlights.scm"));
-    // This crate's own manifest: which dependencies it takes and, where it
-    // spells them out locally rather than deferring to the workspace, at which
-    // features. Every line of this file is about the extractor, so there is no
-    // over-invalidation to weigh.
     files.push(root.join("Cargo.toml"));
     files.sort();
     files.dedup();
+
+    // The DIRECTORIES have to be watched, not just the files in them, and this
+    // is load-bearing rather than belt-and-braces: rerun-if-changed on a file
+    // fires when that file's contents change, so a set of per-file entries can
+    // never notice a file being ADDED. Recursing over src/ above would then be
+    // decorative — the walk would pick a new grammar up, but nothing would ask
+    // it to run. Measured while building this: with files alone, dropping a new
+    // .scm into src/vendor left the fingerprint untouched. Cargo rescans a
+    // directory entry for modifications, so these cover additions and removals.
+    dirs.sort();
+    dirs.dedup();
+    for d in &dirs {
+        println!("cargo:rerun-if-changed={}", d.display());
+    }
 
     let mut hasher = Sha256::new();
     for f in &files {
@@ -361,16 +390,17 @@ fn unquote(s: &str) -> Option<String> {
     Some(s.trim().strip_prefix('"')?.strip_suffix('"')?.to_string())
 }
 
-fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
+fn collect(dir: &Path, files: &mut Vec<PathBuf>, dirs: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
+    dirs.push(dir.to_path_buf());
     for e in entries.flatten() {
         let p = e.path();
         if p.is_dir() {
-            collect(&p, out);
-        } else if p.extension().is_some_and(|x| x == "rs") {
-            out.push(p);
+            collect(&p, files, dirs);
+        } else {
+            files.push(p);
         }
     }
 }
