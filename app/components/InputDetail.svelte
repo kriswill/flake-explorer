@@ -5,7 +5,6 @@ import { prefs } from "../lib/prefs.svelte"
 import { displayLabel, makeFileId } from "../lib/schema"
 import { segmentLines } from "../lib/segments"
 import { app, loadedConfig } from "../lib/state.svelte"
-import { THEMES } from "../lib/themes"
 import AsyncSlot from "./AsyncSlot.svelte"
 import Dot from "./Dot.svelte"
 import InputProvenance from "./InputProvenance.svelte"
@@ -13,7 +12,6 @@ import SourceView from "./SourceView.svelte"
 
 const { name }: { name: string } = $props()
 
-const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 const input = $derived(app.manifest?.inputs[name] ?? null)
 
 /** Self files whose source references inputs.<name> (manifest regex scan). */
@@ -84,7 +82,7 @@ const lines = $derived.by(() => {
 
 <div class="input-detail">
   <div class="id-head">
-    <div class="head" style="--c:{colorFor(name, gen)}">
+    <div class="head" style="--c:{colorFor(name, prefs.gen)}">
       <Dot />
       <h2 class="mono">inputs.{name}</h2>
     </div>
@@ -222,9 +220,7 @@ const lines = $derived.by(() => {
           loadingText="loading source…"
           retry={() => app.retryFileContent(fileId, `${input.storePath}/flake.nix`)}
         >
-          {#snippet children()}
-            <SourceView {lines} />
-          {/snippet}
+          <SourceView {lines} />
         </AsyncSlot>
       {/if}
     </div>

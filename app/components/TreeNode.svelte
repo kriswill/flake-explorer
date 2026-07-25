@@ -19,10 +19,9 @@ export function nodeColorKey(n: Node): string {
 
 <script lang="ts">
   import { prefs } from "../lib/prefs.svelte";
-  import { revealWhen } from "../lib/reveal.svelte";
+  import { revealWhen } from "../lib/reveal";
   import { app } from "../lib/state.svelte";
   import { colorFor } from "../lib/color";
-  import { THEMES } from "../lib/themes";
   import Dot from "./Dot.svelte";
   import TreeNode from "./TreeNode.svelte";
 
@@ -39,7 +38,6 @@ export function nodeColorKey(n: Node): string {
   }
   const { node, configId, depth, rail = null }: Props = $props();
 
-  const gen = $derived(THEMES[prefs.themeIndex]!.gen);
   const isDir = $derived(node.children.length > 0);
   const expanded = $derived(app.expanded.has(node.id));
   const highlighted = $derived(app.highlightedNodes.has(node.id));
@@ -48,7 +46,7 @@ export function nodeColorKey(n: Node): string {
       app.selection.configId === configId &&
       app.selection.moduleId === node.fileId,
   );
-  const color = $derived(colorFor(nodeColorKey(node), gen));
+  const color = $derived(colorFor(nodeColorKey(node), prefs.gen));
 
   const visible = $derived(app.q === "" || subtreeMatches(node, app.q.toLowerCase()));
 
@@ -71,12 +69,10 @@ export function nodeColorKey(n: Node): string {
 
 {#if visible}
   <!-- .connect/.railed: shared connector styles (tree-connectors.css). -->
-  <li class="connect" style="--c:{color}" style:--rail={rail} class:railed={rail !== null}>
+  <li class={["connect", { railed: rail !== null }]} style="--c:{color}" style:--rail={rail}>
     <button
-      class="row"
-      class:hl={highlighted}
-      class:sel={selected}
-      use:revealWhen={() => selected}
+      class={["row", { hl: highlighted, sel: selected }]}
+      {@attach revealWhen(selected)}
       onclick={click}
       onpointerenter={() => node.fileId && (app.hover = { kind: "module", fileId: node.fileId })}
       onpointerleave={() => node.fileId && (app.hover = null)}
@@ -95,7 +91,7 @@ export function nodeColorKey(n: Node): string {
             node={child}
             {configId}
             depth={depth + 1}
-            rail={i < kids.length - 1 ? colorFor(nodeColorKey(kids[i + 1]!), gen) : null}
+            rail={i < kids.length - 1 ? colorFor(nodeColorKey(kids[i + 1]!), prefs.gen) : null}
           />
         {/each}
       </ul>

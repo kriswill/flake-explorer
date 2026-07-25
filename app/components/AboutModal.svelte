@@ -51,7 +51,7 @@ const rows = $derived.by((): Row[] => {
     </header>
 
     <div class="tabs" role="tablist" aria-label="About sections">
-      <button class="seg" class:active={tab === "info"} role="tab" aria-selected={tab === "info"} onclick={() => (tab = "info")}>
+      <button class={["seg", { active: tab === "info" }]} role="tab" aria-selected={tab === "info"} onclick={() => (tab = "info")}>
         <!-- info circle -->
         <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
           <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.4" />
@@ -60,8 +60,7 @@ const rows = $derived.by((): Row[] => {
         About
       </button>
       <button
-        class="seg"
-        class:active={tab === "licenses"}
+        class={["seg", { active: tab === "licenses" }]}
         role="tab"
         aria-selected={tab === "licenses"}
         onclick={() => (tab = "licenses")}

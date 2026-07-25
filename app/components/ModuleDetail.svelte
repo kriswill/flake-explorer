@@ -3,9 +3,9 @@ import { colorFor } from "../lib/color"
 import { crumbsForFile } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
 import { app } from "../lib/state.svelte"
-import { THEMES } from "../lib/themes"
 import Breadcrumb from "./Breadcrumb.svelte"
 import Dot from "./Dot.svelte"
+import HeaderChip from "./HeaderChip.svelte"
 import InputProvenance from "./InputProvenance.svelte"
 import OptionRow from "./OptionRow.svelte"
 
@@ -15,7 +15,6 @@ interface Props {
 }
 const { configId, moduleId }: Props = $props()
 
-const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 const cfg = $derived(app.activeConfig)
 const meta = $derived(cfg?.indexes.filesById.get(moduleId) ?? null)
 const refs = $derived(cfg?.indexes.refsByFile.get(moduleId) ?? null)
@@ -52,27 +51,24 @@ const fileEntry = $derived(app.manifest?.files.find((f) => f.id === moduleId) ??
   <p class="muted">No data for this module in {configId}.</p>
 {:else}
   <Breadcrumb segments={crumbsForFile(meta, configId)} />
-  <div class="head" style="--c:{colorFor(colorKey, gen)}">
+  <div class="head" style="--c:{colorFor(colorKey, prefs.gen)}">
     <Dot />
     <h2 class="mono">{meta.relPath}</h2>
-    <button class="filechip mono" onclick={() => app.select({ kind: "file", fileId: moduleId })}>
-      <!-- nixos snowflake mark (brand.nixos.org): a .nix file is raw Nix source -->
-      <svg viewBox="-1152 -998 2304 1996" width="16" height="13.9" aria-hidden="true" focusable="false">
-        <g fill="currentColor">
-          <polygon points="-624,249.42 -496,27.71 64,997.66 -192,997.66 -320,775.96 -448,997.66 -576,997.66 -640,886.81 -448,554.26" />
-          <polygon points="-528,-415.69 -272,-415.69 -832,554.26 -960,332.55 -832,110.85 -1088,110.85 -1152,0 -1088,-110.85 -704,-110.85" />
-          <polygon points="96,-665.11 224,-443.41 -896,-443.41 -768,-665.11 -512,-665.11 -640,-886.81 -576,-997.66 -448,-997.66 -256,-665.11" />
-          <polygon points="624,-249.42 496,-27.71 -64,-997.66 192,-997.66 320,-775.96 448,-997.66 576,-997.66 640,-886.81 448,-554.26" />
-          <polygon points="528,415.69 272,415.69 832,-554.26 960,-332.55 832,-110.85 1088,-110.85 1152,0 1088,110.85 704,110.85" />
-          <polygon points="-96,665.11 -224,443.41 896,443.41 768,665.11 512,665.11 640,886.81 576,997.66 448,997.66 256,665.11" />
-        </g>
-      </svg>
-      file
-      <!-- diagonal arrow -->
-      <svg class="arrow" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" focusable="false">
-        <path d="M6 10 10 6M8 6h2v2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
-    </button>
+    <HeaderChip label="file" onclick={() => app.select({ kind: "file", fileId: moduleId })}>
+      {#snippet icon()}
+        <!-- nixos snowflake mark (brand.nixos.org): a .nix file is raw Nix source -->
+        <svg viewBox="-1152 -998 2304 1996" width="16" height="13.9" aria-hidden="true" focusable="false">
+          <g fill="currentColor">
+            <polygon points="-624,249.42 -496,27.71 64,997.66 -192,997.66 -320,775.96 -448,997.66 -576,997.66 -640,886.81 -448,554.26" />
+            <polygon points="-528,-415.69 -272,-415.69 -832,554.26 -960,332.55 -832,110.85 -1088,110.85 -1152,0 -1088,-110.85 -704,-110.85" />
+            <polygon points="96,-665.11 224,-443.41 -896,-443.41 -768,-665.11 -512,-665.11 -640,-886.81 -576,-997.66 -448,-997.66 -256,-665.11" />
+            <polygon points="624,-249.42 496,-27.71 -64,-997.66 192,-997.66 320,-775.96 448,-997.66 576,-997.66 640,-886.81 448,-554.26" />
+            <polygon points="528,415.69 272,415.69 832,-554.26 960,-332.55 832,-110.85 1088,-110.85 1152,0 1088,110.85 704,110.85" />
+            <polygon points="-96,665.11 -224,443.41 896,443.41 768,665.11 512,665.11 640,886.81 576,997.66 448,997.66 256,665.11" />
+          </g>
+        </svg>
+      {/snippet}
+    </HeaderChip>
   </div>
   {#if meta.origin.kind === "input" && inputInfo}
     <InputProvenance input={inputInfo} />
@@ -133,42 +129,6 @@ const fileEntry = $derived(app.manifest?.files.find((f) => f.id === moduleId) ??
   }
   .mono {
     font-family: ui-monospace, monospace;
-  }
-  .filechip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin-left: auto;
-    background: var(--surface-1);
-    border: 1px solid var(--grid);
-    border-radius: 7px;
-    color: var(--ink-2);
-    font-size: var(--text-2xs);
-    font-weight: 500;
-    padding: 4px 10px;
-    cursor: pointer;
-    flex: none;
-    transition:
-      background-color 0.15s ease,
-      border-color 0.15s ease,
-      color 0.15s ease;
-  }
-  .filechip:hover {
-    background: var(--page);
-    border-color: var(--c);
-    color: var(--c);
-  }
-  .filechip:active {
-    transform: translateY(1px);
-  }
-  .filechip svg {
-    flex: none;
-  }
-  .filechip .arrow {
-    opacity: 0.6;
-  }
-  .filechip:hover .arrow {
-    opacity: 1;
   }
   .git {
     color: var(--ink-muted);
