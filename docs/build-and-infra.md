@@ -39,11 +39,24 @@ The repo's `package.json` is not the published manifest — it is marked `privat
 
 | Job | What it does |
 |---|---|
-| `test typescript` | `bun test --coverage` for the SPA and build scripts; uploads coverage via octocov |
+| `test typescript` | `bun test --coverage` for the SPA and build scripts; reports coverage via octocov |
 | `check typescript` | `bun run lint:ci` (the lockfile's Biome, not `bunx`'s latest), `tsc --noEmit` + `svelte-check`, then `bun run docs` as a smoke check so a broken docs pipeline surfaces on the PR, not on the Pages deploy |
-| `build` | `nix flake check -L` (cargo test/clippy/coverage, the offline SPA test derivation, treefmt), `nix build .#default`, then `cargo llvm-cov test` **outside** the sandbox with `FLAKE_EXPLORER_REQUIRE_NIX=1` so the real-nix suites run and cannot silently skip; uploads the crate's coverage via octocov |
+| `build` | `nix flake check -L` (cargo test/clippy/coverage, the offline SPA test derivation, treefmt), `nix build .#default`, then `cargo llvm-cov test` **outside** the sandbox with `FLAKE_EXPLORER_REQUIRE_NIX=1` so the real-nix suites run and cannot silently skip; reports the crate's coverage via octocov |
 
 Two coverage reports, kept separate so their histories never mix: [`.octocov.yml`](../.octocov.yml) reads `dist/coverage/lcov.info` for the SPA against a fixed `acceptable: 96%` floor, and [`.octocov.rust.yml`](../.octocov.rust.yml) reads `rust-coverage/lcov.info` for the crate as a `current >= prev` ratchet. See [Testing](testing.md).
+
+Each posts its own PR comment and its own job-summary block, both editing whatever they wrote on the previous run rather than adding to it:
+
+| | Title | Comment marker | Artifact |
+|---|---|---|---|
+| SPA (`.octocov.yml`) | `Code Metrics Report` | `<!-- octocov -->` | `octocov-report` |
+| Crate (`.octocov.rust.yml`) | `Code Metrics Report (rust)` | `<!-- octocov:rust -->` | `octocov-rust` |
+
+The crate's `repository: ${GITHUB_REPOSITORY}/rust` is what produces that whole row. It is octocov's monorepo key: it goes into the report title, into the comment marker, and — the trap — onto the end of the artifact name, which is why `.octocov.rust.yml` names its datastore `octocov` and still reads and writes `octocov-rust`. Change one without the other and the ratchet loses the baseline it compares against.
+
+Distinct markers are also what makes the two jobs order-independent. octocov finds its own comment by scanning for its marker, so each config only ever edits the comment it owns; whichever job finishes last cannot overwrite the other's numbers.
+
+They are **two** comments, not one, and octocov cannot make them one. Its only aggregation mode takes several lcov files into a single `coverage.paths:` and reports one merged percentage — which would put the crate behind a single gate with the SPA, hide a crate regression inside the larger TS corpus, and cost the two thresholds this repo deliberately keeps apart. Merging the *rendered* reports instead would need a job that waits on both, and coverage would stop being a signal either job can carry on its own.
 
 ## GitHub Pages
 
