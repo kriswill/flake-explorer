@@ -4,6 +4,12 @@
 # compare against a differently-shaped denominator — a fixed floor holds the
 # line instead. Once a post-restructure baseline lands on main, the ratchet
 # can return.
+#
+# This is the unkeyed report, so its title stays the bare "Code Metrics
+# Report" and its artifact keeps the default `octocov-report` name — the
+# `message:` lines below are what tell a reader which suite they are looking
+# at. Giving this one a `repository:` key the way .octocov.rust.yml does
+# would rename its artifact and orphan main's baseline for no gain.
 coverage:
   paths:
     - dist/coverage/lcov.info
@@ -14,8 +20,10 @@ diff:
     - artifact://${GITHUB_REPOSITORY}
 comment:
   if: is_pull_request
+  message: "**SPA test suite** — `bun test --coverage`. The crate is reported separately as *Code Metrics Report (rust)*."
 summary:
   if: true
+  message: "**SPA test suite** — `bun test --coverage`. The crate is reported separately as *Code Metrics Report (rust)*."
 report:
   if: is_default_branch
   datastores:

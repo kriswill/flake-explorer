@@ -1,9 +1,17 @@
 # Extractor/server (cargo-llvm-cov) coverage report; the nix CI job rewrites
 # SF paths to repo-relative before this runs. Separate config + artifact
 # name from the SPA report (.octocov.yml) so the two coverage histories
-# never mix. No PR comment: octocov keys its comment on a fixed marker, so a
-# second config's comment would hide the SPA one — the job summary + the
-# acceptable gate carry the signal instead.
+# never mix.
+#
+# The `/rust` suffix is octocov's monorepo key, and it is what makes this
+# report say which suite it is: every surface renders "Code Metrics Report
+# (rust)" rather than the bare "Code Metrics Report" the SPA gets. octocov
+# also appends the key to the artifact name, which is why the datastores
+# below say `octocov` and not `octocov-rust` — `octocov` + `rust` resolves to
+# the same `octocov-rust` artifact main's baseline already lives in.
+# Renaming either half orphans that baseline, leaving the ratchet with
+# nothing to compare against.
+repository: ${GITHUB_REPOSITORY}/rust
 coverage:
   paths:
     - rust-coverage/lcov.info
@@ -11,10 +19,11 @@ coverage:
 diff:
   if: is_pull_request
   datastores:
-    - artifact://${GITHUB_REPOSITORY}/octocov-rust
+    - artifact://${GITHUB_REPOSITORY}/octocov
 summary:
   if: true
+  message: "**Rust crate** — `cargo llvm-cov`, outside the nix sandbox. The SPA suite is reported separately as *Code Metrics Report*."
 report:
   if: is_default_branch
   datastores:
-    - artifact://${GITHUB_REPOSITORY}/octocov-rust
+    - artifact://${GITHUB_REPOSITORY}/octocov
