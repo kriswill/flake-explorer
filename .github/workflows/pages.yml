@@ -34,7 +34,7 @@ jobs:
       # The export shells out to nix for the manifest + source resolution;
       # Determinate Nix + FlakeHub cache also make `nix run .#` cheap (the
       # binary and its dep layer come from the cache pushed by CI).
-      - uses: DeterminateSystems/determinate-nix-action@2a0be2498974c2b6327e19780488744384637d88 # v3.21.7
+      - uses: DeterminateSystems/determinate-nix-action@d96678350ffd6a456235832eb11e1c491589b7bb # v3.21.8
       - uses: DeterminateSystems/flakehub-cache-action@3be0931021788e3bb4df65f59a555039c2fa2d46 # main 2026-07
       - run: bun install --frozen-lockfile
       # This flake has no nixos/darwin configurations, so --all/--sources all
