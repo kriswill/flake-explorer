@@ -6,6 +6,8 @@ import AsyncSlot from "./AsyncSlot.svelte"
 
 let open = $state(false)
 let active = $state(0)
+/** bind:this, not an attachment: the focusout handler needs the element for
+ *  its containment check, and a plain ref is the direct way to hold one. */
 let wrap: HTMLElement | undefined = $state()
 
 /** Static export: every config blob is already embedded — load them all on
@@ -121,14 +123,13 @@ function baseIndex(catIndex: number): number {
         {#each cat.hits as hit, hi (`${hit.sel.kind}:${hit.label}:${hit.detail ?? ""}`)}
           {@const idx = baseIndex(ci) + hi}
           <button
-            class="hit"
-            class:active={idx === active}
+            class={["hit", { active: idx === active }]}
             role="option"
             aria-selected={idx === active}
             onpointerenter={() => (active = idx)}
             onclick={() => pick(idx)}
           >
-            <span class="label mono" class:customized={hit.customized}>{hit.label}</span>
+            <span class={["label mono", { customized: hit.customized }]}>{hit.label}</span>
             {#if hit.detail}<span class="detail">{hit.detail}</span>{/if}
           </button>
         {/each}

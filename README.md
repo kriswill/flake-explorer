@@ -48,7 +48,7 @@ flake-explorer serving /etc/nixos at http://localhost:4321
 ```
 
 Or from npm ([@kriswill/flake-explorer](https://www.npmjs.com/package/@kriswill/flake-explorer)) —
-a native binary per platform (Linux x64/arm64, macOS x64/arm64); `nix` must
+a native binary per platform (Linux x64/arm64, macOS arm64); `nix` must
 be on PATH either way:
 
 ```console

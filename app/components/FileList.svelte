@@ -3,11 +3,8 @@ import { colorFor } from "../lib/color"
 import { buildFileTree, type FileMeta, type FileTreeNode, fileTreeMatches } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
 import { app, loadedConfig } from "../lib/state.svelte"
-import { THEMES } from "../lib/themes"
 import Dot from "./Dot.svelte"
 import FileTreeBranch from "./FileTreeBranch.svelte"
-
-const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 
 interface Group {
   key: string
@@ -21,6 +18,8 @@ interface Group {
  * Files any loaded configuration actually uses. The input groups below are
  * built from exactly this set already; only the self group lists everything,
  * so the contributing-only toggle is really "trim the self group".
+ * (Plain Set/Map here and in `groups`: built fresh per derivation, never
+ * mutated afterward — SvelteSet/SvelteMap proxies would be pure overhead.)
  */
 const contributingIds = $derived.by(() => {
   const ids = new Set<string>()
@@ -92,7 +91,7 @@ const visibleGroups = $derived(groups.filter((g) => fileTreeMatches(g.tree, app.
 </script>
 
 <div class="files">
-  <label class="contrib" class:off={!anyConfigLoaded}>
+  <label class={["contrib", { off: !anyConfigLoaded }]}>
     <input
       type="checkbox"
       checked={app.contribOnly}
@@ -104,7 +103,7 @@ const visibleGroups = $derived(groups.filter((g) => fileTreeMatches(g.tree, app.
   </label>
 
   {#each visibleGroups as group (group.key)}
-    <section class="group" style="--c:{colorFor(group.colorKey, gen)}">
+    <section class="group" style="--c:{colorFor(group.colorKey, prefs.gen)}">
       <div class="ghead">
         <Dot />
         <span class="glabel mono">{group.label}</span>

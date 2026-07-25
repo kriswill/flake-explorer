@@ -2,16 +2,13 @@
 import { colorFor } from "../lib/color"
 import { inputLabel } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
-import { revealWhen } from "../lib/reveal.svelte"
+import { revealWhen } from "../lib/reveal"
 import type { GraftInfo, InputInfo, OutputNode } from "../lib/schema"
 import { app, loadedConfig } from "../lib/state.svelte"
-import { THEMES } from "../lib/themes"
 import AsyncSlot from "./AsyncSlot.svelte"
 import Dot from "./Dot.svelte"
 import OutputBranch from "./OutputBranch.svelte"
 import TreeNode, { nodeColorKey, subtreeMatches } from "./TreeNode.svelte"
-
-const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 
 /** nixos/darwin configuration categories get the module-tree treatment. */
 const configKind = (category: string) =>
@@ -110,9 +107,8 @@ const pathName = $derived.by(() => {
       {#each directInputs as inp (inp.name)}
         <li>
           <button
-            class="row"
-            class:sel={app.selection?.kind === "input" && app.selection.name === inp.name}
-            style="--c:{colorFor(inp.name, gen)}"
+            class={["row", { sel: app.selection?.kind === "input" && app.selection.name === inp.name }]}
+            style="--c:{colorFor(inp.name, prefs.gen)}"
             onclick={() => app.select({ kind: "input", name: inp.name })}
           >
             <Dot />
@@ -131,11 +127,10 @@ const pathName = $derived.by(() => {
       {#if app.expanded.has("inputs:transitive")}
         <ul class="tree">
           {#each transitiveInputs as inp, i (inp.name)}
-            <li class="connect" class:railed={i < transitiveInputs.length - 1}>
+            <li class={["connect", { railed: i < transitiveInputs.length - 1 }]}>
               <button
-                class="row"
-                class:sel={app.selection?.kind === "input" && app.selection.name === inp.name}
-                style="--c:{colorFor(inp.name, gen)}"
+                class={["row", { sel: app.selection?.kind === "input" && app.selection.name === inp.name }]}
+                style="--c:{colorFor(inp.name, prefs.gen)}"
                 onclick={() => app.select({ kind: "input", name: inp.name })}
               >
                 <Dot />
@@ -156,7 +151,7 @@ const pathName = $derived.by(() => {
         {@const kind = configKind(category)}
         {@const graft = graftFor(category)}
         <li>
-          <button class="row cat" style="--c:{colorFor(category, gen)}" onclick={() => toggle(`out:${category}`)}>
+          <button class="row cat" style="--c:{colorFor(category, prefs.gen)}" onclick={() => toggle(`out:${category}`)}>
             <Dot dir open={app.expanded.has(`out:${category}`)} />
             <span class="label">{category}</span>
             {#if graft}
@@ -173,16 +168,15 @@ const pathName = $derived.by(() => {
                   <!-- .connect/.railed: shared connector styles (tree-connectors.css);
                        --rail: the vertical line crossing this row belongs to the NEXT config it leads to. -->
                   <li
-                    class="connect"
-                    class:railed={i < names.length - 1}
-                    style="--c:{colorFor(id, gen)}"
-                    style:--rail={i < names.length - 1 ? colorFor(`${kind}/${names[i + 1]}`, gen) : null}
+                    class={["connect", { railed: i < names.length - 1 }]}
+                    style="--c:{colorFor(id, prefs.gen)}"
+                    style:--rail={i < names.length - 1 ? colorFor(`${kind}/${names[i + 1]}`, prefs.gen) : null}
                   >
                     <button
-                      class="row cfg"
-                      class:sel={app.selection?.kind === "config" && app.selection.configId === id}
-                      use:revealWhen={() =>
-                        app.selection?.kind === "config" && app.selection.configId === id}
+                      class={["row cfg", { sel: app.selection?.kind === "config" && app.selection.configId === id }]}
+                      {@attach revealWhen(
+                        app.selection?.kind === "config" && app.selection.configId === id,
+                      )}
                       onclick={() => clickConfig(kind, name)}
                     >
                       <Dot dir open={app.expanded.has(`cfg:${id}`)} />
@@ -204,7 +198,7 @@ const pathName = $derived.by(() => {
                                 node={child}
                                 configId={id}
                                 depth={0}
-                                rail={i < kids.length - 1 ? colorFor(nodeColorKey(kids[i + 1]!), gen) : null}
+                                rail={i < kids.length - 1 ? colorFor(nodeColorKey(kids[i + 1]!), prefs.gen) : null}
                               />
                             {/each}
                           </ul>
@@ -217,17 +211,18 @@ const pathName = $derived.by(() => {
             {:else if graft}
               <!-- Grafted namespace: only the keys this flake ADDS are shown;
                    the input's inherited names would just re-list the input. -->
-              <ul class="tree" style="--rail:{colorFor(category, gen)}">
+              <ul class="tree" style="--rail:{colorFor(category, prefs.gen)}">
                 <!-- note row: railed (the line leads down to the keys) but no elbow -->
-                <li class:railed={graft.added.length > 0}>
+                <li class={{ railed: graft.added.length > 0 }}>
                   <p class="note">extends {graft.input}.{graft.output} · {graft.inherited} inherited keys hidden</p>
                 </li>
                 {#each graft.added as key, i (key)}
-                  <li class="connect" class:railed={i < graft.added.length - 1} style="--c:{colorFor(category, gen)}">
+                  <li class={["connect", { railed: i < graft.added.length - 1 }]} style="--c:{colorFor(category, prefs.gen)}">
                     <button
-                      class="row leaf"
-                      class:sel={app.selection?.kind === "output" &&
-                        app.selection.path.join(".") === `${category}.${key}`}
+                      class={["row leaf", {
+                        sel: app.selection?.kind === "output" &&
+                          app.selection.path.join(".") === `${category}.${key}`,
+                      }]}
                       onclick={() => app.select({ kind: "output", path: [category, key] })}
                     >
                       <Dot />
@@ -242,13 +237,14 @@ const pathName = $derived.by(() => {
             {:else if node.kind !== "leaf" && (app.manifest?.outputNames?.[category] ?? []).length}
               <!-- flake show gave up ("unknown") but the eval knows the attr names. -->
               {@const names = app.manifest?.outputNames?.[category] ?? []}
-              <ul class="tree" style="--rail:{colorFor(category, gen)}">
+              <ul class="tree" style="--rail:{colorFor(category, prefs.gen)}">
                 {#each names as key, i (key)}
-                  <li class="connect" class:railed={i < names.length - 1} style="--c:{colorFor(category, gen)}">
+                  <li class={["connect", { railed: i < names.length - 1 }]} style="--c:{colorFor(category, prefs.gen)}">
                     <button
-                      class="row leaf"
-                      class:sel={app.selection?.kind === "output" &&
-                        app.selection.path.join(".") === `${category}.${key}`}
+                      class={["row leaf", {
+                        sel: app.selection?.kind === "output" &&
+                          app.selection.path.join(".") === `${category}.${key}`,
+                      }]}
                       onclick={() => app.select({ kind: "output", path: [category, key] })}
                     >
                       <Dot />
