@@ -21,7 +21,7 @@ import { join } from "node:path"
 
 const ROOT = join(import.meta.dir, "..")
 const OUT = join(ROOT, "dist-npm")
-const TARGETS = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"] as const
+const TARGETS = ["linux-x64", "linux-arm64", "darwin-arm64"] as const
 type Target = (typeof TARGETS)[number]
 
 const rootPkg = (await Bun.file(join(ROOT, "package.json")).json()) as {

@@ -108,8 +108,8 @@ const sides = $derived([
                 onclick={() => app.select({ kind: "option", configId: r.a ? a : b, loc: r.loc.split(".") })}
               >{r.loc}</button>
             </td>
-            <td class="val mono" class:absent={!r.a?.customized}>{cellText(r.a)}</td>
-            <td class="val mono" class:absent={!r.b?.customized}>{cellText(r.b)}</td>
+            <td class={["val mono", { absent: !r.a?.customized }]}>{cellText(r.a)}</td>
+            <td class={["val mono", { absent: !r.b?.customized }]}>{cellText(r.b)}</td>
             <td class="kind">{KIND_LABEL[r.kind]}</td>
           </tr>
         {/each}

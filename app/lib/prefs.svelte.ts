@@ -23,6 +23,8 @@ const PANE_LIMITS = {
 
 class Prefs {
   themeIndex = $state(0)
+  /** Color-generation seed of the active theme — every colorFor() call site reads this. */
+  gen = $derived(THEMES[this.themeIndex]!.gen)
   /** Step on the type scale; all component type is rem-based, so the root font-size moves everything. */
   textStep = $state(TEXT_DEFAULT_STEP)
   paneLeft = $state(PANE_DEFAULTS.left)

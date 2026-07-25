@@ -3,11 +3,9 @@ import { colorFor } from "../lib/color"
 import { inputLabel } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
 import { app } from "../lib/state.svelte"
-import { THEMES } from "../lib/themes"
 import { webUrl } from "../lib/url"
 import Dot from "./Dot.svelte"
 
-const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 const inputs = $derived(Object.values(app.manifest?.inputs ?? {}).filter((i) => !i.transitive))
 </script>
 
@@ -15,11 +13,11 @@ const inputs = $derived(Object.values(app.manifest?.inputs ?? {}).filter((i) => 
   {#each inputs as input (input.name)}
     {@const link = webUrl(input.url)}
     {#if link}
-      <a class="chip" style="--c:{colorFor(input.name, gen)}" href={link} target="_blank" rel="noopener" title={input.url}>
+      <a class="chip" style="--c:{colorFor(input.name, prefs.gen)}" href={link} target="_blank" rel="noopener" title={input.url}>
         <Dot />{inputLabel(input)}
       </a>
     {:else}
-      <span class="chip" style="--c:{colorFor(input.name, gen)}" title={input.url ?? input.type}>
+      <span class="chip" style="--c:{colorFor(input.name, prefs.gen)}" title={input.url ?? input.type}>
         <Dot />{inputLabel(input)}
       </span>
     {/if}
