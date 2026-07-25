@@ -1,9 +1,7 @@
 {
   "name": "@kriswill/flake-explorer",
   "version": "0.5.0",
-  "publishConfig": {
-    "access": "public"
-  },
+  "private": true,
   "description": "Interactive visualizer for Nix flakes: outputs/module tree, option provenance (defaulted vs customized), file map with git + flake.lock input info",
   "type": "module",
   "license": "MIT",
@@ -20,13 +18,6 @@
     "visualization",
     "svelte",
     "rust"
-  ],
-  "bin": {
-    "flake-explorer": "bin/flake-explorer.mjs"
-  },
-  "files": [
-    "bin/",
-    "app-dist/"
   ],
   "engines": {
     "node": ">=20"

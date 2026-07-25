@@ -1,6 +1,6 @@
 # Frontend
 
-The viewer is a Svelte 5 SPA in [`web/`](../web/App.svelte), written entirely in runes mode and bundled by `Bun.build` with `bun-plugin-svelte` — there is no Vite or separate bundler config; the server builds the bundle in memory at startup ([`src/build-app.ts`](../src/build-app.ts), see [Build & infra](build-and-infra.md)). Entry is [`web/main.ts`](../web/main.ts): it initializes theme, text size, pane widths, and hash routing on the `app` singleton, kicks off the manifest load, and mounts [`web/App.svelte`](../web/App.svelte). The data it renders is described in [Data schema](data-schema.md).
+The viewer is a Svelte 5 SPA in [`web/`](../web/App.svelte), written entirely in runes mode and bundled by `Bun.build` with `bun-plugin-svelte` — there is no Vite or separate bundler config; the server builds the bundle in memory at startup ([`scripts/build-app.ts`](../scripts/build-app.ts), see [Build & infra](build-and-infra.md)). Entry is [`web/main.ts`](../web/main.ts): it initializes theme, text size, pane widths, and hash routing on the `app` singleton, kicks off the manifest load, and mounts [`web/App.svelte`](../web/App.svelte). The data it renders is described in [Data schema](data-schema.md).
 
 ## State architecture
 

@@ -1,5 +1,5 @@
 // Build the docs site: docs/*.md -> dist/site/docs/*.html, styled with the
-// app's own theme (themeCss from src/build-app.ts, so light/dark palettes
+// app's own theme (themeCss from ./build-app.ts, so light/dark palettes
 // cannot drift). Optionally converts a typedoc-plugin-markdown output dir
 // (--api) into <out>/api/ through the same template.
 //
