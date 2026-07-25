@@ -12,6 +12,7 @@
   lib,
   stdenvNoCC,
   bun,
+  cargo-llvm-cov,
   git,
   makeBinaryWrapper,
   rustc,
@@ -46,7 +47,57 @@ let
     strictDeps = true;
   };
 
+  # cargo-llvm-cov hunts for rustup's llvm-tools-preview and refuses to start
+  # without it; point it at the LLVM that built this rustc instead (the profraw
+  # format has to match). Resolved at startup even when it is only compiling,
+  # so the coverage dep layer below needs it as much as the check itself does.
+  llvmToolEnv = {
+    LLVM_COV = "${rustc.llvmPackages.llvm}/bin/llvm-cov";
+    LLVM_PROFDATA = "${rustc.llvmPackages.llvm}/bin/llvm-profdata";
+  };
+
+  # crane defaults every derivation to the release profile
+  # (configureCargoCommonVarsHook sets CARGO_PROFILE=release, cargoWithProfile
+  # turns that into --release), so the checks were optimising and LTO-linking
+  # the whole crate graph to run a suite that executes in about two seconds.
+  # Nothing they do needs optimised code. Dev also turns on debug_assertions
+  # and integer overflow checks, so the suite runs stricter here than the
+  # shipped binary does — and it matches the profile CI's out-of-sandbox
+  # `cargo llvm-cov test` has always used, so the two coverage numbers finally
+  # come from the same compilation.
+  devArgs = commonArgs // {
+    CARGO_PROFILE = "dev";
+  };
+
   cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
+  # Dev-profile deps for clippy and test. A profile is a fingerprint input, so
+  # the release layer above is worthless to them and vice versa; the layers
+  # cannot be merged, only chosen between.
+  devArtifacts = craneLib.buildDepsOnly devArgs;
+
+  # A third dep layer, for the coverage check only. cargo-llvm-cov compiles
+  # through its own RUSTC_WRAPPER, and cargo folds the wrapper into the
+  # compiler fingerprint of *every* unit — so `cargoArtifacts` above is a total
+  # miss and the coverage run rebuilds the entire dependency tree (~100 crates)
+  # rather than just this crate. Building this layer by running cargo-llvm-cov
+  # over crane's dummy sources makes the wrapper, and the environment it keys
+  # off, match the check by construction; hand-copying the flags would drift
+  # silently the first time either side changed.
+  coverageArtifacts = craneLib.buildDepsOnly (
+    devArgs
+    // llvmToolEnv
+    // {
+      nativeBuildInputs = [ cargo-llvm-cov ];
+      # crane's cargoLlvmCov invocation minus the report, which has nothing to
+      # report on: the dummy sources carry no tests.
+      buildPhaseCargoCommand = "cargoWithProfile llvm-cov test --locked --no-report";
+      # That command already compiles the dev-dependency test binaries the
+      # check phase exists to cache; letting it run would only add a second,
+      # uninstrumented copy of them.
+      doCheck = false;
+    }
+  );
 
   # The lock is pure JS — no os/cpu-conditional packages, no install scripts —
   # so one hash serves every platform. --omit=optional: the only optional dep
@@ -142,6 +193,14 @@ craneLib.buildPackage (
   commonArgs
   // {
     inherit cargoArtifacts;
+    # crane runs `cargo test` in buildPackage's check phase by default, which
+    # here means building all six test binaries a second time — in release,
+    # LTO and all — to run the suite `checks.test` has already run from the
+    # same fileset, under debug_assertions and overflow checks it does not
+    # have. The only thing the second run adds is optimised code, and the
+    # crate contains no `unsafe` outside three env::set_var calls in the test
+    # harnesses. Not worth 37-51s of every build.
+    doCheck = false;
     nativeBuildInputs = [ makeBinaryWrapper ];
     # git backs per-file last-commit lookups; nix is deliberately resolved
     # from the caller's PATH so store paths and the flake registry match the
@@ -154,26 +213,30 @@ craneLib.buildPackage (
     '';
 
     passthru = {
-      inherit cargoArtifacts appDist node_modules;
+      inherit
+        cargoArtifacts
+        devArtifacts
+        coverageArtifacts
+        appDist
+        node_modules
+        ;
       checks = {
         clippy = craneLib.cargoClippy (
-          commonArgs
+          devArgs
           // {
-            inherit cargoArtifacts;
+            cargoArtifacts = devArtifacts;
             cargoClippyExtraArgs = "--all-targets -- --deny warnings";
           }
         );
-        test = craneLib.cargoTest (commonArgs // { inherit cargoArtifacts; });
+        test = craneLib.cargoTest (devArgs // { cargoArtifacts = devArtifacts; });
         # lcov at $out (crane's default cargoLlvmCovExtraArgs) — CI runs the
-        # richer out-of-sandbox variant and feeds octocov. cargo-llvm-cov
-        # looks for rustup's llvm-tools-preview; point it at the LLVM that
-        # built this rustc instead (profraw format must match).
+        # richer out-of-sandbox variant and feeds octocov. Note this rides on
+        # `coverageArtifacts`, not the layer clippy and test share.
         coverage = craneLib.cargoLlvmCov (
-          commonArgs
+          devArgs
+          // llvmToolEnv
           // {
-            inherit cargoArtifacts;
-            LLVM_COV = "${rustc.llvmPackages.llvm}/bin/llvm-cov";
-            LLVM_PROFDATA = "${rustc.llvmPackages.llvm}/bin/llvm-profdata";
+            cargoArtifacts = coverageArtifacts;
           }
         );
         # Offline `bun test` for the SPA against the vendored node_modules

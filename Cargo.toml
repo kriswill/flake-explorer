@@ -32,7 +32,17 @@ sha2 = "0.10"
 hex = "0.4"
 
 [profile.release]
-lto = true
+# Thin, not fat. Once the checks moved to the dev profile and buildPackage
+# stopped re-running the suite, exactly one artifact in CI is LTO-linked: the
+# shipped binary. Relinking it after a one-line change is 14.1s thin against
+# 38.0s fat, uncontended on aarch64-darwin. Fat's remaining edge is size —
+# 6.4M against 8.2M, carried by every npm platform package — and the
+# cross-crate inlining behind it is worth little to a tool that spends its
+# life blocked on `nix` rather than in its own hot loops.
+#
+# Thin was the better call even before those two changes (61.7s of compile
+# against 72.7s across build+test), but only barely; it is 2.7x now.
+lto = "thin"
 
 [dev-dependencies]
 tower = { version = "0.5.3", features = ["util"] }
