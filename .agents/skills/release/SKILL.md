@@ -52,7 +52,7 @@ gh run list --workflow Release --limit 1   # grab the run id
 ```
 
 The workflow opens `release/v<X>` as a PR, dispatches CI on that branch,
-arms auto-merge, and waits **up to 10 minutes** for the merge. Everything
+arms auto-merge, and waits **up to 30 minutes** for the merge. Everything
 after (tag, GitHub release, npm, FlakeHub) happens only if that wait
 succeeds — so the next step is time-sensitive.
 
