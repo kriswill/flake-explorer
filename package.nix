@@ -67,6 +67,7 @@ let
   # come from the same compilation.
   devArgs = commonArgs // {
     CARGO_PROFILE = "dev";
+    CARGO_PROFILE_DEV_DEBUG = "line-tables-only";
   };
 
   cargoArtifacts = craneLib.buildDepsOnly commonArgs;
