@@ -7,9 +7,15 @@
 # Two members since the extraction/presentation split: the root crate (CLI,
 # serve, export) and flake-explorer-extract. Both are in default-members, so
 # every crane driver below — buildPackage, cargoTest, cargoClippy, cargoLlvmCov
-# — selects both without needing --workspace anywhere. The split also buys a
-# smaller unit of recompilation: a serve.rs edit no longer recompiles the
-# extractor, only the crate that depends on it.
+# — selects both without needing --workspace anywhere.
+#
+# The split does NOT make these derivations finer-grained, and it is worth
+# saying so before someone assumes it did: each is keyed on the whole cargo
+# fileset, so an edit anywhere in it rebuilds the derivation and recompiles both
+# members. Only the dep layer stays cached, exactly as before. The split is for
+# the extraction fingerprint's scope (crates/extract/build.rs); smaller
+# recompiles happen only where a target/ dir survives between builds, which in
+# CI is the rust-coverage job's rust-cache and not any of these.
 #
 # The SPA is compiled by bun (scripts/bundle-app.ts) against a fixed-output
 # node_modules derivation, and installed to $out/share/flake-explorer/app-dist
