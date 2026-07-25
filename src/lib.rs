@@ -18,3 +18,5 @@ pub mod run_nix;
 pub mod scan;
 pub mod schema;
 pub mod serve;
+
+// ci-bench probe: M3 after Tier 2
