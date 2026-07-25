@@ -30,7 +30,7 @@ flowchart TD
   cli --> export["export.ts single-file HTML"]
   data --> serve
   data --> export
-  app["build-app.ts bundles app/"] --> serve
+  app["build-app.ts bundles web/"] --> serve
   app --> export
 ```
 
@@ -44,7 +44,7 @@ config, request held open); [`src/export.ts`](../src/export.ts) composes the
 SPA and every data document into one standalone HTML file that works from
 `file://` with no server. Both get the SPA from
 [`src/build-app.ts`](../src/build-app.ts), which bundles
-[`app/main.ts`](../app/main.ts) in-memory.
+[`web/main.ts`](../web/main.ts) in-memory.
 
 ## Design decisions
 
@@ -75,12 +75,13 @@ SPA and every data document into one standalone HTML file that works from
 
 | Path | Contents |
 | --- | --- |
-| [`flake-explorer.ts`](../flake-explorer.ts) | CLI entry: flag parsing, flakeref canonicalization, command dispatch. |
-| [`src/`](../src) | Server-side TypeScript: [`serve.ts`](../src/serve.ts), [`export.ts`](../src/export.ts), [`build-app.ts`](../src/build-app.ts), [`schema.ts`](../src/schema.ts), [`licenses.ts`](../src/licenses.ts), [`pathref.ts`](../src/pathref.ts). |
-| [`src/extract/`](../src/extract) | The extractor: [`drive.ts`](../src/extract/drive.ts), [`manifest.ts`](../src/extract/manifest.ts), [`options.ts`](../src/extract/options.ts), [`cache.ts`](../src/extract/cache.ts), [`run-nix.ts`](../src/extract/run-nix.ts), [`extract.nix`](../src/extract/extract.nix), plus imports/git/highlight helpers. |
-| [`src/extract/vendor/`](../src/extract/vendor) | Vendored tree-sitter-nix wasm + highlight query for server-side tokenizing. |
-| [`app/`](../app) | The SPA: [`App.svelte`](../app/App.svelte), `components/`, and `lib/` (state, indexes, colors, URL routing). See [Frontend](frontend.md). |
-| [`test/`](../test) | Bun test suite (happy-dom for component tests). See [Testing](testing.md). |
-| [`bin/`](../bin) | [`flake-explorer.mjs`](../bin/flake-explorer.mjs) — npm/bunx launcher that executes the TypeScript entry via bun. |
-| [`scripts/`](../scripts) | Docs-site tooling ([`build-docs.ts`](../scripts/build-docs.ts)). |
+| [`src/`](../src) | The Rust crate — CLI entry ([`main.rs`](../src/main.rs)), server ([`serve.rs`](../src/serve.rs)), static export ([`export.rs`](../src/export.rs)), page composition ([`page.rs`](../src/page.rs)), the data contract ([`schema.rs`](../src/schema.rs)), and the extractor ([`drive.rs`](../src/drive.rs), [`manifest.rs`](../src/manifest.rs), [`options.rs`](../src/options.rs), [`cache.rs`](../src/cache.rs), [`run_nix.rs`](../src/run_nix.rs), [`extract.nix`](../src/extract.nix)). |
+| [`src/vendor/`](../src/vendor) | Vendored tree-sitter highlight queries (`nix-highlights.scm`, `bash-highlights.scm`) for server-side tokenizing. |
+| [`web/`](../web) | The SPA: [`App.svelte`](../web/App.svelte), `components/`, and `lib/` (state, indexes, colors, URL routing), each with its `*.test.ts` alongside. See [Frontend](frontend.md). |
+| [`web/testing/`](../web/testing) | Bun-test support: preloads, the `withMount` helper, and the shared fixture builders. |
+| [`tests/`](../tests) | Rust integration suites (CLI, serve, export, degradation, real-nix). See [Testing](testing.md). |
+| [`fixtures/`](../fixtures) | Nix fixture flakes the Rust suites evaluate (`mini-flake`, `broken-flake`). |
+| [`bin/`](../bin) | [`flake-explorer.mjs`](../bin/flake-explorer.mjs) — npm launcher that resolves the platform binary package and execs it with this package's SPA bundle. |
+| [`scripts/`](../scripts) | Bun tooling: SPA bundling ([`bundle-app.ts`](../scripts/bundle-app.ts), [`build-app.ts`](../scripts/build-app.ts)), docs site ([`build-docs.ts`](../scripts/build-docs.ts)), npm staging ([`build-npm.ts`](../scripts/build-npm.ts)), release ([`release.ts`](../scripts/release.ts)). |
+| `dist/` | All build output, git-ignored: `app/` (SPA bundle), `npm/` (staged packages), `site/` (Pages), `api/` (typedoc), `coverage/`. |
 | [`.github/workflows/`](../.github/workflows) | CI ([`ci.yml`](../.github/workflows/ci.yml)) and Pages publishing ([`pages.yml`](../.github/workflows/pages.yml)). See [Build & infra](build-and-infra.md). |

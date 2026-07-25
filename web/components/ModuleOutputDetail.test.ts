@@ -3,11 +3,11 @@
 // (DeclarationRef.via / DefinitionRef.via).
 
 import { beforeEach, describe, expect, test } from "bun:test"
-import ModuleOutputDetail from "../app/components/ModuleOutputDetail.svelte"
-import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
-import { app } from "../app/lib/state.svelte"
-import { fixtureConfig, fixtureManifest, opt, SELF } from "./fixtures/data"
-import { withMount } from "./helpers"
+import { buildConfigIndexes, buildFlakeIndexes } from "../lib/indexes"
+import { app } from "../lib/state.svelte"
+import { fixtureConfig, fixtureManifest, opt, SELF } from "../testing/fixtures"
+import { withMount } from "../testing/helpers"
+import ModuleOutputDetail from "./ModuleOutputDetail.svelte"
 
 function seed() {
   const m = fixtureManifest()

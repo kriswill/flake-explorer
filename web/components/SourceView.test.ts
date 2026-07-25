@@ -2,9 +2,9 @@
 // FileDetail and InputDetail.
 
 import { describe, expect, test } from "bun:test"
-import SourceView from "../app/components/SourceView.svelte"
-import type { Segment } from "../app/lib/segments"
-import { withMount } from "./helpers"
+import type { Segment } from "../lib/segments"
+import { withMount } from "../testing/helpers"
+import SourceView from "./SourceView.svelte"
 
 describe("SourceView", () => {
   test("renders one <li> per line, plain segments as text", () => {

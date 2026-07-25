@@ -1,7 +1,7 @@
 // Single-file static export: compose the SPA plus
 // every data document it could ask for into ONE standalone HTML file. The
 // slice of the client's file-attribution logic the "--sources all" walk
-// needs (mirroring buildFlakeIndexes/resolveFile in app/lib/indexes.ts)
+// needs (mirroring buildFlakeIndexes/resolveFile in web/lib/indexes.ts)
 // lives at the bottom.
 
 use crate::highlight::tokenize_nix;
@@ -243,7 +243,7 @@ async fn read_source(
 
 // ---------------------------------------------------------------------------
 // Minimal mirror of the client's buildFlakeIndexes/resolveFile
-// (app/lib/indexes.ts) — just the parts the --sources all walk needs, so
+// (web/lib/indexes.ts) — just the parts the --sources all walk needs, so
 // embedded ids match what the UI asks for exactly.
 
 struct FlakeIndexes {

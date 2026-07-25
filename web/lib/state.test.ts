@@ -4,7 +4,7 @@
 // bails out instead of firing a real fetch under happy-dom.
 
 import { beforeEach, describe, expect, test } from "bun:test"
-import { app } from "../app/lib/state.svelte"
+import { app } from "./state.svelte"
 
 beforeEach(() => {
   // No manifest / no configs — forces revealFile onto the parseFileId

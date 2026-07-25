@@ -40,15 +40,15 @@ jobs:
       # This flake has no nixos/darwin configurations, so --all/--sources all
       # cost nothing today; they keep the demo complete if that changes.
       - run: |
-          mkdir -p _site
-          nix run .# -- export . --all --sources all --html _site/flake.html
-          cp _site/flake.html _site/index.html
+          mkdir -p dist/site
+          nix run .# -- export . --all --sources all --html dist/site/flake.html
+          cp dist/site/flake.html dist/site/index.html
       # Docs: curated pages + TypeDoc API reference (markdown), both rendered
-      # through the shared theme template into _site/docs/.
+      # through the shared theme template into dist/site/docs/.
       - run: bun run docs
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: _site
+          path: dist/site
 
   deploy:
     needs: build

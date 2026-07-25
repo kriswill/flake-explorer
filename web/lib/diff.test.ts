@@ -1,10 +1,10 @@
 // diffConfigs: pure option-level comparison of two loaded configurations.
 
 import { describe, expect, test } from "bun:test"
-import { cellText, type DiffSide, diffConfigs, diffCounts } from "../app/lib/diff"
-import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
-import type { ConfigData, OptionEntry } from "../app/lib/schema"
-import { fixtureManifest, opt, SELF } from "./fixtures/data"
+import { fixtureManifest, opt, SELF } from "../testing/fixtures"
+import { cellText, type DiffSide, diffConfigs, diffCounts } from "./diff"
+import { buildConfigIndexes, buildFlakeIndexes } from "./indexes"
+import type { ConfigData, OptionEntry } from "./schema"
 
 const manifest = fixtureManifest()
 const fx = buildFlakeIndexes(manifest)

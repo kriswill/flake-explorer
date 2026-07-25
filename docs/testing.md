@@ -1,46 +1,68 @@
 # Testing
 
-The whole suite runs under `bun test` — extractor code, SPA libraries, and Svelte components alike — with real-nix integration tests layered on top when `nix` is on PATH. See [Build & infra](build-and-infra.md) for the CI jobs that run it.
+Two suites, split by language and run by different tools:
+
+- **`cargo test`** — the Rust crate: extractor, server, export, CLI. Unit tests live inline in `src/*.rs`; integration suites live in [`tests/`](../tests) and drive the real binary or an in-process `axum` router.
+- **`bun test`** — the Svelte SPA and the bun build scripts. Every `*.test.ts` sits beside the module it covers.
+
+See [Build & infra](build-and-infra.md) for the CI jobs that run them.
 
 ## Running
 
 ```sh
-bun test              # full suite (nix-dependent tests skip if nix is absent)
-bun test --coverage   # text + lcov reporters
+cargo test            # Rust; real-nix suites skip when nix is absent
+bun test              # SPA + build scripts
+bun test --coverage   # text + lcov reporters, into dist/coverage/
 ```
 
-[`bunfig.toml`](../bunfig.toml) preloads two setup files for every test run and configures coverage (lcov output, test files skipped, `test/**` ignored):
+## The bun suite
+
+[`bunfig.toml`](../bunfig.toml) preloads two setup files for every run and configures coverage (lcov output, test files skipped, `web/testing/**` ignored):
 
 | Preload | Purpose |
 |---|---|
-| [`test/setup/happy-dom.ts`](../test/setup/happy-dom.ts) | Registers happy-dom as the global DOM and stubs `matchMedia` / `ResizeObserver`, which the viewer touches at init time |
-| [`test/setup/svelte-loader.ts`](../test/setup/svelte-loader.ts) | A bun runtime plugin that compiles `.svelte` files with `svelte/compiler` (client output, injected CSS, runes) and `.svelte.ts` modules via `compileModule` — `bun-plugin-svelte` can't run under the test runtime because its virtual CSS imports need build-time resolution. It also swaps svelte's `index-server.js` package entries for their client siblings, since `bun test` resolves the "default" (server) export condition |
+| [`web/testing/happy-dom.ts`](../web/testing/happy-dom.ts) | Registers happy-dom as the global DOM and stubs `matchMedia` / `ResizeObserver`, which the viewer touches at init time |
+| [`web/testing/svelte-loader.ts`](../web/testing/svelte-loader.ts) | A bun runtime plugin that compiles `.svelte` files with `svelte/compiler` (client output, injected CSS, runes) and `.svelte.ts` modules via `compileModule` — `bun-plugin-svelte` can't run under the test runtime because its virtual CSS imports need build-time resolution. It also swaps svelte's `index-server.js` package entries for their client siblings, since `bun test` resolves the "default" (server) export condition |
 
-Component tests use the `withMount` helper in [`test/helpers.ts`](../test/helpers.ts): mount into a fresh host element, `flushSync()`, assert, always unmount.
+Component tests use the `withMount` helper in [`web/testing/helpers.ts`](../web/testing/helpers.ts): mount into a fresh host element, `flushSync()`, assert, always unmount.
 
-## Test inventory
+Tests are **co-located**: [`web/lib/indexes.test.ts`](../web/lib/indexes.test.ts) sits next to `indexes.ts`, [`web/components/OptionRow.test.ts`](../web/components/OptionRow.test.ts) next to `OptionRow.svelte`. Finding a module's tests is a directory listing, not a search.
 
-26 `*.test.ts` files under [`test/`](../test/helpers.ts), roughly four groups:
-
-| Group | Files | Examples |
+| Group | Files | Location |
 |---|---|---|
-| Extractor & CLI unit tests | ~13 | [`test/options.test.ts`](../test/options.test.ts), [`test/manifest-show.test.ts`](../test/manifest-show.test.ts) (captured `nix flake show` JSON), [`test/cache.test.ts`](../test/cache.test.ts), [`test/imports.test.ts`](../test/imports.test.ts), [`test/highlight.test.ts`](../test/highlight.test.ts) (vendored tree-sitter WASM, no nix needed), [`test/cli-help.test.ts`](../test/cli-help.test.ts) (CLI as a subprocess), [`test/page-html.test.ts`](../test/page-html.test.ts) (the `</script>` escaping invariant) |
-| SPA library tests | ~8 | [`test/state.test.ts`](../test/state.test.ts), [`test/state-loading.test.ts`](../test/state-loading.test.ts) (loads resolve through embedded `<script>` tags injected into happy-dom — no network), [`test/hash.test.ts`](../test/hash.test.ts), [`test/indexes.test.ts`](../test/indexes.test.ts), [`test/color.test.ts`](../test/color.test.ts), [`test/url.test.ts`](../test/url.test.ts) |
-| Component tests | ~4 | [`test/app.test.ts`](../test/app.test.ts) (fixture data injected into the `app` singleton, components mounted under happy-dom), [`test/option-row.test.ts`](../test/option-row.test.ts), [`test/output-branch.test.ts`](../test/output-branch.test.ts), [`test/input-provenance.test.ts`](../test/input-provenance.test.ts) |
-| Real-nix integration | 2 | [`test/mini-flake.test.ts`](../test/mini-flake.test.ts) (full `buildManifest` + `extractOptions` pipeline), [`test/export.test.ts`](../test/export.test.ts) (end-to-end single-file export, then re-parses the embedded data tags out of the HTML) |
+| Component tests | 19 | `web/components/*.test.ts`, plus [`web/App.test.ts`](../web/App.test.ts) (fixture data injected into the `app` singleton, components mounted under happy-dom) |
+| SPA library tests | 14 | `web/lib/*.test.ts` — state, indexes, schema, search, segments, colors, URL/hash routing, diffing |
+| Build-script tests | 3 | [`scripts/build-app.test.ts`](../scripts/build-app.test.ts) (the `</script>` escaping invariant), [`scripts/licenses.test.ts`](../scripts/licenses.test.ts), [`scripts/release.test.ts`](../scripts/release.test.ts) |
+
+## The Rust suite
+
+Unit tests live inline in `src/*.rs`. The integration suites in [`tests/`](../tests) share helpers via [`tests/common/mod.rs`](../tests/common/mod.rs):
+
+| Suite | Covers |
+|---|---|
+| [`tests/cli.rs`](../tests/cli.rs) | The binary's flag parsing and help/usage surface, as a subprocess |
+| [`tests/serve_http.rs`](../tests/serve_http.rs) | The whole route surface against an in-process `axum` router, using a `nix` shim on PATH — no real evaluation |
+| [`tests/export_html.rs`](../tests/export_html.rs) | End-to-end single-file export, re-parsing the embedded data tags out of the HTML |
+| [`tests/degrade.rs`](../tests/degrade.rs) | Per-configuration failure paths — one bad config must not poison the rest |
+| [`tests/mini_flake.rs`](../tests/mini_flake.rs) | The full manifest + option-extraction pipeline against **real nix** |
 
 ## Fixture strategy
 
-- [`test/fixtures/mini-flake/flake.nix`](../test/fixtures/mini-flake/flake.nix) — a real flake evaluated by real nix, but **builtins-only** (no nixpkgs), so evaluation is cheap and no store downloads happen. It hand-rolls just enough of the module-system option shape (`_type = "option"`, `declarations`, `definitionsWithLocations`) for the extractor's structural walk, and includes a nested `path:` input to exercise the Inputs panel.
-- [`test/fixtures/broken-flake/flake.nix`](../test/fixtures/broken-flake/flake.nix) — a flake whose one configuration throws on evaluation: the attr name is enumerable but forcing the value fails, exercising the per-config error/degradation path without poisoning the healthy fixture.
-- [`test/fixtures/data.ts`](../test/fixtures/data.ts) — hand-written `Manifest` / `ConfigData` / `OptionEntry` builders shared by unit and component tests, with fake store paths for self, inputs, and a patched-input copy.
+- [`fixtures/mini-flake/flake.nix`](../fixtures/mini-flake/flake.nix) — a real flake evaluated by real nix, but **builtins-only** (no nixpkgs), so evaluation is cheap and no store downloads happen. It hand-rolls just enough of the module-system option shape (`_type = "option"`, `declarations`, `definitionsWithLocations`) for the extractor's structural walk, and includes a nested `path:` input to exercise the Inputs panel.
+- [`fixtures/broken-flake/flake.nix`](../fixtures/broken-flake/flake.nix) — a flake whose one configuration throws on evaluation: the attr name is enumerable but forcing the value fails, exercising the per-config error/degradation path without poisoning the healthy fixture.
+- [`web/testing/fixtures.ts`](../web/testing/fixtures.ts) — hand-written `Manifest` / `ConfigData` / `OptionEntry` builders shared by the SPA unit and component tests, with fake store paths for self, inputs, and a patched-input copy.
+
+The nix fixtures live at the repo root rather than under `tests/` on purpose: `tests/` is in the crate's Nix fileset (see below), so nesting them there would make every fixture edit invalidate the crane dependency layer.
 
 ## FLAKE_EXPLORER_REQUIRE_NIX
 
-The integration suites use `describe.skipIf(!hasNix)`, which is right for local machines without nix but dangerous in CI — a skipped suite would only show up as a coverage drop. Setting `FLAKE_EXPLORER_REQUIRE_NIX=1` makes [`test/mini-flake.test.ts`](../test/mini-flake.test.ts) and [`test/export.test.ts`](../test/export.test.ts) throw at load time if `nix` is not on PATH. CI's test job sets it (with nix installed) so a silent skip is impossible — see [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
+The real-nix suites skip when `nix` is not on PATH, which is right for local machines without nix but dangerous in CI — a skipped suite would only show up as a coverage drop. Setting `FLAKE_EXPLORER_REQUIRE_NIX=1` makes `common::nix_available()` panic instead of skipping ([`tests/common/mod.rs`](../tests/common/mod.rs)). CI's coverage step sets it, with nix installed, so a silent skip is impossible — see [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 
-## Coverage and the Nix check
+## Coverage and the Nix checks
 
-Coverage is enforced as a ratchet by octocov: [`.octocov.yml`](../.octocov.yml) reads `coverage/lcov.info` with `acceptable: current >= prev`, comparing PRs against the report stored from the default branch — coverage can rise but never regress. Current coverage sits in the mid-90s of lines.
+Two octocov reports, deliberately separate so their histories never mix:
 
-Separately, `nix flake check` runs `checks.test` ([`flake.nix`](../flake.nix)): an offline `bun test` inside the build sandbox against the vendored `node_modules` from [`package.nix`](../package.nix). The sandbox has no nix binary, so the real-nix suites skip there by design; the CI `test` job is where they must run.
+- [`.octocov.yml`](../.octocov.yml) — the SPA suite, reading `dist/coverage/lcov.info` against a fixed `acceptable: 96%` floor.
+- [`.octocov.rust.yml`](../.octocov.rust.yml) — the crate, reading `rust-coverage/lcov.info` as a `current >= prev` ratchet.
+
+`nix flake check` builds four checks from [`package.nix`](../package.nix): `test` (`cargo test`), `clippy`, `coverage`, and `app-test` (an offline `bun test` against the vendored `node_modules`). The sandbox has no `nix` binary and the fixture flakes are outside the crate fileset, so the real-nix suites skip there by design — CI's out-of-sandbox `cargo llvm-cov test` step is where they must run.

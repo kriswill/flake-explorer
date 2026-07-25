@@ -2,9 +2,9 @@
 // become anchors (webUrl/commitUrl), everything else stays plain text.
 
 import { describe, expect, test } from "bun:test"
-import InputProvenance from "../app/components/InputProvenance.svelte"
-import type { InputInfo } from "../app/lib/schema"
-import { withMount } from "./helpers"
+import type { InputInfo } from "../lib/schema"
+import { withMount } from "../testing/helpers"
+import InputProvenance from "./InputProvenance.svelte"
 
 const github: InputInfo = {
   name: "sops-nix",

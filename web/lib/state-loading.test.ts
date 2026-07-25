@@ -3,11 +3,11 @@
 // (script tags injected into happy-dom), so no network is involved.
 
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { resetSlotKeys } from "../app/lib/color"
-import { buildFlakeIndexes } from "../app/lib/indexes"
-import { SCHEMA_VERSION } from "../app/lib/schema"
-import { app, loadedConfig, loadedPackage } from "../app/lib/state.svelte"
-import { fixtureConfig, fixtureManifest, fixturePackageRefs } from "./fixtures/data"
+import { fixtureConfig, fixtureManifest, fixturePackageRefs } from "../testing/fixtures"
+import { resetSlotKeys } from "./color"
+import { buildFlakeIndexes } from "./indexes"
+import { SCHEMA_VERSION } from "./schema"
+import { app, loadedConfig, loadedPackage } from "./state.svelte"
 
 const injected = new Map<string, HTMLElement>()
 

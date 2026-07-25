@@ -1,9 +1,9 @@
-// Build the docs site: docs/*.md -> _site/docs/*.html, styled with the
+// Build the docs site: docs/*.md -> dist/site/docs/*.html, styled with the
 // app's own theme (themeCss from src/build-app.ts, so light/dark palettes
 // cannot drift). Optionally converts a typedoc-plugin-markdown output dir
 // (--api) into <out>/api/ through the same template.
 //
-//   bun scripts/build-docs.ts [--out _site/docs] [--api .docs-api]
+//   bun scripts/build-docs.ts [--out dist/site/docs] [--api dist/api]
 //
 // GitHub renders docs/*.md natively (including mermaid fences); this script
 // produces the equivalent standalone HTML for the Pages site. Mermaid is
@@ -33,7 +33,7 @@ const PAGES: { file: string; title: string }[] = [
 ]
 
 function parseArgs(argv: string[]) {
-  const opts = { out: "_site/docs", api: "" }
+  const opts = { out: "dist/site/docs", api: "" }
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--out") opts.out = argv[++i] ?? opts.out
     else if (argv[i] === "--api") opts.api = argv[++i] ?? ""

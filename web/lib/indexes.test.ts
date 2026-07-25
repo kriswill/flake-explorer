@@ -11,8 +11,8 @@ import {
   parsePosition,
   resolveFile,
   subtreeMatches,
-} from "../app/lib/indexes"
-import { type ConfigData, type Manifest, type OptionEntry, UNKNOWN_FILE } from "../app/lib/schema"
+} from "./indexes"
+import { type ConfigData, type Manifest, type OptionEntry, UNKNOWN_FILE } from "./schema"
 
 const SELF = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-source"
 const SOPS = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-source"

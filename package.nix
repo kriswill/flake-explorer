@@ -22,6 +22,13 @@ let
 
   # Everything the cargo build reads: the crate plus the files build.rs
   # hashes and the sources include_str! (extract.nix, highlight queries).
+  # ./tests is here so the sandboxed checks (cargoTest, cargoClippy
+  # --all-targets) actually compile the integration suites — without it they
+  # silently build nothing but the lib/bin unit tests. The nix fixtures the
+  # suites read at runtime live in ./fixtures and are deliberately NOT in this
+  # fileset: nothing needs them to compile, mini_flake.rs skips in-sandbox
+  # (no `nix` on PATH), and including them would make every fixture edit
+  # invalidate the crane dependency layer.
   src = lib.fileset.toSource {
     root = ./.;
     fileset = lib.fileset.unions [
@@ -29,6 +36,7 @@ let
       ./Cargo.lock
       ./build.rs
       ./src
+      ./tests
     ];
   };
 
@@ -88,18 +96,29 @@ let
     outputHashMode = "recursive";
   };
 
-  # Everything the SPA bundle script's import graph reaches.
+  # Everything the SPA bundle script's import graph reaches. Tests live beside
+  # the modules they cover, so the *.test.ts filter and ./web/testing (their
+  # preloads/helpers/fixtures) both come back out — nothing in the bundle graph
+  # imports them, and leaving them in would rebuild the bundle on test edits.
   appSrc = lib.fileset.toSource {
     root = ./.;
-    fileset = lib.fileset.difference (lib.fileset.unions [
-      ./scripts/bundle-app.ts
-      ./scripts/build-app.ts
-      ./scripts/licenses.ts
-      ./app
-      ./package.json
-      ./tsconfig.json
-      ./LICENSE
-    ]) (lib.fileset.fileFilter (file: lib.hasSuffix ".test.ts" file.name) ./.);
+    fileset =
+      lib.fileset.difference
+        (lib.fileset.unions [
+          ./scripts/bundle-app.ts
+          ./scripts/build-app.ts
+          ./scripts/licenses.ts
+          ./web
+          ./package.json
+          ./tsconfig.json
+          ./LICENSE
+        ])
+        (
+          lib.fileset.unions [
+            (lib.fileset.fileFilter (file: lib.hasSuffix ".test.ts" file.name) ./.)
+            ./web/testing
+          ]
+        );
   };
 
   # The prebuilt SPA bundle (app.js/app.css/meta.json).
@@ -165,9 +184,8 @@ craneLib.buildPackage (
             root = ./.;
             fileset = lib.fileset.unions [
               ./LICENSE
-              ./app
+              ./web
               ./scripts
-              ./test
               ./tsconfig.json
               ./package.json
               ./bun.lock

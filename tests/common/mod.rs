@@ -1,12 +1,13 @@
-// Shared helpers for the integration suites. Nix gating: tests skip when `nix` is absent (the crane check sandbox), and
+// Shared helpers for the integration suites. Nix gating: tests skip when `nix`
+// is absent — the crane check sandbox has no `nix` on PATH — and
 // FLAKE_EXPLORER_REQUIRE_NIX makes a silent skip impossible in CI.
 
 use std::path::PathBuf;
 
-/// The builtins-only fixture flake (shared with the app test suite).
+/// The builtins-only fixture flake (fixtures/mini-flake).
 #[allow(dead_code)] // each tests/*.rs binary compiles its own copy; not all use every helper
 pub fn fixture() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test/fixtures/mini-flake")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/mini-flake")
 }
 
 /// True when real `nix` is on PATH. When absent: panics if

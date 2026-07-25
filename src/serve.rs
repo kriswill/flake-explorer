@@ -463,12 +463,12 @@ fn async_stream_events(
     hello.chain(reloads)
 }
 
-/// Dev mode: rebuild the bundle via bun when app/ (or src/, which the bundle
-/// pulls in) changes, then push a reload to connected browsers over SSE.
+/// Dev mode: rebuild the bundle via bun when web/ changes, then push a reload
+/// to connected browsers over SSE.
 fn spawn_dev_watcher(state: Arc<AppState>, dist: std::path::PathBuf, title: String) {
     use notify::{RecursiveMode, Watcher};
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf();
-    let app_dir = repo.join("app");
+    let app_dir = repo.join("web");
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
     std::thread::spawn(move || {
@@ -487,15 +487,15 @@ fn spawn_dev_watcher(state: Arc<AppState>, dist: std::path::PathBuf, title: Stri
             }) {
                 Ok(w) => w,
                 Err(e) => {
-                    eprintln!("dev: cannot watch app/: {e}");
+                    eprintln!("dev: cannot watch web/: {e}");
                     return;
                 }
             };
         if let Err(e) = watcher.watch(&app_dir, RecursiveMode::Recursive) {
-            eprintln!("dev: cannot watch app/: {e}");
+            eprintln!("dev: cannot watch web/: {e}");
             return;
         }
-        println!("dev: watching app/ for UI changes");
+        println!("dev: watching web/ for UI changes");
         // Keep the watcher alive for the process lifetime.
         loop {
             std::thread::sleep(std::time::Duration::from_secs(3600));

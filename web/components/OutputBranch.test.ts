@@ -4,13 +4,13 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { flushSync, mount, unmount } from "svelte"
-import OutputBranch from "../app/components/OutputBranch.svelte"
-import OutputsTree from "../app/components/OutputsTree.svelte"
-import { buildFlakeIndexes } from "../app/lib/indexes"
-import type { OutputNode } from "../app/lib/schema"
-import { app } from "../app/lib/state.svelte"
-import { fixtureConfig, fixtureManifest } from "./fixtures/data"
-import { buttonsWithText, withMount } from "./helpers"
+import { buildFlakeIndexes } from "../lib/indexes"
+import type { OutputNode } from "../lib/schema"
+import { app } from "../lib/state.svelte"
+import { fixtureConfig, fixtureManifest } from "../testing/fixtures"
+import { buttonsWithText, withMount } from "../testing/helpers"
+import OutputBranch from "./OutputBranch.svelte"
+import OutputsTree from "./OutputsTree.svelte"
 
 type Attrset = Extract<OutputNode, { kind: "attrset" }>
 

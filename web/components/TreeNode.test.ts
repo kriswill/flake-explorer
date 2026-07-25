@@ -3,11 +3,11 @@
 
 import { beforeEach, describe, expect, test } from "bun:test"
 import { flushSync } from "svelte"
-import TreeNode from "../app/components/TreeNode.svelte"
-import { buildFlakeIndexes, type TreeNode as Node } from "../app/lib/indexes"
-import { app } from "../app/lib/state.svelte"
-import { fixtureManifest } from "./fixtures/data"
-import { withMount } from "./helpers"
+import { buildFlakeIndexes, type TreeNode as Node } from "../lib/indexes"
+import { app } from "../lib/state.svelte"
+import { fixtureManifest } from "../testing/fixtures"
+import { withMount } from "../testing/helpers"
+import TreeNode from "./TreeNode.svelte"
 
 const CONFIG = "nixos/test"
 

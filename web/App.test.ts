@@ -3,14 +3,14 @@
 
 import { beforeEach, describe, expect, test } from "bun:test"
 import { flushSync, mount, unmount } from "svelte"
-import FileList from "../app/components/FileList.svelte"
-import ModuleDetail from "../app/components/ModuleDetail.svelte"
-import OutputsTree from "../app/components/OutputsTree.svelte"
-import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
-import { prefs } from "../app/lib/prefs.svelte"
-import { app } from "../app/lib/state.svelte"
-import { TEXT_DEFAULT_STEP, TEXT_RATIO, TEXT_STEPS, textSizeRem } from "../app/lib/type-scale"
-import { fixtureConfig, fixtureManifest } from "./fixtures/data"
+import FileList from "./components/FileList.svelte"
+import ModuleDetail from "./components/ModuleDetail.svelte"
+import OutputsTree from "./components/OutputsTree.svelte"
+import { buildConfigIndexes, buildFlakeIndexes } from "./lib/indexes"
+import { prefs } from "./lib/prefs.svelte"
+import { app } from "./lib/state.svelte"
+import { TEXT_DEFAULT_STEP, TEXT_RATIO, TEXT_STEPS, textSizeRem } from "./lib/type-scale"
+import { fixtureConfig, fixtureManifest } from "./testing/fixtures"
 
 function seed() {
   const manifest = fixtureManifest()

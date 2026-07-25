@@ -6,7 +6,7 @@ import {
   type Selection,
   sameSelection,
   type ViewState,
-} from "../app/lib/hash"
+} from "./hash"
 
 /** All-default filters with the given overrides — one place to touch when a filter is added. */
 const filters = (over: Partial<Filters> = {}): Filters => ({

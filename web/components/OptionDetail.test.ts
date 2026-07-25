@@ -3,12 +3,12 @@
 // in merge order with priority chips, and cross-config navigation.
 
 import { beforeEach, describe, expect, test } from "bun:test"
-import OptionDetail from "../app/components/OptionDetail.svelte"
-import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
-import { PRIO } from "../app/lib/schema"
-import { app } from "../app/lib/state.svelte"
-import { fixtureConfig, fixtureManifest, opt, SELF, SOPS } from "./fixtures/data"
-import { withMount } from "./helpers"
+import { buildConfigIndexes, buildFlakeIndexes } from "../lib/indexes"
+import { PRIO } from "../lib/schema"
+import { app } from "../lib/state.svelte"
+import { fixtureConfig, fixtureManifest, opt, SELF, SOPS } from "../testing/fixtures"
+import { withMount } from "../testing/helpers"
+import OptionDetail from "./OptionDetail.svelte"
 
 function seed() {
   const m = fixtureManifest()

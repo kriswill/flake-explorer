@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { THEMES } from "../app/lib/themes"
+import { THEMES } from "./themes"
 
 describe("themes", () => {
   test("all themes define the same var keys (no stale inline vars on toggle)", () => {

@@ -4,7 +4,7 @@
 // that is what the battery below asserts, value by value.
 
 import { describe, expect, test } from "bun:test"
-import { jsonSegments } from "../app/lib/json-segments"
+import { jsonSegments } from "./json-segments"
 
 const render = (v: unknown) =>
   jsonSegments(v, "")

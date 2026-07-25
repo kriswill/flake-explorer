@@ -2,11 +2,11 @@
 // hotspots, per-input module counts, and compare links.
 
 import { beforeEach, describe, expect, test } from "bun:test"
-import ConfigSummary from "../app/components/ConfigSummary.svelte"
-import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
-import { app } from "../app/lib/state.svelte"
-import { fixtureConfig, fixtureManifest } from "./fixtures/data"
-import { withMount } from "./helpers"
+import { buildConfigIndexes, buildFlakeIndexes } from "../lib/indexes"
+import { app } from "../lib/state.svelte"
+import { fixtureConfig, fixtureManifest } from "../testing/fixtures"
+import { withMount } from "../testing/helpers"
+import ConfigSummary from "./ConfigSummary.svelte"
 
 const ID = "nixos/test"
 

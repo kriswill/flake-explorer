@@ -71,7 +71,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun scripts/bundle-app.ts
       - run: bun scripts/build-npm.ts --main
-      - run: cd dist-npm/flake-explorer && npm pack --dry-run
+      - run: cd dist/npm/flake-explorer && npm pack --dry-run
 
       - name: Open the release PR and arm auto-merge
         run: |

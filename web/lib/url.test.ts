@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { commitUrl, webUrl } from "../app/lib/url"
+import { commitUrl, webUrl } from "./url"
 
 const REV = "0123456789abcdef0123456789abcdef01234567"
 

@@ -1,11 +1,11 @@
 // Legend.svelte: the input chips shown in the flake-overview panel.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import Legend from "../app/components/Legend.svelte"
-import { resetSlotKeys } from "../app/lib/color"
-import { app } from "../app/lib/state.svelte"
-import { fixtureManifest } from "./fixtures/data"
-import { withMount } from "./helpers"
+import { resetSlotKeys } from "../lib/color"
+import { app } from "../lib/state.svelte"
+import { fixtureManifest } from "../testing/fixtures"
+import { withMount } from "../testing/helpers"
+import Legend from "./Legend.svelte"
 
 beforeEach(() => {
   app.manifest = fixtureManifest()

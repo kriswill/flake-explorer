@@ -2,12 +2,12 @@
 // Manifest.overlayDefs (the regex scan) + outputNames.overlays.
 
 import { beforeEach, describe, expect, test } from "bun:test"
-import OverlayDetail from "../app/components/OverlayDetail.svelte"
-import { buildFlakeIndexes } from "../app/lib/indexes"
-import type { OutputNode } from "../app/lib/schema"
-import { app } from "../app/lib/state.svelte"
-import { fixtureManifest } from "./fixtures/data"
-import { withMount } from "./helpers"
+import { buildFlakeIndexes } from "../lib/indexes"
+import type { OutputNode } from "../lib/schema"
+import { app } from "../lib/state.svelte"
+import { fixtureManifest } from "../testing/fixtures"
+import { withMount } from "../testing/helpers"
+import OverlayDetail from "./OverlayDetail.svelte"
 
 function seed() {
   const m = fixtureManifest()

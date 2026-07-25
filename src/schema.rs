@@ -1,6 +1,6 @@
 // JSON data contract between the extractor and the SPA. Field names, tag
 // values, and optional-field omission are the protocol: the Svelte app (see
-// its client-side typing in app/lib/schema.ts) consumes these documents
+// its client-side typing in web/lib/schema.ts) consumes these documents
 // unchanged.
 
 use indexmap::IndexMap;

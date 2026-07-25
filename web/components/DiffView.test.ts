@@ -3,12 +3,12 @@
 
 import { beforeEach, describe, expect, test } from "bun:test"
 import { flushSync } from "svelte"
-import DiffView from "../app/components/DiffView.svelte"
-import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
-import type { ConfigData, OptionEntry } from "../app/lib/schema"
-import { app } from "../app/lib/state.svelte"
-import { fixtureManifest, opt, SELF } from "./fixtures/data"
-import { withMount } from "./helpers"
+import { buildConfigIndexes, buildFlakeIndexes } from "../lib/indexes"
+import type { ConfigData, OptionEntry } from "../lib/schema"
+import { app } from "../lib/state.svelte"
+import { fixtureManifest, opt, SELF } from "../testing/fixtures"
+import { withMount } from "../testing/helpers"
+import DiffView from "./DiffView.svelte"
 
 const A = "nixos/test"
 const B = "darwin/mini"

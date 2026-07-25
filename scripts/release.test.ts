@@ -5,7 +5,7 @@ import { describe, expect, spyOn, test } from "bun:test"
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { bumpVersion, extractNotes, main, releaseChangelog } from "../scripts/release"
+import { bumpVersion, extractNotes, main, releaseChangelog } from "./release"
 
 const REPO = "https://github.com/kriswill/flake-explorer"
 

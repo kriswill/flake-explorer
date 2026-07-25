@@ -60,6 +60,6 @@ flowchart LR
 - Live demo: <https://kris.net/flake-explorer/> — the tool exploring its own flake.
 - API reference: <https://kris.net/flake-explorer/docs/api/> — generated in CI
   from the SPA's client-side typing of the data contract
-  ([`app/lib/schema.ts`](../app/lib/schema.ts)) via typedoc; only on the site.
+  ([`web/lib/schema.ts`](../web/lib/schema.ts)) via typedoc; only on the site.
 - Repository: <https://github.com/kriswill/flake-explorer>
 - [CHANGELOG](../CHANGELOG.md)

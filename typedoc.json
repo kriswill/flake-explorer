@@ -1,8 +1,8 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "entryPoints": ["app/lib/schema.ts"],
+  "entryPoints": ["web/lib/schema.ts"],
   "plugin": ["typedoc-plugin-markdown"],
-  "out": ".docs-api",
+  "out": "dist/api",
   "outputFileStrategy": "modules",
   "readme": "none",
   "excludePrivate": true,

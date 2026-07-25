@@ -1,11 +1,11 @@
 // Breadcrumb component + crumbsForFile, the shared orientation strip.
 
 import { beforeEach, describe, expect, test } from "bun:test"
-import Breadcrumb from "../app/components/Breadcrumb.svelte"
-import { type Crumb, crumbsForFile } from "../app/lib/indexes"
-import { app } from "../app/lib/state.svelte"
-import { fixtureManifest, SELF, SOPS } from "./fixtures/data"
-import { withMount } from "./helpers"
+import { type Crumb, crumbsForFile } from "../lib/indexes"
+import { app } from "../lib/state.svelte"
+import { fixtureManifest, SELF, SOPS } from "../testing/fixtures"
+import { withMount } from "../testing/helpers"
+import Breadcrumb from "./Breadcrumb.svelte"
 
 const selfMeta = {
   id: "self:modules/sub/b.nix",

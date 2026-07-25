@@ -6,7 +6,7 @@
 # can return.
 coverage:
   paths:
-    - coverage/lcov.info
+    - dist/coverage/lcov.info
   acceptable: 96%
 diff:
   if: is_pull_request

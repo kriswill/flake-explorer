@@ -36,7 +36,7 @@
     "test:coverage": "bun test --coverage",
     "docs:api": "typedoc",
     "docs:build": "bun scripts/build-docs.ts",
-    "docs": "typedoc && bun scripts/build-docs.ts --out _site/docs --api .docs-api",
+    "docs": "typedoc && bun scripts/build-docs.ts --out dist/site/docs --api dist/api",
     "typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",

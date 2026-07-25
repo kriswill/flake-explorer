@@ -4,11 +4,11 @@
 
 import { beforeEach, describe, expect, test } from "bun:test"
 import { flushSync, mount, unmount } from "svelte"
-import SearchBox from "../app/components/SearchBox.svelte"
-import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
-import { app } from "../app/lib/state.svelte"
-import { fixtureConfig, fixtureManifest } from "./fixtures/data"
-import { buttonsWithText, withMount } from "./helpers"
+import { buildConfigIndexes, buildFlakeIndexes } from "../lib/indexes"
+import { app } from "../lib/state.svelte"
+import { fixtureConfig, fixtureManifest } from "../testing/fixtures"
+import { buttonsWithText, withMount } from "../testing/helpers"
+import SearchBox from "./SearchBox.svelte"
 
 function seed() {
   const m = fixtureManifest()

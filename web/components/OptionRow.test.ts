@@ -3,11 +3,11 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { flushSync, mount, unmount } from "svelte"
-import OptionRow from "../app/components/OptionRow.svelte"
-import { type OptionEntry, PRIO } from "../app/lib/schema"
-import { app } from "../app/lib/state.svelte"
-import { opt } from "./fixtures/data"
-import { withMount } from "./helpers"
+import { type OptionEntry, PRIO } from "../lib/schema"
+import { app } from "../lib/state.svelte"
+import { opt } from "../testing/fixtures"
+import { withMount } from "../testing/helpers"
+import OptionRow from "./OptionRow.svelte"
 
 const HL = "/nix/store/xxx-source/mod.nix"
 

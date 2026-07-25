@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { colorFor, nameColor, oklchToHex, registerSlotKeys, resetSlotKeys } from "../app/lib/color"
+import { colorFor, nameColor, oklchToHex, registerSlotKeys, resetSlotKeys } from "./color"
 
 const gen = { l: 0.55, c: 0.13 }
 

@@ -2,7 +2,7 @@
 // tag (single-file build) vs fetch from ./data/ (dev server).
 
 import { afterEach, describe, expect, test } from "bun:test"
-import { hasEmbedded, isStatic, loadJson } from "../app/lib/data"
+import { hasEmbedded, isStatic, loadJson } from "./data"
 
 const cleanup: (() => void)[] = []
 afterEach(() => {

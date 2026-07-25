@@ -1,5 +1,5 @@
 // JSON data contract between the extraction CLI (src/extract/*) and the SPA
-// (app/*). Two documents: a cheap Manifest (always regenerated) and one
+// (web/*). Two documents: a cheap Manifest (always regenerated) and one
 // expensive ConfigData blob per nixos/darwin configuration (extracted on
 // demand). storePath is the universal join key: FileEntry.storePath matches
 // the file strings in OptionEntry declarations/definitions.

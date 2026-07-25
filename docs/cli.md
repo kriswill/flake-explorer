@@ -25,7 +25,7 @@ Extract, then write **one standalone HTML file** (default `./flake.html`) that w
 
 ### serve
 
-Extract the manifest, then serve the explorer UI with on-demand per-configuration extraction ([`src/serve.ts`](../src/serve.ts)). `--dev` watches `app/` and live-reloads connected browsers; run under `bun --watch` to cover server-side files too.
+Extract the manifest, then serve the explorer UI with on-demand per-configuration extraction ([`src/serve.ts`](../src/serve.ts)). `--dev` watches `web/` and live-reloads connected browsers; run under `bun --watch` to cover server-side files too.
 
 ## Flags
 
@@ -41,7 +41,7 @@ Defaults come straight from `parseFlags` in [`flake-explorer.ts`](../flake-explo
 | `--html FILE` | `./flake.html` | – | yes | – | Output path for the standalone HTML file |
 | `--sources self\|all` | `self` | – | yes | – | Which source files to embed in the export |
 | `--port N` | `4321` | – | – | yes | HTTP port |
-| `--dev` | off | – | – | yes | Watch `app/` and live-reload the UI over SSE |
+| `--dev` | off | – | – | yes | Watch `web/` and live-reload the UI over SSE |
 
 Flag parsing is strict: a missing value, a non-positive number, an unknown flag, or a bad `--sources` value is a hard error rather than a silent default.
 

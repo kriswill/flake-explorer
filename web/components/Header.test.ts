@@ -5,13 +5,13 @@
 
 import { beforeEach, describe, expect, test } from "bun:test"
 import { flushSync } from "svelte"
-import Header from "../app/components/Header.svelte"
-import { buildFlakeIndexes } from "../app/lib/indexes"
-import { prefs } from "../app/lib/prefs.svelte"
-import { app } from "../app/lib/state.svelte"
-import { TEXT_DEFAULT_STEP, TEXT_STEPS } from "../app/lib/type-scale"
-import { fixtureManifest } from "./fixtures/data"
-import { withMount } from "./helpers"
+import { buildFlakeIndexes } from "../lib/indexes"
+import { prefs } from "../lib/prefs.svelte"
+import { app } from "../lib/state.svelte"
+import { TEXT_DEFAULT_STEP, TEXT_STEPS } from "../lib/type-scale"
+import { fixtureManifest } from "../testing/fixtures"
+import { withMount } from "../testing/helpers"
+import Header from "./Header.svelte"
 
 function seed() {
   const m = fixtureManifest()

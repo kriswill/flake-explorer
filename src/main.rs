@@ -157,7 +157,7 @@ commands:
       reference (can be large against nixpkgs).
   serve <flakeref> [--port N] [--host ADDR] [--out DIR] [--dev]
       Extract manifest, then serve the explorer UI with on-demand
-      per-configuration extraction. --dev watches app/ and live-reloads
+      per-configuration extraction. --dev watches web/ and live-reloads
       the browser. Binds 127.0.0.1 by default — it serves file contents
       off local disk, so pass --host 0.0.0.0 only on a network you trust.
 

@@ -1,6 +1,6 @@
 // Relative-path reference matching, shared by the static import-graph
 // extractor (src/extract/imports.ts, Node) and the in-browser file source
-// view (app/components/FileDetail.svelte) — plain string ops only, no
+// view (web/components/FileDetail.svelte) — plain string ops only, no
 // node:path, so the same resolution logic runs unmodified in both places.
 
 /** Relative path tokens: ./x, ../x/y.nix, ./dir — quoted or bare. */

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import type { Manifest } from "../app/lib/schema"
-import { flatHits, type OptionSource, rankMatch, searchAll } from "../app/lib/search"
-import { fixtureConfig, fixtureManifest, opt } from "./fixtures/data"
+import { fixtureConfig, fixtureManifest, opt } from "../testing/fixtures"
+import type { Manifest } from "./schema"
+import { flatHits, type OptionSource, rankMatch, searchAll } from "./search"
 
 const sourceOf = (configId: string, options = fixtureConfig().options): OptionSource => ({
   configId,

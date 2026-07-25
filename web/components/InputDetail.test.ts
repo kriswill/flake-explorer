@@ -8,12 +8,12 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { flushSync, mount, unmount } from "svelte"
-import InputDetail from "../app/components/InputDetail.svelte"
-import { buildConfigIndexes, buildFlakeIndexes } from "../app/lib/indexes"
-import { makeFileId } from "../app/lib/schema"
-import { app } from "../app/lib/state.svelte"
-import { fixtureConfig, fixtureManifest } from "./fixtures/data"
-import { buttonsWithText, withMount } from "./helpers"
+import { buildConfigIndexes, buildFlakeIndexes } from "../lib/indexes"
+import { makeFileId } from "../lib/schema"
+import { app } from "../lib/state.svelte"
+import { fixtureConfig, fixtureManifest } from "../testing/fixtures"
+import { buttonsWithText, withMount } from "../testing/helpers"
+import InputDetail from "./InputDetail.svelte"
 
 const injected: HTMLElement[] = []
 function injectData(name: string, value: unknown) {
