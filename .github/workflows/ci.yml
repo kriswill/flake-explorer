@@ -15,8 +15,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# The three job names below are required check contexts in main's ruleset
-# ("main-guardrails") — rename them only together with the ruleset.
+# `test typescript`, `check typescript` and `build` are required check
+# contexts in main's ruleset ("main-guardrails") — rename them only together
+# with the ruleset. `nix` and `rust-coverage` are not named there; they reach
+# the ruleset only through the `build` aggregator at the bottom of this file.
 jobs:
   # SPA test suite (Svelte components, client indexes, page composition).
   test-typescript:
@@ -51,13 +53,14 @@ jobs:
       - run: bun run typecheck
       - run: bun run docs
 
-  build:
+  # Everything that runs inside the nix sandbox. These two commands stay in
+  # one job on purpose: they share the local nix store, so the second reuses
+  # the dependency layers the first pulled. Split apart, the second job would
+  # refetch ~300M from FlakeHub Cache to save nothing.
+  nix:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Artifact datastore reads for the octocov report (uploads use the
-      # runtime token, no extra permission).
-      actions: read
       # The OIDC JWT is the FlakeHub Cache credential (account-scoped, no
       # secret). Fork PRs get no id-token: the build still runs, the cache
       # push is skipped with a warning.
@@ -67,20 +70,47 @@ jobs:
       - uses: DeterminateSystems/determinate-nix-action@d96678350ffd6a456235832eb11e1c491589b7bb # v3.21.8
       - uses: DeterminateSystems/flakehub-cache-action@77c6bddd7d747943530aaa578c57f233ee5d920e # main 2026-07
       # Builds the checks: cargo test/clippy/coverage over the crane dep
-      # layer (cached in FlakeHub Cache; only the crate itself recompiles on
+      # layers (cached in FlakeHub Cache; only the crate itself recompiles on
       # source changes), the offline SPA test suite, and treefmt. The
       # sandboxed cargo tests run the shim-based integration suites; the
       # real-nix ones skip (no `nix` on PATH in the sandbox, and the fixtures
-      # are outside the crate fileset) — the coverage step below covers those.
+      # are outside the crate fileset) — the rust-coverage job covers those.
       - run: nix flake check -L
       # flake check builds only checks.* ("build skipped" for packages), so
       # the app itself never reached the cache — build it explicitly.
       - run: nix build .#default -L
-      # Coverage, OUTSIDE the sandbox so the real-nix integration tests
-      # (tests/mini_flake.rs) run and count. REQUIRE_NIX turns a silent skip
-      # into a failure. The devShell provides cargo/cargo-llvm-cov and pins
-      # LLVM_COV/LLVM_PROFDATA to rustc's own LLVM.
+
+  # Coverage, OUTSIDE the sandbox so the real-nix integration tests
+  # (tests/mini_flake.rs) run and count — this is the only place they execute.
+  # REQUIRE_NIX turns a silent skip into a failure. The devShell provides
+  # cargo/cargo-llvm-cov and pins LLVM_COV/LLVM_PROFDATA to rustc's own LLVM.
+  # Runs beside `nix` rather than after it: the two share no artifacts, and
+  # serialised they made the wall clock the sum of both.
+  rust-coverage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Artifact datastore reads for the octocov report (uploads use the
+      # runtime token, no extra permission).
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/determinate-nix-action@d96678350ffd6a456235832eb11e1c491589b7bb # v3.21.8
+      - uses: DeterminateSystems/flakehub-cache-action@77c6bddd7d747943530aaa578c57f233ee5d920e # main 2026-07
+      # rust-cache derives its key partly from the rustc it can see on PATH —
+      # which here is the runner's preinstalled toolchain, not the devShell's.
+      # The cargo below runs under `nix develop`, so the artifacts are built by
+      # the rustc flake.lock pins, and the key was blind to it. A nixpkgs bump
+      # then left the key unchanged, the stale entry kept matching exactly, and
+      # rust-cache skips saving on an exact match — so the entry froze and
+      # every run restored artifacts from a toolchain that no longer existed,
+      # rebuilding all ~100 dependencies anyway. Keying on flake.lock ties the
+      # cache to the compiler that actually produced it: a bump misses cleanly
+      # and repopulates instead of silently poisoning the entry.
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: ${{ hashFiles('flake.lock') }}
       - run: nix develop -c cargo llvm-cov test --locked --lcov --output-path coverage-raw.lcov
         env:
           FLAKE_EXPLORER_REQUIRE_NIX: "1"
@@ -91,3 +121,21 @@ jobs:
       - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
         with:
           config: .octocov.rust.yml
+
+  # The name the ruleset requires. Splitting the old `build` job in two would
+  # otherwise have left `build` reporting nothing, and a required check that
+  # never reports sits Pending forever — GitHub blocks the pull request rather
+  # than failing it, and only an admin can clear that.
+  #
+  # `if: always()` is what keeps this honest. Without it a failed dependency
+  # *skips* this job, which lands the required check in exactly the state
+  # above: not failed, just never conclusive. With it the job always runs and
+  # turns its dependencies' results into a real pass or fail.
+  build:
+    needs: [nix, rust-coverage]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "nix=${{ needs.nix.result }} rust-coverage=${{ needs.rust-coverage.result }}"
+          [ "${{ needs.nix.result }}" = success ] && [ "${{ needs.rust-coverage.result }}" = success ]
