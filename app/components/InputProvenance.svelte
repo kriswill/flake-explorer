@@ -2,12 +2,10 @@
 import { colorFor } from "../lib/color"
 import { prefs } from "../lib/prefs.svelte"
 import type { InputInfo } from "../lib/schema"
-import { THEMES } from "../lib/themes"
 import { commitUrl, webUrl } from "../lib/url"
 import Dot from "./Dot.svelte"
 
 const { input }: { input: InputInfo } = $props()
-const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 const date = $derived(
   input.lastModified ? new Date(input.lastModified * 1000).toISOString().slice(0, 10) : null,
 )
@@ -28,7 +26,7 @@ const revLink = $derived(commitUrl(input.url, input.rev))
   </svg>
 {/snippet}
 
-<div class="prov" style="--c:{colorFor(input.name, gen)}">
+<div class="prov" style="--c:{colorFor(input.name, prefs.gen)}">
   <Dot />
   <b>input {input.name}</b>
   <span class="mono type">{input.type}{input.ref ? `:${input.ref}` : ""}</span>

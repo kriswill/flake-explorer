@@ -10,7 +10,7 @@ interface Props {
 const { dir = false, open = false, hollow = false }: Props = $props()
 </script>
 
-<span class="dot" class:dir class:open class:hollow></span>
+<span class={["dot", { dir, open, hollow }]}></span>
 
 <style>
   .dot {

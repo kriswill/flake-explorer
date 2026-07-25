@@ -207,12 +207,13 @@ const presenceIn = (id: string): string | null => {
       <h3>Other configurations</h3>
       <ul class="plain">
         {#each otherConfigs as c (c.id)}
+          {@const presence = presenceIn(c.id)}
           <li>
             <button
               class="link mono"
               onclick={() => app.select({ kind: "option", configId: c.id, loc })}
             >{c.id}</button>
-            {#if presenceIn(c.id)}<span class="muted">{presenceIn(c.id)}</span>{/if}
+            {#if presence}<span class="muted">{presence}</span>{/if}
             <button
               class="link diff"
               onclick={() => app.select({ kind: "diff", a: configId, b: c.id })}
