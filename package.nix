@@ -1,7 +1,15 @@
 # flake-explorer: a native binary (crane-built Rust) plus the bun-built
 # Svelte SPA bundle it serves. crane's buildDepsOnly compiles the dependency
 # tree as its own derivation keyed only by Cargo.lock, so CI rebuilds just
-# this crate on source changes while the dep layer stays in the binary cache.
+# this workspace's own crates on source changes while the dep layer stays in
+# the binary cache.
+#
+# Two members since the extraction/presentation split: the root crate (CLI,
+# serve, export) and flake-explorer-extract. Both are in default-members, so
+# every crane driver below — buildPackage, cargoTest, cargoClippy, cargoLlvmCov
+# — selects both without needing --workspace anywhere. The split also buys a
+# smaller unit of recompilation: a serve.rs edit no longer recompiles the
+# extractor, only the crate that depends on it.
 #
 # The SPA is compiled by bun (scripts/bundle-app.ts) against a fixed-output
 # node_modules derivation, and installed to $out/share/flake-explorer/app-dist
@@ -21,8 +29,13 @@
 let
   version = (builtins.fromJSON (builtins.readFile ./package.json)).version;
 
-  # Everything the cargo build reads: the crate plus the files build.rs
-  # hashes and the sources include_str! (extract.nix, highlight queries).
+  # Everything the cargo build reads, for both workspace members: the root
+  # crate (./src) and the extraction crate (./crates, which carries its own
+  # Cargo.toml, the build.rs that fingerprints it, and the sources include_str!
+  # — extract.nix and the highlight queries). ./crates has to be here whole
+  # rather than as ./crates/extract/src: crane reads every member manifest to
+  # generate the dummy sources for the dependency layers, and a missing member
+  # manifest fails the workspace resolve before any of them compiles.
   # ./tests is here so the sandboxed checks (cargoTest, cargoClippy
   # --all-targets) actually compile the integration suites — without it they
   # silently build nothing but the lib/bin unit tests. The nix fixtures the
@@ -35,7 +48,7 @@ let
     fileset = lib.fileset.unions [
       ./Cargo.toml
       ./Cargo.lock
-      ./build.rs
+      ./crates
       ./src
       ./tests
     ];
