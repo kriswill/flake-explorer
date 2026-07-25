@@ -56,9 +56,27 @@ let
     LLVM_PROFDATA = "${rustc.llvmPackages.llvm}/bin/llvm-profdata";
   };
 
+  # crane defaults every derivation to the release profile
+  # (configureCargoCommonVarsHook sets CARGO_PROFILE=release, cargoWithProfile
+  # turns that into --release), so the checks were optimising and LTO-linking
+  # the whole crate graph to run a suite that executes in about two seconds.
+  # Nothing they do needs optimised code. Dev also turns on debug_assertions
+  # and integer overflow checks, so the suite runs stricter here than the
+  # shipped binary does — and it matches the profile CI's out-of-sandbox
+  # `cargo llvm-cov test` has always used, so the two coverage numbers finally
+  # come from the same compilation.
+  devArgs = commonArgs // {
+    CARGO_PROFILE = "dev";
+  };
+
   cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-  # A second dep layer, for the coverage check only. cargo-llvm-cov compiles
+  # Dev-profile deps for clippy and test. A profile is a fingerprint input, so
+  # the release layer above is worthless to them and vice versa; the layers
+  # cannot be merged, only chosen between.
+  devArtifacts = craneLib.buildDepsOnly devArgs;
+
+  # A third dep layer, for the coverage check only. cargo-llvm-cov compiles
   # through its own RUSTC_WRAPPER, and cargo folds the wrapper into the
   # compiler fingerprint of *every* unit — so `cargoArtifacts` above is a total
   # miss and the coverage run rebuilds the entire dependency tree (~100 crates)
@@ -67,7 +85,7 @@ let
   # off, match the check by construction; hand-copying the flags would drift
   # silently the first time either side changed.
   coverageArtifacts = craneLib.buildDepsOnly (
-    commonArgs
+    devArgs
     // llvmToolEnv
     // {
       nativeBuildInputs = [ cargo-llvm-cov ];
@@ -189,24 +207,25 @@ craneLib.buildPackage (
     passthru = {
       inherit
         cargoArtifacts
+        devArtifacts
         coverageArtifacts
         appDist
         node_modules
         ;
       checks = {
         clippy = craneLib.cargoClippy (
-          commonArgs
+          devArgs
           // {
-            inherit cargoArtifacts;
+            cargoArtifacts = devArtifacts;
             cargoClippyExtraArgs = "--all-targets -- --deny warnings";
           }
         );
-        test = craneLib.cargoTest (commonArgs // { inherit cargoArtifacts; });
+        test = craneLib.cargoTest (devArgs // { cargoArtifacts = devArtifacts; });
         # lcov at $out (crane's default cargoLlvmCovExtraArgs) — CI runs the
         # richer out-of-sandbox variant and feeds octocov. Note this rides on
-        # `coverageArtifacts`, not the dep layer the other two checks share.
+        # `coverageArtifacts`, not the layer clippy and test share.
         coverage = craneLib.cargoLlvmCov (
-          commonArgs
+          devArgs
           // llvmToolEnv
           // {
             cargoArtifacts = coverageArtifacts;

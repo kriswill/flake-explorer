@@ -37,7 +37,9 @@
           };
 
           checks = {
-            # cargo test/clippy/llvm-cov over the shared crane dep layer.
+            # cargo test/clippy/llvm-cov, all dev-profile: the suite runs in
+            # about two seconds and none of them has any use for optimised
+            # code (see package.nix for the layering that falls out of it).
             # Coverage is a check (not just a CI step) so `nix flake check`
             # exercises the instrumented build everywhere; CI additionally
             # runs the out-of-sandbox variant (real nix, integration tests
