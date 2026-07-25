@@ -32,7 +32,13 @@ sha2 = "0.10"
 hex = "0.4"
 
 [profile.release]
-lto = true
+# Thin, not fat. Fat LTO barely parallelises: relinking the binary after a
+# one-line change, warm deps and nothing else running, is 17.3s thin against
+# 38.2s fat. Not a free win — building all eight test binaries goes the other
+# way (55.9s thin, 38.2s fat) and the stripped binary grows 6.4M -> 8.2M. Worth
+# it anyway for a dev tool that spends its life blocked on `nix` rather than in
+# its own hot loops: nothing here earns back cross-crate inlining.
+lto = "thin"
 
 [dev-dependencies]
 tower = { version = "0.5.3", features = ["util"] }
