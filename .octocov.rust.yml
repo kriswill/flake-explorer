@@ -4,8 +4,9 @@
 # never mix.
 #
 # The `/rust` suffix is octocov's monorepo key, and it is what makes this
-# report say which suite it is: every surface renders "Code Metrics Report
-# (rust)" rather than the bare "Code Metrics Report" the SPA gets. octocov
+# report say which suite it is: it renders "Code Metrics Report (rust)"
+# rather than the bare "Code Metrics Report" the SPA gets, which is what
+# keeps the two sections of the composed PR comment apart. octocov
 # also appends the key to the artifact name, which is why the datastores
 # below say `octocov` and not `octocov-rust` — `octocov` + `rust` resolves to
 # the same `octocov-rust` artifact main's baseline already lives in.
@@ -20,20 +21,16 @@ diff:
   if: is_pull_request
   datastores:
     - artifact://${GITHUB_REPOSITORY}/octocov
-comment:
-  if: is_pull_request
-  # Safe to comment now that the report is keyed: octocov matches its own
-  # comments on the `<!-- octocov:rust -->` marker the key produces, so this
-  # one and the SPA's `<!-- octocov -->` one own separate comments and each
-  # run edits only its own. That is also why the two jobs finishing in either
-  # order cannot clobber each other — neither ever writes the other's
-  # comment. octocov cannot merge two independently-computed reports into a
-  # single comment; see docs/build-and-infra.md.
-  updatePrevious: true
-  message: "**Rust crate** — `cargo llvm-cov`, outside the nix sandbox. The SPA suite is reported separately as *Code Metrics Report*."
+# No `comment:`. octocov renders one report per run and would post it as its
+# own comment; the PR gets a single comment carrying both suites instead,
+# composed by the `build` job from what `summary:` renders here. See
+# docs/build-and-infra.md.
 summary:
   if: true
-  message: "**Rust crate** — `cargo llvm-cov`, outside the nix sandbox. The SPA suite is reported separately as *Code Metrics Report*."
+  # One attribution footer is added once to the composed comment, so each
+  # section suppresses its own.
+  hideFooterLink: true
+  message: "**Rust crate** — `cargo llvm-cov` outside the nix sandbox, ratcheted against main."
 report:
   if: is_default_branch
   datastores:

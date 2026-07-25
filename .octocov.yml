@@ -7,7 +7,7 @@
 #
 # This is the unkeyed report, so its title stays the bare "Code Metrics
 # Report" and its artifact keeps the default `octocov-report` name — the
-# `message:` lines below are what tell a reader which suite they are looking
+# `message:` line below is what tells a reader which suite they are looking
 # at. Giving this one a `repository:` key the way .octocov.rust.yml does
 # would rename its artifact and orphan main's baseline for no gain.
 coverage:
@@ -18,16 +18,16 @@ diff:
   if: is_pull_request
   datastores:
     - artifact://${GITHUB_REPOSITORY}
-comment:
-  if: is_pull_request
-  # Edit the existing comment in place. The default posts a fresh one per run
-  # and merely minimises its predecessors, so a long-lived PR accumulates a
-  # column of collapsed coverage reports.
-  updatePrevious: true
-  message: "**SPA test suite** — `bun test --coverage`. The crate is reported separately as *Code Metrics Report (rust)*."
+# No `comment:`. octocov renders one report per run and would post it as its
+# own comment; the PR gets a single comment carrying both suites instead,
+# composed by the `build` job from what `summary:` renders here. See
+# docs/build-and-infra.md.
 summary:
   if: true
-  message: "**SPA test suite** — `bun test --coverage`. The crate is reported separately as *Code Metrics Report (rust)*."
+  # One attribution footer is added once to the composed comment, so each
+  # section suppresses its own.
+  hideFooterLink: true
+  message: "**SPA test suite** — `bun test --coverage`, floor 96%."
 report:
   if: is_default_branch
   datastores:
