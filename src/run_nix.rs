@@ -182,17 +182,26 @@ fn extract_nix_path() -> &'static str {
     static PATH: OnceLock<String> = OnceLock::new();
     PATH.get_or_init(|| {
         let hash = hex::encode(Sha256::digest(EXTRACT_NIX.as_bytes()));
-        let dir = std::env::var_os("XDG_CACHE_HOME")
+        let name = format!("extract-{}.nix", &hash[..16]);
+        let cache = std::env::var_os("XDG_CACHE_HOME")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
             .unwrap_or_else(std::env::temp_dir)
             .join("flake-explorer");
-        std::fs::create_dir_all(&dir).ok();
-        let path = dir.join(format!("extract-{}.nix", &hash[..16]));
-        if !path.exists() {
-            std::fs::write(&path, EXTRACT_NIX).expect("cannot write extract.nix to cache dir");
+        // HOME can be set but unwritable — a read-only home, a container, or a
+        // nix build sandbox's /homeless-shelter. Fall back to the temp dir
+        // rather than panicking; this is a cache, not a user data directory.
+        let temp = std::env::temp_dir().join("flake-explorer");
+        for dir in [cache, temp] {
+            if std::fs::create_dir_all(&dir).is_err() {
+                continue;
+            }
+            let path = dir.join(&name);
+            if path.exists() || std::fs::write(&path, EXTRACT_NIX).is_ok() {
+                return path.to_string_lossy().into_owned();
+            }
         }
-        path.to_string_lossy().into_owned()
+        panic!("cannot write extract.nix to any cache dir")
     })
 }
 

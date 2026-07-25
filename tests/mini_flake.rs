@@ -1,4 +1,4 @@
-// Real-nix integration test against test/fixtures/mini-flake: exercises the
+// Real-nix integration test against fixtures/mini-flake: exercises the
 // actual extraction pipeline
 // (build_manifest + extract_options + extract_package, all shelling out to
 // `nix`) end to end, not synthetic fixture data. Skipped without nix (the
@@ -303,21 +303,23 @@ async fn extract_and_persist_writes_blob_and_sidecar_reconcile_accepts() {
         m.configurations[0].option_count,
         Some(r.result.data.options.len())
     );
-    assert!(r.result.data.options.len() > 0);
+    assert!(!r.result.data.options.is_empty());
 
     // Progress totals must account for chunks held by in-flight sibling
     // workers, not just the queue: done == total may only be reported by the
-    // final callback.
-    let progress = progress.lock().unwrap();
-    assert!(!progress.is_empty());
-    for (i, p) in progress.iter().enumerate() {
-        assert_eq!(p.done, i + 1); // one callback per finished chunk, in order
-        if i < progress.len() - 1 {
-            assert!(p.total > p.done);
+    // final callback. Scoped so the guard drops before the await below.
+    {
+        let progress = progress.lock().unwrap();
+        assert!(!progress.is_empty());
+        for (i, p) in progress.iter().enumerate() {
+            assert_eq!(p.done, i + 1); // one callback per finished chunk, in order
+            if i < progress.len() - 1 {
+                assert!(p.total > p.done);
+            }
         }
+        let last = progress.last().unwrap();
+        assert_eq!(last.total, last.done);
     }
-    let last = progress.last().unwrap();
-    assert_eq!(last.total, last.done);
 
     let blob: ConfigData = serde_json::from_str(
         &std::fs::read_to_string(tmp.0.join(&m.configurations[0].data_file)).unwrap(),
