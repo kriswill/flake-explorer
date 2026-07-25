@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Documentation refreshed for the Rust port. `architecture.md`,
+  `extraction-pipeline.md`, `data-schema.md`, `cli.md`, `glossary.md`,
+  `frontend.md`, and `build-and-infra.md` still described the pre-port
+  TypeScript tree — `flake-explorer.ts`, `src/extract/*.ts`, a WASM
+  tree-sitter build, `bun --watch`, a bun-wrapper Nix package. Every module
+  reference now points at its real owner, function names are the ones in the
+  source, and the stale mechanism descriptions (single-flight map, dev
+  watcher, npm packaging, syntax highlighting) are rewritten to match.
+- The root `package.json` is marked `private` and no longer carries `bin`,
+  `files`, or `publishConfig`. Nothing published ever read them —
+  `scripts/build-npm.ts` writes each package's manifest itself — and `files`
+  named an `app-dist/` the repo no longer has. The published manifests are
+  unchanged.
+
 - Repository layout reorganized for discoverability. The SPA moved from `app/`
   to `web/`, so `src/` unambiguously means the Rust crate. Every `*.test.ts`
   now sits beside the module it covers (`web/lib/indexes.test.ts` next to

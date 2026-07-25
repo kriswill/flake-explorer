@@ -1,4 +1,4 @@
-// Emit the prebuilt SPA bundle for the Rust server (rust/src/page.rs):
+// Emit the prebuilt SPA bundle for the Rust server (src/page.rs):
 // app.js + app.css plus a meta.json carrying the theme/base CSS and About
 // data that build-app.ts computes from web/lib at bundle time. The Rust
 // binary composes these into the same page HTML the bun server serves.

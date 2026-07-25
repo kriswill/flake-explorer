@@ -1,50 +1,54 @@
 # Architecture
 
-flake-explorer is three cooperating layers: a TypeScript CLI/extraction layer
+flake-explorer is three cooperating layers: a native Rust CLI/extraction layer
 that drives the host `nix` binary, a JSON data directory that both persists and
 caches extraction results, and a Svelte 5 SPA that consumes those documents
 either over HTTP or embedded in a single exported HTML file. The contract
-between the layers is one file: [`src/schema.ts`](../src/schema.ts).
+between the layers is one file, mirrored on each side:
+[`src/schema.rs`](../src/schema.rs) and [`web/lib/schema.ts`](../web/lib/schema.ts).
 
 ## System overview
 
-The CLI ([`flake-explorer.ts`](../flake-explorer.ts)) parses flags,
+The CLI ([`src/main.rs`](../src/main.rs)) parses flags,
 canonicalizes the flakeref, and dispatches to `extract`, `export`, or `serve`.
-`extract` and `export` share [`src/extract/drive.ts`](../src/extract/drive.ts)
-(`extractToDir`), which builds the manifest, reconciles the on-disk cache, and
+`extract` and `export` share [`src/drive.rs`](../src/drive.rs)
+(`extract_to_dir`), which builds the manifest, reconciles the on-disk cache, and
 extracts requested configurations. All Nix evaluation goes through
-[`src/extract/run-nix.ts`](../src/extract/run-nix.ts), a thin JSON-in/JSON-out
+[`src/run_nix.rs`](../src/run_nix.rs), a thin JSON-in/JSON-out
 wrapper that runs `nix eval --impure --json` on
-[`src/extract/extract.nix`](../src/extract/extract.nix).
+[`src/extract.nix`](../src/extract.nix).
+
+The SPA is not built by the binary. `bun scripts/bundle-app.ts` compiles it
+ahead of time into `dist/app/`, and the binary locates that bundle at runtime
+([`src/page.rs`](../src/page.rs)) to compose the page.
 
 ```mermaid
 flowchart TD
-  cli["flake-explorer.ts CLI dispatch"] --> drive["drive.ts extractToDir"]
-  drive --> manifest["manifest.ts buildManifest"]
-  drive --> options["options.ts extractOptions"]
-  manifest --> runnix["run-nix.ts"]
+  cli["main.rs CLI dispatch"] --> drive["drive.rs extract_to_dir"]
+  drive --> manifest["manifest.rs build_manifest"]
+  drive --> options["options.rs extract_options"]
+  manifest --> runnix["run_nix.rs"]
   options --> runnix
   runnix --> nix["host nix binary evaluating extract.nix"]
   drive --> data["data dir: manifest.json + config blobs + .meta.json sidecars"]
-  cli --> serve["serve.ts on-demand extraction + HTTP"]
-  cli --> export["export.ts single-file HTML"]
+  cli --> serve["serve.rs on-demand extraction + HTTP"]
+  cli --> export["export.rs single-file HTML"]
   data --> serve
   data --> export
-  app["build-app.ts bundles web/"] --> serve
+  app["prebuilt SPA bundle in dist/app"] --> serve
   app --> export
 ```
 
 The data dir (default `./flake-explorer-data`) holds `manifest.json`, one
 `config/<kind>.<name>.json` blob per extracted configuration, and a
 `.meta.json` sidecar per blob recording the flake narHash and extractor
-version that produced it ([`src/extract/cache.ts`](../src/extract/cache.ts)).
-Two consumers read it: [`src/serve.ts`](../src/serve.ts) serves the SPA plus
+version that produced it ([`src/cache.rs`](../src/cache.rs)).
+Two consumers read it: [`src/serve.rs`](../src/serve.rs) serves the SPA plus
 data over HTTP, extracting pending configurations on demand (single-flight per
-config, request held open); [`src/export.ts`](../src/export.ts) composes the
+config, request held open); [`src/export.rs`](../src/export.rs) composes the
 SPA and every data document into one standalone HTML file that works from
-`file://` with no server. Both get the SPA from
-[`src/build-app.ts`](../src/build-app.ts), which bundles
-[`web/main.ts`](../web/main.ts) in-memory.
+`file://` with no server. Both load the same prebuilt bundle through
+[`src/page.rs`](../src/page.rs).
 
 ## Design decisions
 
@@ -52,20 +56,21 @@ SPA and every data document into one standalone HTML file that works from
   own — [`package.nix`](../package.nix) never vendors one and
   [`flake.nix`](../flake.nix) deliberately keeps nix out of the dev shell — so
   store paths and the flake registry match the user's system.
-  [`src/extract/run-nix.ts`](../src/extract/run-nix.ts) checks version >= 2.19
+  [`src/run_nix.rs`](../src/run_nix.rs) checks version >= 2.19
   at startup and forces `lazy-trees = false` so store paths join across evals.
 - **Chunk-by-chunk option walk.** `builtins.tryEval` cannot catch
   missing-attribute/type errors, so one poisoned option would kill an entire
-  eval. [`src/extract/options.ts`](../src/extract/options.ts) walks options per
+  eval. [`src/options.rs`](../src/options.rs) walks options per
   top-level namespace, recursively halving failing chunks to isolate the bad
   option; only an unsplittable chunk descends the degradation ladder
   (full → no values → no values+descriptions) before being abandoned.
-- **Bun.build, not Vite.** [`src/build-app.ts`](../src/build-app.ts) bundles
-  the Svelte 5 (runes) SPA with `Bun.build` + `bun-plugin-svelte`, returning
-  JS and CSS as strings that [`src/serve.ts`](../src/serve.ts) and
-  [`src/export.ts`](../src/export.ts) compose into a page — no separate build
-  tool or dev server.
-- **One shared data contract.** [`src/schema.ts`](../src/schema.ts) defines
+- **Bun.build, not Vite.** [`scripts/build-app.ts`](../scripts/build-app.ts) bundles
+  the Svelte 5 (runes) SPA with `Bun.build` + `bun-plugin-svelte` — no separate
+  build tool or dev server. [`scripts/bundle-app.ts`](../scripts/bundle-app.ts)
+  writes the result to `dist/app/` as `app.js`, `app.css`, and a `meta.json`
+  carrying the generated theme CSS and About data, which is the whole interface
+  between the bun side and the Rust binary.
+- **One shared data contract.** [`src/schema.rs`](../src/schema.rs) defines
   both documents (cheap `Manifest`, expensive per-config `ConfigData`) for the
   extractor and the SPA alike, with `storePath` as the universal join key
   between file entries and option declarations/definitions. See

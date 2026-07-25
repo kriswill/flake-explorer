@@ -1,6 +1,6 @@
 # Data schema
 
-The JSON contract between the extraction CLI and the SPA lives in a single file, [`src/schema.ts`](../src/schema.ts). There are exactly two document kinds:
+The JSON contract between the extraction CLI and the SPA lives in a single file, [`src/schema.rs`](../src/schema.rs). There are exactly two document kinds:
 
 | Document | File | Cost | Lifecycle |
 | --- | --- | --- | --- |
@@ -13,9 +13,9 @@ The JSON contract between the extraction CLI and the SPA lives in a single file,
 
 | Constant | Value | Gates |
 | --- | --- | --- |
-| `SCHEMA_VERSION` | `1` | Stamped into both documents; the SPA rejects a `ConfigData` blob whose `version` mismatches (per its JSDoc in [`src/schema.ts`](../src/schema.ts)) |
+| `SCHEMA_VERSION` | `1` | Stamped into both documents; the SPA rejects a `ConfigData` blob whose `version` mismatches (per its JSDoc in [`src/schema.rs`](../src/schema.rs)) |
 
-There is no manually-bumped extractor version: the cache key's code half is a content hash of the extraction sources ([`src/extract/fingerprint.ts`](../src/extract/fingerprint.ts)), so any change under `src/extract/` or to `src/schema.ts` makes every cached blob stale at once. `reconcile` in [`src/extract/cache.ts`](../src/extract/cache.ts) additionally requires the sidecar's flake identity (`narHash`, or the self store path when absent) and resolved-input `lockHash` to match — see [Extraction pipeline](extraction-pipeline.md).
+There is no manually-bumped extractor version: the cache key's code half is a content hash of the extraction sources ([`build.rs`](../build.rs)), so any change under `src/` or to `src/schema.rs` makes every cached blob stale at once. `reconcile` in [`src/cache.rs`](../src/cache.rs) additionally requires the sidecar's flake identity (`narHash`, or the self store path when absent) and resolved-input `lockHash` to match — see [Extraction pipeline](extraction-pipeline.md).
 
 ## Type overview
 
@@ -120,7 +120,7 @@ classDiagram
 ## Join keys and the file id codec
 
 - **storePath join**: `DeclarationRef.file` / `DefinitionRef.file` are absolute `/nix/store/...` paths (or the sentinel below). They join against `FileEntry.storePath` to attribute options to files.
-- **File id codec**: `makeFileId` / `parseFileId` produce and parse `"self:<rel>"` | `"input:<name>:<rel>"`. Per their JSDoc this format is a *client-server protocol*, not just a display convention — serve's `/data/file/<id>` route re-derives input files from the id (re-fetching through Nix when the store path has been GC'd; see [CLI reference](cli.md)). Every construction and parse site must go through these helpers. App-internal `"unknown:…"`/`"inline"` buckets are opaque; `parseFileId` returns `null` for them.
+- **File id codec**: `"self:<rel>"` | `"input:<name>:<rel>"`, implemented on both sides — `makeFileId` / `parseFileId` in [`web/lib/schema.ts`](../web/lib/schema.ts), `make_file_id_self` / `make_file_id_input` / `parse_file_id` in [`src/schema.rs`](../src/schema.rs). This format is a *client-server protocol*, not just a display convention: serve's `/data/file/<id>` route re-derives input files from the id (re-fetching through Nix when the store path has been GC'd; see [CLI reference](cli.md)). Every construction and parse site must go through these helpers, or the two sides drift. App-internal `"unknown:…"`/`"inline"` buckets are opaque; the parse helpers return null/`None` for them.
 - **fileIndex**: `ConfigData.fileIndex` maps storePath → indices into `options`, split into `defines` / `declares` (`FileOptionRefs`), precomputed so the SPA never scans thousands of options per click.
 
 ## Definition priorities
@@ -134,9 +134,9 @@ classDiagram
 | `mkDefault` | 1000 | `lib.mkDefault` |
 | `optionDefault` | 1500 | The option's own declared default (`lib.mkOptionDefault`) |
 
-An option is **customized** when `isDefined && highestPrio !== null && highestPrio < PRIO.optionDefault` (see `toEntry` in [`src/extract/options.ts`](../src/extract/options.ts)) — a real definition beat the declared default. `fileIndex.defines` only counts customized definitions, because every defaulted option carries a `mkOptionDefault` definition pointing at its declaring module, which would otherwise make nixpkgs "define" everything.
+An option is **customized** when `isDefined && highestPrio !== null && highestPrio < PRIO.optionDefault` (see `to_entry` in [`src/options.rs`](../src/options.rs)) — a real definition beat the declared default. `fileIndex.defines` only counts customized definitions, because every defaulted option carries a `mkOptionDefault` definition pointing at its declaring module, which would otherwise make nixpkgs "define" everything.
 
-Besides the option-level `highestPrio`, a `DefinitionRef` may carry its own `prio`, lifted by `toEntry` from a `{mkOverride, content}` envelope (scrub's rendering of a `lib.mkOverride` wrapper) in the raw definition value. On the real module system this rarely fires: `lib.filterOverrides` strips the wrapper *and drops losing-priority definitions entirely* before `definitionsWithLocations` is exposed, so every listed definition merged at the option's `highestPrio` and absent `prio` means exactly that. The lift matters on module systems that expose raw definition values (hand-rolled fixtures, older lib versions). Skipped definitions (package-typed options, degraded chunks) carry `valueSkipped` instead of a value.
+Besides the option-level `highestPrio`, a `DefinitionRef` may carry its own `prio`, lifted by `to_entry` from a `{mkOverride, content}` envelope (scrub's rendering of a `lib.mkOverride` wrapper) in the raw definition value. On the real module system this rarely fires: `lib.filterOverrides` strips the wrapper *and drops losing-priority definitions entirely* before `definitionsWithLocations` is exposed, so every listed definition merged at the option's `highestPrio` and absent `prio` means exactly that. The lift matters on module systems that expose raw definition values (hand-rolled fixtures, older lib versions). Skipped definitions (package-typed options, degraded chunks) carry `valueSkipped` instead of a value.
 
 ## Declaration positions and skip flags
 
@@ -146,8 +146,8 @@ Besides the option-level `highestPrio`, a `DefinitionRef` may carry its own `pri
 ## Sentinels and grafts
 
 - `UNKNOWN_FILE = "<unknown-file>"` — the file string the module system uses for inline/anonymous modules; it appears as a `fileIndex` key and in declaration/definition refs.
-- `GraftInfo` marks a top-level output that extends an input's same-named namespace (e.g. `lib = nixpkgs.lib.extend …`). The heuristic lives in [`src/extract/extract.nix`](../src/extract/extract.nix): at least 90% of the input's attr names must reappear in the output (and the input must have at least 5 names; outputs consisting only of per-system names never count). The manifest records only the `added` keys plus an `inherited` count so the UI can hide the inherited bulk.
+- `GraftInfo` marks a top-level output that extends an input's same-named namespace (e.g. `lib = nixpkgs.lib.extend …`). The heuristic lives in [`src/extract.nix`](../src/extract.nix): at least 90% of the input's attr names must reappear in the output (and the input must have at least 5 names; outputs consisting only of per-system names never count). The manifest records only the `added` keys plus an `inherited` count so the UI can hide the inherited bulk.
 
 ## Reference
 
-The full generated API reference is at https://kris.net/flake-explorer/docs/api/ (CI-generated, site only). The source of truth is [`src/schema.ts`](../src/schema.ts).
+The full generated API reference is at https://kris.net/flake-explorer/docs/api/ (CI-generated, site only). The source of truth is [`src/schema.rs`](../src/schema.rs).
