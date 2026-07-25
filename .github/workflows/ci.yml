@@ -98,7 +98,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: DeterminateSystems/determinate-nix-action@d96678350ffd6a456235832eb11e1c491589b7bb # v3.21.8
       - uses: DeterminateSystems/flakehub-cache-action@77c6bddd7d747943530aaa578c57f233ee5d920e # main 2026-07
+      # rust-cache derives its key partly from the rustc it can see on PATH —
+      # which here is the runner's preinstalled toolchain, not the devShell's.
+      # The cargo below runs under `nix develop`, so the artifacts are built by
+      # the rustc flake.lock pins, and the key was blind to it. A nixpkgs bump
+      # then left the key unchanged, the stale entry kept matching exactly, and
+      # rust-cache skips saving on an exact match — so the entry froze and
+      # every run restored artifacts from a toolchain that no longer existed,
+      # rebuilding all ~100 dependencies anyway. Keying on flake.lock ties the
+      # cache to the compiler that actually produced it: a bump misses cleanly
+      # and repopulates instead of silently poisoning the entry.
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: ${{ hashFiles('flake.lock') }}
       - run: nix develop -c cargo llvm-cov test --locked --lcov --output-path coverage-raw.lcov
         env:
           FLAKE_EXPLORER_REQUIRE_NIX: "1"
