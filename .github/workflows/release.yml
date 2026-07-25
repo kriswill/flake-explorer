@@ -89,10 +89,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.bump.outputs.version }}
 
+      # 30 minutes, generously clear of the `build` check: the nix build of
+      # the Rust crate runs ~15 minutes cold, and a wait shorter than CI
+      # fails the release with a perfectly healthy PR left open.
       - name: Wait for the release PR to merge
         id: merged
         run: |
-          for _ in $(seq 60); do
+          for _ in $(seq 180); do
             state="$(gh pr view "release/v$VERSION" --json state -q .state)"
             [ "$state" = "MERGED" ] && break
             [ "$state" = "CLOSED" ] && { echo "::error::release PR was closed without merging"; exit 1; }
