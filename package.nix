@@ -193,6 +193,14 @@ craneLib.buildPackage (
   commonArgs
   // {
     inherit cargoArtifacts;
+    # crane runs `cargo test` in buildPackage's check phase by default, which
+    # here means building all six test binaries a second time — in release,
+    # LTO and all — to run the suite `checks.test` has already run from the
+    # same fileset, under debug_assertions and overflow checks it does not
+    # have. The only thing the second run adds is optimised code, and the
+    # crate contains no `unsafe` outside three env::set_var calls in the test
+    # harnesses. Not worth 37-51s of every build.
+    doCheck = false;
     nativeBuildInputs = [ makeBinaryWrapper ];
     # git backs per-file last-commit lookups; nix is deliberately resolved
     # from the caller's PATH so store paths and the flake registry match the
