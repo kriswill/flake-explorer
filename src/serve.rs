@@ -261,8 +261,14 @@ async fn on_demand(state: &Arc<AppState>, is_package: bool, id: &str) {
             tokio::spawn(async move {
                 let cache_key = cache_key_of(&*state.manifest.read().await);
                 run_extraction(&state, is_package, &id, &cache_key).await;
-                let _ = tx.send(true);
+                // Drop the entry BEFORE signalling, so an entry always means
+                // live work: `wait_for` returns immediately on an already-true
+                // value, so a request that cloned the receiver in between would
+                // "wait" on finished work and re-serve the stale status — an
+                // errored ref would 500 again instead of retrying. No wakeup is
+                // lost, waiters already hold their own receiver clones.
                 state.inflight.lock().await.remove(&key);
+                let _ = tx.send(true);
             });
             rx
         }
