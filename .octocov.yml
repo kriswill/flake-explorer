@@ -20,6 +20,10 @@ diff:
     - artifact://${GITHUB_REPOSITORY}
 comment:
   if: is_pull_request
+  # Edit the existing comment in place. The default posts a fresh one per run
+  # and merely minimises its predecessors, so a long-lived PR accumulates a
+  # column of collapsed coverage reports.
+  updatePrevious: true
   message: "**SPA test suite** — `bun test --coverage`. The crate is reported separately as *Code Metrics Report (rust)*."
 summary:
   if: true
