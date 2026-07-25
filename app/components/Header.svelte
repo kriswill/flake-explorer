@@ -103,7 +103,7 @@ const atDefault = $derived(prefs.textStep === TEXT_DEFAULT_STEP)
       title={isDark ? "Switch to light theme" : "Switch to dark theme"}
       onclick={toggleTheme}
     >
-      <svg class="tsw" class:dark={isDark} viewBox="0 0 44 24" aria-hidden="true" focusable="false">
+      <svg class={["tsw", { dark: isDark }]} viewBox="0 0 44 24" aria-hidden="true" focusable="false">
         <!-- Crescent by subtraction: a disc with a second disc masked out,
              which stays a clean arc at any size where a drawn curve would
              need hinting. -->
