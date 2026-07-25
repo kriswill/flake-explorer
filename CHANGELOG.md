@@ -9,44 +9,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The Svelte app was brought in line with current best-practices
+  guidance, with no behavior changes: the reveal `use:` actions became a
+  single `{@attach}` attachment, the option tooltip now re-derives its
+  clamp on resize, the per-component theme-generation lookup is hoisted
+  into one `$derived` field, `ModuleDetail`'s file chip reuses
+  `HeaderChip` instead of a hand-rolled duplicate, and ~36 `class:`
+  directives became clsx-style class arrays. Deliberate deviations are
+  now commented as such.
+- Repository layout reorganized for discoverability. The SPA moved from
+  `app/` to `web/`, so `src/` unambiguously means the Rust crate. Every
+  `*.test.ts` now sits beside the module it covers
+  (`web/lib/indexes.test.ts` next to `indexes.ts`), with shared preloads,
+  helpers, and fixture builders under `web/testing/` — the old `test/`
+  directory is gone, which also removes its one-letter collision with
+  cargo's `tests/`. The nix fixture flakes moved to a top-level
+  `fixtures/`. All build output now lands in a single git-ignored `dist/`
+  (`app/`, `npm/`, `site/`, `api/`, `coverage/`) instead of six separate
+  roots. The published npm layout and the Nix install layout are
+  unchanged.
 - Documentation refreshed for the Rust port. `architecture.md`,
   `extraction-pipeline.md`, `data-schema.md`, `cli.md`, `glossary.md`,
   `frontend.md`, and `build-and-infra.md` still described the pre-port
   TypeScript tree — `flake-explorer.ts`, `src/extract/*.ts`, a WASM
-  tree-sitter build, `bun --watch`, a bun-wrapper Nix package. Every module
-  reference now points at its real owner, function names are the ones in the
-  source, and the stale mechanism descriptions (single-flight map, dev
-  watcher, npm packaging, syntax highlighting) are rewritten to match.
-- The root `package.json` is marked `private` and no longer carries `bin`,
-  `files`, or `publishConfig`. Nothing published ever read them —
-  `scripts/build-npm.ts` writes each package's manifest itself — and `files`
-  named an `app-dist/` the repo no longer has. The published manifests are
-  unchanged.
+  tree-sitter build, `bun --watch`, a bun-wrapper Nix package. Every
+  module reference now points at its real owner, function names are the
+  ones in the source, and the stale mechanism descriptions (single-flight
+  map, dev watcher, npm packaging, syntax highlighting) are rewritten to
+  match.
+- The root `package.json` is marked `private` and no longer carries
+  `bin`, `files`, or `publishConfig`. Nothing published ever read them —
+  `scripts/build-npm.ts` writes each package's manifest itself — and
+  `files` named an `app-dist/` the repo no longer has. The published
+  manifests are unchanged.
 
-- Repository layout reorganized for discoverability. The SPA moved from `app/`
-  to `web/`, so `src/` unambiguously means the Rust crate. Every `*.test.ts`
-  now sits beside the module it covers (`web/lib/indexes.test.ts` next to
-  `indexes.ts`), with shared preloads, helpers, and fixture builders under
-  `web/testing/` — the old `test/` directory is gone, which also removes its
-  one-letter collision with cargo's `tests/`. The nix fixture flakes moved to
-  a top-level `fixtures/`. All build output now lands in a single git-ignored
-  `dist/` (`app/`, `npm/`, `site/`, `api/`, `coverage/`) instead of six
-  separate roots. The published npm layout and the Nix install layout are
-  unchanged.
+### Removed
+
+- The npm `darwin-x64` (Intel macOS) platform package. 0.5.0 announced
+  npm binaries for "Linux and macOS, x64 and arm64", but the macos-13
+  runners that build Intel binaries are deprecated and scarce enough that
+  the 0.5.0 npm release sat queued indefinitely on that job — and the
+  flake's own `meta.platforms` never claimed `x86_64-darwin`, so npm was
+  exceeding the project's stated support matrix. Supported npm platforms
+  are now `linux-x64`, `linux-arm64`, and `darwin-arm64`. The launcher
+  lists exactly those in its unsupported-platform error, and the main
+  package no longer pins an optional dependency that would never be
+  published.
 
 ### Fixed
 
-- `nix flake check` now actually runs the Rust integration suites. The crate's
-  Nix fileset omitted `./tests`, so `cargoTest` and `cargoClippy
-  --all-targets` silently compiled nothing but the lib/bin unit tests — the
-  five integration suites only ever ran in CI's out-of-sandbox coverage step.
-  Adding them to the fileset surfaced two clippy violations in
-  `tests/mini_flake.rs` that had never been linted, plus the panic below.
 - `extract.nix` materialization no longer panics when `HOME` is set but
-  unwritable (a read-only home, a container, a nix build sandbox's
-  `/homeless-shelter`). The directory-creation error was discarded and the
-  subsequent write `expect()`ed; it now falls back to the temp dir, which is
-  appropriate for a content-hashed cache.
+  unwritable — a read-only home directory, some containers, or a nix
+  build sandbox's `/homeless-shelter`. The directory-creation error was
+  discarded and the subsequent write `expect()`ed; it now falls back to
+  the temp dir, which is appropriate for a content-hashed cache.
+- `nix flake check` now actually runs the Rust integration suites. The
+  crate's Nix fileset omitted `./tests`, so `cargoTest` and `cargoClippy
+  --all-targets` silently compiled nothing but the lib/bin unit tests —
+  the five integration suites only ever ran in CI's out-of-sandbox
+  coverage step, despite comments in the workflow and the test helpers
+  describing them as running in the sandbox. Adding them to the fileset
+  surfaced two clippy violations in `tests/mini_flake.rs` that had never
+  been linted, plus the panic above.
+- The monospace label on `HeaderChip` — its template referenced a scoped
+  `.mono` rule that did not exist. This restores the styling
+  `ModuleDetail`'s chip had before the `HeaderChip` extraction, and
+  revives what the `FileDetail` and `PackageDetail` chips had silently
+  lost in that extraction.
 
 ## [0.5.0] — 2026-07-24
 
