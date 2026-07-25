@@ -1,0 +1,41 @@
+[package]
+name = "flake-explorer-extract"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Extraction core for flake-explorer: everything whose output lands in a cached blob"
+build = "build.rs"
+
+# Only what the extraction modules actually reach for. The absences are the
+# point of the crate boundary and worth reading as a list: no axum, no notify,
+# no tokio-stream/futures, no percent-encoding — serving and exporting cannot
+# be done from in here, so they cannot accidentally be done from in here.
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+fancy-regex.workspace = true
+hex.workspace = true
+indexmap.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+streaming-iterator.workspace = true
+tree-sitter.workspace = true
+tree-sitter-bash.workspace = true
+tree-sitter-nix.workspace = true
+# "rt" for the options chunk-walk's tokio::spawn, "macros" for the tokio::join!
+# in the manifest and run_nix; the multi-thread runtime itself is the binary's
+# to build.
+tokio = { workspace = true, features = [
+  "io-util",
+  "macros",
+  "process",
+  "rt",
+  "sync",
+  "time",
+] }
+
+[build-dependencies]
+sha2.workspace = true
+hex.workspace = true
