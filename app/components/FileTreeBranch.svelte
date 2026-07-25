@@ -2,9 +2,8 @@
 import { colorFor } from "../lib/color"
 import { type FileTreeNode, fileTreeMatches } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
-import { revealWhen } from "../lib/reveal.svelte"
+import { revealWhen } from "../lib/reveal"
 import { app } from "../lib/state.svelte"
-import { THEMES } from "../lib/themes"
 import Dot from "./Dot.svelte"
 import FileTreeBranch from "./FileTreeBranch.svelte"
 
@@ -14,7 +13,6 @@ interface Props {
 }
 const { node, depth }: Props = $props()
 
-const gen = $derived(THEMES[prefs.themeIndex]!.gen)
 const q = $derived(app.q.toLowerCase())
 
 const kids = $derived(node.children.filter((c) => fileTreeMatches(c, q)))
@@ -34,7 +32,7 @@ const isFileSel = (fileId: string) =>
   app.selection?.kind === "file" && app.selection.fileId === fileId
 </script>
 
-<ul class="tree" class:nested={depth > 0}>
+<ul class={["tree", { nested: depth > 0 }]}>
   {#each kids as child, i (child.id)}
     <!-- Top-level folders get breathing room from the root-file list above.
          .connect/.railed: shared connector styles (tree-connectors.css) —
@@ -43,20 +41,26 @@ const isFileSel = (fileId: string) =>
          the NEXT visible sibling — a rail is always owned by the child it
          leads to. -->
     <li
-      class:gap={depth === 0 && !child.fileId}
-      class:connect={depth > 0}
-      class:railed={depth > 0 && i < kids.length - 1}
-      style="--c:{colorFor(child.colorKey, gen)}"
-      style:--rail={i < kids.length - 1 ? colorFor(kids[i + 1]!.colorKey, gen) : null}
+      class={{
+        gap: depth === 0 && !child.fileId,
+        connect: depth > 0,
+        railed: depth > 0 && i < kids.length - 1,
+      }}
+      style="--c:{colorFor(child.colorKey, prefs.gen)}"
+      style:--rail={i < kids.length - 1 ? colorFor(kids[i + 1]!.colorKey, prefs.gen) : null}
     >
       {#if child.fileId}
         <button
-          class="row file"
-          class:sel={isFileSel(child.fileId)}
-          class:rel={app.highlightedFiles.has(child.fileId)}
-          class:hov={app.hover?.kind === "module" && app.hover.fileId === child.fileId}
-          class:modsel={isModSel(child.fileId)}
-          use:revealWhen={() => isModSel(child.fileId!) || isFileSel(child.fileId!)}
+          class={[
+            "row file",
+            {
+              sel: isFileSel(child.fileId),
+              rel: app.highlightedFiles.has(child.fileId),
+              hov: app.hover?.kind === "module" && app.hover.fileId === child.fileId,
+              modsel: isModSel(child.fileId),
+            },
+          ]}
+          {@attach revealWhen(isModSel(child.fileId) || isFileSel(child.fileId))}
           onclick={() => app.select({ kind: "file", fileId: child.fileId! })}
           onpointerenter={() => (app.hover = { kind: "file", fileId: child.fileId! })}
           onpointerleave={() => (app.hover = null)}

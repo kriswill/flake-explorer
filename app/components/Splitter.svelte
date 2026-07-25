@@ -46,8 +46,7 @@ const width = $derived(side === "left" ? prefs.paneLeft : prefs.paneRight)
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions
      (a focusable separator IS the ARIA "window splitter" widget pattern) -->
 <div
-  class="split"
-  class:dragging
+  class={["split", { dragging }]}
   role="separator"
   aria-orientation="vertical"
   aria-label="Resize {side} panel (double-click to reset)"
