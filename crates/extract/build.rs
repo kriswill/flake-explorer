@@ -84,6 +84,7 @@
 // well, which no amount of source hashing reaches.
 
 use sha2::{Digest, Sha256};
+use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 fn main() {
@@ -95,6 +96,11 @@ fn main() {
     files.push(root.join("src/extract.nix"));
     files.push(root.join("src/vendor/nix-highlights.scm"));
     files.push(root.join("src/vendor/bash-highlights.scm"));
+    // This crate's own manifest: which dependencies it takes and, where it
+    // spells them out locally rather than deferring to the workspace, at which
+    // features. Every line of this file is about the extractor, so there is no
+    // over-invalidation to weigh.
+    files.push(root.join("Cargo.toml"));
     files.sort();
     files.dedup();
 
@@ -107,11 +113,252 @@ fn main() {
         hasher.update([0]);
         println!("cargo:rerun-if-changed={}", f.display());
     }
+    hasher.update(dependency_surface(&root).as_bytes());
     let digest = hex::encode(hasher.finalize());
     println!(
         "cargo:rustc-env=FLAKE_EXPLORER_FINGERPRINT=rs-{}",
         &digest[..14]
     );
+}
+
+// ------------------------------------------------------- dependency surface
+//
+// The source files above are not the whole input to a blob's bytes: the
+// dependencies this crate resolves against are too, and they were invisible to
+// the fingerprint. `cargo update` alone could rewrite every blob. It is not a
+// theoretical route — serde_json's `preserve_order` decides whether every
+// Value::Object in an option value keeps Nix's key order or gets re-sorted, and
+// the tree-sitter-bash grammar version sets the node boundaries, and therefore
+// the token runs, baked into every DrvPhase in a package blob.
+//
+// Deliberately the extraction crate's own resolved CLOSURE, not the whole
+// Cargo.lock. This repo runs dependabot against a workspace whose other member
+// pulls axum, tower, notify, futures and tokio-stream — none of which the
+// extractor links. Hashing the whole lock would let an axum bump throw away
+// every cached extraction for every user, which is the same over-invalidation
+// the crate split exists to remove, just re-entered one level up.
+//
+// Derived by walking Cargo.lock rather than by shelling out to `cargo
+// metadata`. Metadata was the obvious candidate and it does work here — checked,
+// not assumed: a probe build script ran `cargo metadata --offline` successfully
+// inside the crane sandbox. It was still the wrong tool. Its per-package feature
+// lists are the precision we would want, but they come platform-filtered or not
+// at all, and a fingerprint that varies by host would have two machines
+// invalidating each other's blobs forever; a nested cargo invoked from a build
+// script can also deadlock on the package-cache lock, which turns a wrong answer
+// into a hung build. Cargo.lock is already the platform-independent resolved
+// graph, needs no subprocess and no JSON parser.
+//
+// The gap that leaves is features: the lock records versions, not feature
+// selections. Two things cover most of it. Feature changes usually move an
+// optional dependency and so do show up in the lock — `preserve_order` above is
+// exactly that case, since it is what pulls indexmap into serde_json. And the
+// two manifests that can declare a feature are hashed: this crate's Cargo.toml
+// in full, and from the workspace root only the [workspace.dependencies] entries
+// naming a package in the closure, so an axum or tower entry still cannot reach
+// the hash. A feature that neither moves a dependency nor appears in either
+// place is the remaining hole, and it is narrower than what was open before.
+//
+// Every fallback below is toward over-invalidation. An unparseable lock hashes
+// whole, an unparseable workspace-dependency block hashes whole. Being coarse
+// costs a re-extraction; being silently narrow serves stale data.
+
+/// The hashed representation of what this crate resolves against: one
+/// `name version checksum` line per external package in its dependency
+/// closure, sorted, plus the workspace dependency entries that named them.
+fn dependency_surface(crate_dir: &Path) -> String {
+    let Some(ws) = crate_dir
+        .ancestors()
+        .find(|d| d.join("Cargo.lock").is_file())
+    else {
+        // Cargo will not build without a lock, so this is unreachable in
+        // practice; say so rather than silently contributing nothing.
+        println!(
+            "cargo:warning=no Cargo.lock found — dependency versions are NOT in the extraction fingerprint"
+        );
+        return String::new();
+    };
+    let lock_path = ws.join("Cargo.lock");
+    let ws_manifest = ws.join("Cargo.toml");
+    println!("cargo:rerun-if-changed={}", lock_path.display());
+    println!("cargo:rerun-if-changed={}", ws_manifest.display());
+
+    let lock = std::fs::read_to_string(&lock_path).unwrap_or_default();
+    let me = std::env::var("CARGO_PKG_NAME").unwrap_or_default();
+
+    let Some((closure, names)) = lock_closure(&lock, &me) else {
+        println!(
+            "cargo:warning=could not resolve {me}'s dependency closure from Cargo.lock — hashing the whole lock instead (over-invalidates, never under)"
+        );
+        return lock;
+    };
+
+    let mut out = closure.join("\n");
+    if let Ok(manifest) = std::fs::read_to_string(&ws_manifest) {
+        out.push('\n');
+        out.push_str(&workspace_dep_entries(&manifest, &names));
+    }
+    out
+}
+
+#[derive(Default)]
+struct LockPkg {
+    name: String,
+    version: String,
+    /// Absent for workspace members and path dependencies — that absence is
+    /// how they are told apart from registry packages.
+    source: Option<String>,
+    checksum: Option<String>,
+    deps: Vec<String>,
+}
+
+/// `name version checksum` lines for every registry package reachable from
+/// `root_name`, plus the set of package names in the closure. None when the
+/// lock did not parse into something usable, which the caller turns into
+/// hashing the whole file.
+fn lock_closure(lock: &str, root_name: &str) -> Option<(Vec<String>, HashSet<String>)> {
+    let pkgs = parse_lock(lock);
+    let start = pkgs.iter().position(|p| p.name == root_name)?;
+
+    let mut seen: HashSet<usize> = HashSet::from([start]);
+    let mut queue: VecDeque<usize> = VecDeque::from([start]);
+    let mut lines: Vec<String> = Vec::new();
+    let mut names: HashSet<String> = HashSet::new();
+
+    while let Some(i) = queue.pop_front() {
+        // A dependency reads as "name" or, when the lock carries more than one
+        // version of it, "name version".
+        for dep in &pkgs[i].deps {
+            let (dname, dver) = match dep.split_once(' ') {
+                Some((n, v)) => (n, Some(v)),
+                None => (dep.as_str(), None),
+            };
+            let Some(j) = pkgs
+                .iter()
+                .position(|p| p.name == dname && dver.is_none_or(|v| p.version == v))
+            else {
+                continue;
+            };
+            if seen.insert(j) {
+                queue.push_back(j);
+            }
+        }
+    }
+
+    for i in seen {
+        let p = &pkgs[i];
+        names.insert(p.name.replace('_', "-"));
+        // Workspace members carry no source; their contents are hashed as
+        // files, and folding their version in here would invalidate every
+        // cached blob on a release bump that changed no extraction code.
+        if p.source.is_none() {
+            continue;
+        }
+        lines.push(format!(
+            "{} {} {}",
+            p.name,
+            p.version,
+            p.checksum.as_deref().unwrap_or("-")
+        ));
+    }
+    if lines.is_empty() {
+        return None;
+    }
+    lines.sort();
+    Some((lines, names))
+}
+
+fn parse_lock(lock: &str) -> Vec<LockPkg> {
+    let mut pkgs: Vec<LockPkg> = Vec::new();
+    let mut cur: Option<LockPkg> = None;
+    let mut in_deps = false;
+    for line in lock.lines() {
+        let t = line.trim();
+        if t == "[[package]]" {
+            pkgs.extend(cur.take());
+            cur = Some(LockPkg::default());
+            in_deps = false;
+            continue;
+        }
+        if !in_deps && t.starts_with('[') {
+            // [metadata], [[patch.unused]] and friends end the current package.
+            pkgs.extend(cur.take());
+            continue;
+        }
+        let Some(p) = cur.as_mut() else { continue };
+        if in_deps {
+            if t.starts_with(']') {
+                in_deps = false;
+            } else if let Some(d) = unquote(t.trim_end_matches(',')) {
+                p.deps.push(d);
+            }
+            continue;
+        }
+        if t == "dependencies = [" {
+            in_deps = true;
+        } else if let Some(v) = kv(t, "name") {
+            p.name = v;
+        } else if let Some(v) = kv(t, "version") {
+            p.version = v;
+        } else if let Some(v) = kv(t, "source") {
+            p.source = Some(v);
+        } else if let Some(v) = kv(t, "checksum") {
+            p.checksum = Some(v);
+        }
+    }
+    pkgs.extend(cur.take());
+    pkgs
+}
+
+/// The [workspace.dependencies] lines whose key names a package in the
+/// closure. Version requirements and feature lists for this crate's deps live
+/// there, since it declares most of them as `foo.workspace = true`.
+fn workspace_dep_entries(manifest: &str, names: &HashSet<String>) -> String {
+    let mut block: Vec<&str> = Vec::new();
+    let mut inside = false;
+    for line in manifest.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            inside = t == "[workspace.dependencies]";
+            continue;
+        }
+        if inside {
+            block.push(line);
+        }
+    }
+
+    let mut kept: Vec<&str> = Vec::new();
+    for line in &block {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        // Every entry here is one self-contained `key = value` line today. A
+        // reformat into a multi-line inline table would make the key-matching
+        // below skip the continuation lines and quietly narrow the hash, so
+        // detect that shape and hash the whole block instead.
+        if t.matches('{').count() != t.matches('}').count()
+            || t.matches('[').count() != t.matches(']').count()
+        {
+            return block.join("\n");
+        }
+        let Some((key, _)) = t.split_once('=') else {
+            return block.join("\n");
+        };
+        if names.contains(key.trim().replace('_', "-").as_str()) {
+            kept.push(t);
+        }
+    }
+    kept.sort();
+    kept.join("\n")
+}
+
+fn kv(line: &str, key: &str) -> Option<String> {
+    unquote(line.strip_prefix(key)?.trim_start().strip_prefix('=')?)
+}
+
+fn unquote(s: &str) -> Option<String> {
+    Some(s.trim().strip_prefix('"')?.strip_suffix('"')?.to_string())
 }
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
