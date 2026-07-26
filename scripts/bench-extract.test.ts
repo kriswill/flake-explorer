@@ -163,14 +163,16 @@ describe("countExtractions", () => {
     "  830290 claude --model opus ... measures `flake-explorer extract <flakeref> --out <tmpdir>`",
     "  809324 /run/current-system/sw/bin/zsh -c eval 'flake-explorer extract ~/df --out bench'",
     "  999999 flake-explorer serve /home/k/df",
+    "  777777 /run/current-system/sw/bin/time -v /home/k/b/target/release/flake-explorer extract .",
   ].join("\n")
 
   test("counts extractions, not processes that merely name one", () => {
-    expect(countExtractions(PS)).toBe(1)
+    // Two: the bare one and the one this harness itself runs under GNU time.
+    expect(countExtractions(PS)).toBe(2)
   })
 
   test("ignores the pids it is told to", () => {
-    expect(countExtractions(PS, [809327])).toBe(0)
+    expect(countExtractions(PS, [809327, 777777])).toBe(0)
   })
 
   test("a bare PATH invocation counts", () => {

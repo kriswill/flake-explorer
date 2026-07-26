@@ -367,8 +367,9 @@ function gnuTime(): string | null {
  *  `pgrep -f 'flake-explorer extract'` on this machine matches the coding
  *  agents whose own command line quotes that phrase and the shell wrapper that
  *  launched a run, so the harness waited forever for extractions that did not
- *  exist. Only a process whose argv[0] IS the binary and whose argv[1] is
- *  `extract` counts. */
+ *  exist. What counts is an unquoted argv token whose basename is the binary
+ *  followed by `extract` — a bare invocation, or one this harness started
+ *  behind `time -v`, and nothing that merely writes the words down. */
 export function countExtractions(ps: string, ignorePids: number[] = []): number {
   let n = 0
   for (const line of ps.split("\n")) {
@@ -376,7 +377,7 @@ export function countExtractions(ps: string, ignorePids: number[] = []): number 
     if (!m) continue
     if (ignorePids.includes(Number(m[1]))) continue
     const argv = m[2].split(/\s+/)
-    if (basename(argv[0] ?? "") === "flake-explorer" && argv[1] === "extract") n++
+    if (argv.some((a, i) => basename(a) === "flake-explorer" && argv[i + 1] === "extract")) n++
   }
   return n
 }
