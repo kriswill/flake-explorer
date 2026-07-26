@@ -9,6 +9,7 @@ use crate::cache::{
 use crate::manifest::{ManifestOptions, build_manifest};
 use crate::run_nix::check_nix;
 use crate::schema::{Manifest, RefStatus};
+use crate::timing::Timings;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
@@ -38,6 +39,9 @@ pub struct DriveResult {
 }
 
 pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Result<DriveResult> {
+    // Silent unless FLAKE_EXPLORER_TIMINGS asks otherwise, and stderr-only
+    // when it does, so nothing below changes what the run prints (timing.rs).
+    let timings = Timings::from_env();
     // The version is part of the cache key, not just a floor check — a nix
     // upgrade can change what extraction produces (see cache.rs::CacheKey).
     let nix_version = check_nix().await?;
@@ -45,6 +49,7 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
     std::fs::create_dir_all(Path::new(&flags.out).join("package"))?;
 
     println!("extracting manifest of {flake_ref} ...");
+    let t_manifest = timings.mark();
     let mut manifest = build_manifest(
         flake_ref,
         &ManifestOptions {
@@ -53,6 +58,7 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
         },
     )
     .await?;
+    timings.phase("manifest", t_manifest);
     println!(
         "  {} files, {} inputs, {} configurations, {} packages",
         manifest.files.len(),
@@ -63,7 +69,9 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
     for w in &manifest.warnings {
         eprintln!("  warn: {w}");
     }
+    let t_reconcile = timings.mark();
     reconcile(&flags.out, &mut manifest, &nix_version);
+    timings.phase("reconcile", t_reconcile);
     let cache_key = cache_key_of(&manifest, &nix_version);
 
     let wanted: Vec<String> = match &flags.configs {
@@ -83,7 +91,12 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
         Selection::None => Vec::new(),
     };
 
+    // The pass is timed as a whole and per configuration, cache hits included:
+    // a warm run's shape — how much of the pass was skipping — is as much of a
+    // benchmark question as a cold one's.
+    let t_options = timings.mark();
     for id in &wanted {
+        let t_config = timings.mark();
         let r#ref = manifest
             .configurations
             .iter()
@@ -92,6 +105,7 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
             .ok_or_else(|| anyhow::anyhow!("no such configuration: {id}"))?;
         if r#ref.status == RefStatus::Ok {
             println!("options of {id} cached (flake + extractor + nix unchanged), skipping");
+            timings.item("options", id, t_config);
             continue;
         }
         println!("extracting options of {id} ...");
@@ -143,6 +157,10 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
                 eprintln!("  error: {msg}");
             }
         }
+        timings.item("options", id, t_config);
+    }
+    if !wanted.is_empty() {
+        timings.phase("options", t_options);
     }
 
     let wanted_packages: Vec<String> = match &flags.packages {
@@ -158,7 +176,9 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
         Selection::None => Vec::new(),
     };
 
+    let t_packages = timings.mark();
     for id in &wanted_packages {
+        let t_package = timings.mark();
         let r#ref = manifest
             .packages
             .iter()
@@ -167,6 +187,7 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
             .ok_or_else(|| anyhow::anyhow!("no such package: {id}"))?;
         if r#ref.status == RefStatus::Ok {
             println!("package {id} cached (flake + extractor + nix unchanged), skipping");
+            timings.item("package", id, t_package);
             continue;
         }
         println!("extracting package {id} ...");
@@ -196,11 +217,16 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
                 eprintln!("  error: {msg}");
             }
         }
+        timings.item("package", id, t_package);
+    }
+    if !wanted_packages.is_empty() {
+        timings.phase("packages", t_packages);
     }
 
     let manifest_path = Path::new(&flags.out).join("manifest.json");
     std::fs::write(&manifest_path, serde_json::to_string(&manifest)?)?;
     println!("wrote {}", manifest_path.display());
+    timings.total();
 
     Ok(DriveResult {
         manifest,
