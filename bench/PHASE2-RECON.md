@@ -18,15 +18,16 @@ an earlier unlocked sweep is discarded.
 
 ## The three findings
 
-**1. The pass runs 348 chunk evaluations to cover 59 namespaces.** Failure-driven
-binary splitting is the multiplier, not the option count.
+**1. The pass runs 387 `nix` evaluations to cover 59 namespaces** — 348 chunk
+evaluations plus 39 `optionNames` calls. Failure-driven binary splitting is the
+multiplier, not the option count.
 
 **2. No single chunk is the long pole.** `services` alone is 223 of the 348 evals
 and 57% of the serial time — spread across 223 mostly-cheap calls, not one slow one.
 
 **3. Every one of those calls re-pays ~580ms of flake and module-system setup
-before it does any chunk-specific work.** That is 202s of the 379s serial total —
-53% of the pass is the same NixOS configuration being evaluated from scratch, 348
+before it does any chunk-specific work.** That is 224s of the 379s serial total —
+59% of the pass is the same NixOS configuration being evaluated from scratch, 387
 times over.
 
 ## 1. Worker-count sweep
@@ -101,6 +102,12 @@ through dozens of extra evals — and `services` on this configuration has sever
 queue grew from 59 to 348 as those searches ran: 59 namespaces in, 289 extra
 evaluations out.
 
+Counted directly rather than inferred: a shim on `PATH` recorded every `nix`
+invocation of one pass. **387 in total — 348 chunk evaluations and 39
+`optionNames` calls** (one to list the top-level namespaces, 38 more as chunks
+descended a level). Counts are contention-immune, so this run needed the lock only
+out of courtesy, and it reproduced the same 348 chunks and 15,436 options.
+
 ## 3. What one `nix eval` costs before it does anything
 
 Same command shape the extractor uses — `nix eval --impure --json --expr 'import
@@ -129,21 +136,21 @@ what "fixed cost" looks like.
 This is measured, not assumed — see the reps above, and note the third rep of each
 probe is consistently ~200ms slower rather than faster.
 
-Multiplying out: 348 evals × 0.58s = **202s of the 379s serial pass is re-paid
-setup (53%)**. At the current default of 8 workers that is ~25s of the 75s wall
-clock. The floor also explains the p50: a 704ms median chunk is ~580ms of setup and
-~120ms of work.
+Multiplying out against the counted 387 invocations: 387 × 0.58s = **224s of the
+379s serial pass is re-paid setup (59%)**. At the current default of 8 workers that
+is ~28s of the 75s wall clock. The floor also explains the p50: a 704ms median
+chunk is ~580ms of setup and ~120ms of work.
 
 ## What this implies for the next optimization
 
 In rough order of expected value:
 
-1. **Stop re-paying the setup.** 202s of the serial pass is one flake load and one
-   module-system evaluation repeated 348 times. Anything that amortizes it —
+1. **Stop re-paying the setup.** 224s of the serial pass is one flake load and one
+   module-system evaluation repeated 387 times. Anything that amortizes it —
    evaluating more per call, or holding one nix evaluation open across chunks —
    attacks the largest single line item, and unlike widening the pool it does not
    cost more CPU-seconds.
-2. **Make failure cheaper than binary search.** 289 of the 348 evals exist to
+2. **Make failure cheaper than binary search.** 328 of the 387 evals exist to
    isolate 14 bad options. A cheaper isolation strategy (or evaluating children
    individually once a namespace is known to fail, rather than halving repeatedly)
    removes evals outright rather than making them faster.
@@ -167,6 +174,16 @@ jq -s '[range(0;length) as $i | {ns: .[$i].current,
         ms: (.[$i].ms - (if $i==0 then 0 else .[$i-1].ms end))}] | sort_by(-.ms)' chunks-1.jsonl
 ```
 
+Counting every `nix` invocation, rather than trusting the chunk count:
+
+```sh
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "$NIX_CALL_LOG"\nexec /run/current-system/sw/bin/nix "$@"\n' > shim/nix
+chmod +x shim/nix
+NIX_CALL_LOG=$PWD/nix-calls.log PATH="$PWD/shim:$PATH" ./target/release/examples/options-probe … --jobs 8
+wc -l nix-calls.log        # 387
+grep -c optionNames nix-calls.log   # 39
+```
+
 Wall-clock and memory figures need the exclusive lock: two agents measuring this
-flake at once contaminated an earlier sweep in both directions. Counts (348 evals,
+flake at once contaminated an earlier sweep in both directions. Counts (387 evals,
 the per-namespace split counts) are contention-immune.
