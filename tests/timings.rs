@@ -138,7 +138,9 @@ fn every_pass_of_an_all_extraction_reports_a_phase() {
     let lines = timing_lines(&r.stderr);
     for phase in ["manifest ", "options ", "packages ", "total "] {
         assert!(
-            lines.iter().any(|l| l.starts_with(&format!("timing: {phase}"))),
+            lines
+                .iter()
+                .any(|l| l.starts_with(&format!("timing: {phase}"))),
             "no {phase}phase line in:\n{}",
             r.stderr
         );

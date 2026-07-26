@@ -3,10 +3,14 @@
 // numbers, which is worse than reporting none. Everything here is pure — the
 // spawning half is exercised by running the script.
 
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import {
   countExtractions,
   DEGRADED_WARNING,
+  main,
   medianOf,
   parseArgs,
   parseGnuTime,
@@ -177,6 +181,107 @@ describe("countExtractions", () => {
 
   test("a bare PATH invocation counts", () => {
     expect(countExtractions("  4242 flake-explorer extract .")).toBe(1)
+  })
+})
+
+describe("main", () => {
+  /** A stand-in extractor: prints the progress and timing lines the harness
+   *  reads, so the driving half can be tested without nix, without a build,
+   *  and in a second. `exit` lets a test make the extraction fail. */
+  function stubBinary(dir: string, exit = 0): string {
+    const path = join(dir, "flake-explorer")
+    writeFileSync(
+      path,
+      [
+        "#!/bin/sh",
+        'echo "extracting manifest of $2 ..."',
+        'echo "timing: manifest 10ms" >&2',
+        'echo "timing:   options nixos/mini 15ms" >&2',
+        'echo "timing: options 20ms" >&2',
+        'echo "  warn: meta unavailable for something" >&2',
+        'echo "timing: total 40ms" >&2',
+        `exit ${exit}`,
+        "",
+      ].join("\n"),
+    )
+    chmodSync(path, 0o755)
+    return path
+  }
+
+  function quiet() {
+    return [spyOn(console, "log"), spyOn(console, "error")].map((s) =>
+      s.mockImplementation(() => {}),
+    )
+  }
+
+  test("runs both legs against the stub and writes an attributable report", async () => {
+    const spies = quiet()
+    const dir = mkdtempSync(join(tmpdir(), "bench-main-"))
+    const json = join(dir, "report.json")
+    const code = await main([
+      ".",
+      "--label",
+      "stub",
+      "--no-build",
+      "--no-wait",
+      "--binary",
+      stubBinary(dir),
+      "--runs",
+      "2",
+      "--warm-runs",
+      "1",
+      "--out",
+      join(dir, "data"),
+      "--json",
+      json,
+      "--format",
+      "json",
+    ])
+    for (const s of spies) s.mockRestore()
+
+    expect(code).toBe(0)
+    const report = JSON.parse(readFileSync(json, "utf8"))
+    expect(report.label).toBe("stub")
+    expect(report.cold.stats.runs).toBe(2)
+    expect(report.warm.stats.runs).toBe(1)
+    expect(report.cold.phases).toEqual({ manifest: 10, options: 20, total: 40 })
+    expect(report.cold.warnings.count).toBe(1)
+    expect(report.cold.warnings.degraded).toBe(false)
+    expect(report.machine.nproc).toBeGreaterThan(0)
+    expect(report.notes.length).toBeGreaterThan(0)
+    // Provenance degrades to a string rather than throwing: this suite also
+    // runs inside a nix build sandbox, which has no `nix` and no git checkout.
+    expect(typeof report.commit).toBe("string")
+    expect(typeof report.machine.nix).toBe("string")
+  })
+
+  test("a failed extraction is not a benchmark", async () => {
+    const spies = quiet()
+    const dir = mkdtempSync(join(tmpdir(), "bench-main-fail-"))
+    const code = await main([
+      ".",
+      "--no-build",
+      "--no-wait",
+      "--binary",
+      stubBinary(dir, 1),
+      "--runs",
+      "1",
+      "--warm-runs",
+      "1",
+      "--out",
+      join(dir, "data"),
+    ])
+    for (const s of spies) s.mockRestore()
+    expect(code).toBe(1)
+  })
+
+  test("refuses a binary that is not there, and bad flags", async () => {
+    const spies = quiet()
+    const missing = await main([".", "--no-build", "--no-wait", "--binary", "/nope/flake-explorer"])
+    const bad = await main(["--bogus"])
+    for (const s of spies) s.mockRestore()
+    expect(missing).toBe(1)
+    expect(bad).toBe(1)
   })
 })
 

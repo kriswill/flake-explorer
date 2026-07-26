@@ -347,9 +347,17 @@ export function renderMarkdown(r: Report): string {
 
 // ---------------------------------------------------------------- spawning
 
+/** Provenance for the report — git, nix. Absent or failing tools leave the
+ *  field empty rather than killing the run: spawnSync THROWS on a missing
+ *  executable, which is how a `nix`-less sandbox turned a report field into a
+ *  crash. Better an "unknown" commit than no numbers. */
 function capture(cmd: string[], cwd = ROOT): string {
-  const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" })
-  return p.success ? new TextDecoder().decode(p.stdout).trim() : ""
+  try {
+    const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" })
+    return p.success ? new TextDecoder().decode(p.stdout).trim() : ""
+  } catch {
+    return ""
+  }
 }
 
 /** GNU time, not the shell builtin, and only if it understands -v. */
@@ -385,8 +393,14 @@ export function countExtractions(ps: string, ignorePids: number[] = []): number 
 /** Teammates and the coordinator share this machine, and a 24-core nix eval
  *  next door invalidates a sample. */
 function competingExtractions(): number {
-  const p = Bun.spawnSync(["ps", "-eo", "pid=,args="], { stdout: "pipe", stderr: "pipe" })
-  return countExtractions(new TextDecoder().decode(p.stdout), [process.pid])
+  try {
+    const p = Bun.spawnSync(["ps", "-eo", "pid=,args="], { stdout: "pipe", stderr: "pipe" })
+    return countExtractions(new TextDecoder().decode(p.stdout), [process.pid])
+  } catch {
+    // No ps (a build sandbox, a minimal container): measure rather than refuse,
+    // and let the load average in the report speak for the machine instead.
+    return 0
+  }
 }
 
 async function waitForQuiet(enabled: boolean): Promise<void> {
