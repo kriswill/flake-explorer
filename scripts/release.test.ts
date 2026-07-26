@@ -100,6 +100,26 @@ describe("cli (fixture root)", () => {
     }
   }
 
+  // The workspace shape that broke the v0.6.0 release: the workspace version
+  // and the root crate's requirement on the extract crate must move together,
+  // and Cargo.lock carries an entry per crate. A dependency pinned at the app's
+  // own version string must not be touched.
+  const CARGO_TOML = `[workspace.package]
+version = "0.1.0"
+
+[dependencies]
+flake-explorer-extract = { path = "crates/extract", version = "0.1.0" }
+coincidence = { version = "0.1.0" }
+`
+  const CARGO_LOCK = `[[package]]
+name = "flake-explorer"
+version = "0.1.0"
+
+[[package]]
+name = "flake-explorer-extract"
+version = "0.1.0"
+`
+
   test("bump patch edits both files and prints the version", async () => {
     const root = fixtureRoot()
     const r = await run(root, "bump", "patch")
@@ -109,6 +129,33 @@ describe("cli (fixture root)", () => {
     const changelog = readFileSync(join(root, "CHANGELOG.md"), "utf8")
     expect(changelog).toContain("## [0.1.1] — ")
     expect(changelog).toContain(`[0.1.1]: ${REPO}/compare/v0.1.0...v0.1.1`)
+  })
+
+  test("bump moves the workspace version, the extract-crate requirement, and both lock entries", async () => {
+    const root = fixtureRoot()
+    writeFileSync(join(root, "Cargo.toml"), CARGO_TOML)
+    writeFileSync(join(root, "Cargo.lock"), CARGO_LOCK)
+    const r = await run(root, "bump", "patch")
+    expect(r.exitCode).toBe(0)
+    const cargo = readFileSync(join(root, "Cargo.toml"), "utf8")
+    expect(cargo).toContain('[workspace.package]\nversion = "0.1.1"')
+    expect(cargo).toContain('path = "crates/extract", version = "0.1.1"')
+    expect(cargo).toContain('coincidence = { version = "0.1.0" }')
+    const lock = readFileSync(join(root, "Cargo.lock"), "utf8")
+    expect(lock).toContain('name = "flake-explorer"\nversion = "0.1.1"')
+    expect(lock).toContain('name = "flake-explorer-extract"\nversion = "0.1.1"')
+  })
+
+  test("bump refuses a Cargo.toml missing an expected version spot, writing nothing", async () => {
+    const root = fixtureRoot()
+    writeFileSync(
+      join(root, "Cargo.toml"),
+      CARGO_TOML.replace('path = "crates/extract", version = "0.1.0"', 'path = "crates/extract"'),
+    )
+    writeFileSync(join(root, "Cargo.lock"), CARGO_LOCK)
+    await expect(run(root, "bump", "patch")).rejects.toThrow("Cargo.toml bump missed")
+    expect(readFileSync(join(root, "package.json"), "utf8")).toContain('"version": "0.1.0"')
+    expect(readFileSync(join(root, "Cargo.lock"), "utf8")).not.toContain("0.1.1")
   })
 
   test("notes prints a section; bad usage exits 1", async () => {
