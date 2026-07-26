@@ -1,0 +1,334 @@
+// The measuring parts of the bench harness, pinned without spawning nix: a
+// benchmark that mis-parses its own instrumentation reports confident wrong
+// numbers, which is worse than reporting none. Everything here is pure — the
+// spawning half is exercised by running the script.
+
+import { describe, expect, spyOn, test } from "bun:test"
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import {
+  countExtractions,
+  DEGRADED_WARNING,
+  main,
+  medianOf,
+  parseArgs,
+  parseGnuTime,
+  parseTimings,
+  phaseMedians,
+  renderMarkdown,
+  type Sample,
+  statsOf,
+  summarizeWarnings,
+} from "./bench-extract"
+
+const GNU_TIME = `	Command being timed: "flake-explorer extract"
+	User time (seconds): 526.02
+	System time (seconds): 81.03
+	Percent of CPU this job got: 404%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 2:29.91
+	Maximum resident set size (kbytes): 3145728
+	Exit status: 0
+`
+
+const TIMED_STDERR = `timing: manifest 97ms
+timing: reconcile 0ms
+timing:   options nixos/mini 58ms
+timing: options 58ms
+timing:   package packages/x86_64-linux/mini 94ms
+timing:   package formatter/x86_64-linux 89ms
+timing: packages 682ms
+timing: total 856ms
+`
+
+describe("parseArgs", () => {
+  test("takes the flakeref positionally and defaults the rest", () => {
+    const o = parseArgs(["./fixtures/mini-flake"])
+    expect(o.flakeRef).toBe("./fixtures/mini-flake")
+    expect(o.label).toBe("mini-flake")
+    expect(o.coldRuns).toBe(3)
+    expect(o.warmRuns).toBe(3)
+    expect(o.extractArgs).toEqual(["--all"])
+    expect(o.build).toBe(true)
+  })
+
+  test("reads the flags", () => {
+    const o = parseArgs([
+      "~/src/dotfiles",
+      "--label",
+      "dotfiles",
+      "--runs",
+      "1",
+      "--warm-runs",
+      "2",
+      "--json",
+      "out.json",
+      "--no-build",
+      "--extract-args",
+      "--all --all-systems",
+    ])
+    expect(o.label).toBe("dotfiles")
+    expect(o.coldRuns).toBe(1)
+    expect(o.warmRuns).toBe(2)
+    expect(o.jsonPath).toBe("out.json")
+    expect(o.build).toBe(false)
+    expect(o.extractArgs).toEqual(["--all", "--all-systems"])
+  })
+
+  test("refuses what it cannot measure", () => {
+    expect(() => parseArgs([])).toThrow("flakeref")
+    expect(() => parseArgs([".", "--runs", "0"])).toThrow("--runs")
+    expect(() => parseArgs([".", "--runs"])).toThrow("expects a value")
+    expect(() => parseArgs([".", "--bogus"])).toThrow("unknown flag")
+  })
+})
+
+describe("statsOf", () => {
+  test("min, median, mean, max and spread", () => {
+    const s = statsOf([300, 100, 200])
+    expect(s.runs).toBe(3)
+    expect(s.minMs).toBe(100)
+    expect(s.medianMs).toBe(200)
+    expect(s.meanMs).toBe(200)
+    expect(s.maxMs).toBe(300)
+    expect(s.stddevMs).toBeCloseTo(81.65, 1)
+  })
+
+  test("an even count averages the middle pair", () => {
+    expect(medianOf([1, 2, 3, 4])).toBe(2.5)
+    expect(medianOf([])).toBe(0)
+  })
+})
+
+describe("parseGnuTime", () => {
+  test("pulls CPU, cpu-seconds and peak RSS out of -v output", () => {
+    const t = parseGnuTime(GNU_TIME)
+    expect(t.userSeconds).toBe(526.02)
+    expect(t.systemSeconds).toBe(81.03)
+    expect(t.cpuPercent).toBe(404)
+    expect(t.maxRssKb).toBe(3145728)
+  })
+
+  test("absent when the wrapper did not run", () => {
+    const t = parseGnuTime("extracting manifest ...\n")
+    expect(t.cpuPercent).toBeNull()
+    expect(t.maxRssKb).toBeNull()
+  })
+})
+
+describe("parseTimings", () => {
+  test("separates phase totals from the items inside them", () => {
+    const { phases, items } = parseTimings(TIMED_STDERR)
+    expect(phases).toEqual({
+      manifest: 97,
+      reconcile: 0,
+      options: 58,
+      packages: 682,
+      total: 856,
+    })
+    expect(items).toEqual([
+      { phase: "options", id: "nixos/mini", ms: 58 },
+      { phase: "package", id: "packages/x86_64-linux/mini", ms: 94 },
+      { phase: "package", id: "formatter/x86_64-linux", ms: 89 },
+    ])
+  })
+
+  test("an uninstrumented run has no phases", () => {
+    expect(parseTimings("extracting manifest ...\n").phases).toEqual({})
+  })
+
+  test("medians a phase across samples, ignoring samples that lack it", () => {
+    const s = (phases: Record<string, number>) => ({ phases }) as unknown as Sample
+    const med = phaseMedians([s({ manifest: 100 }), s({ manifest: 200, options: 50 })])
+    expect(med).toEqual({ manifest: 150, options: 50 })
+  })
+})
+
+describe("summarizeWarnings", () => {
+  test("counts them and notices the transitive-input degradation", () => {
+    const w = summarizeWarnings(`  warn: a thing went wrong\n  warn: ${DEGRADED_WARNING} — boom\n`)
+    expect(w.count).toBe(2)
+    expect(w.degraded).toBe(true)
+    expect(w.samples[0]).toBe("a thing went wrong")
+  })
+
+  test("a clean run is not degraded", () => {
+    const w = summarizeWarnings("extracting manifest ...\n")
+    expect(w).toEqual({ count: 0, degraded: false, samples: [] })
+  })
+})
+
+describe("countExtractions", () => {
+  // Real `ps -eo pid=,args=` lines from this machine: two coding agents whose
+  // own command line quotes "flake-explorer extract", the zsh wrapper that
+  // launched a run, and the one process that is actually extracting.
+  const PS = [
+    "  809327 /home/k/src/flake-explorer/target/release/flake-explorer extract /home/k/df --out d",
+    "  830290 claude --model opus ... measures `flake-explorer extract <flakeref> --out <tmpdir>`",
+    "  809324 /run/current-system/sw/bin/zsh -c eval 'flake-explorer extract ~/df --out bench'",
+    "  999999 flake-explorer serve /home/k/df",
+    "  777777 /run/current-system/sw/bin/time -v /home/k/b/target/release/flake-explorer extract .",
+  ].join("\n")
+
+  test("counts extractions, not processes that merely name one", () => {
+    // Two: the bare one and the one this harness itself runs under GNU time.
+    expect(countExtractions(PS)).toBe(2)
+  })
+
+  test("ignores the pids it is told to", () => {
+    expect(countExtractions(PS, [809327, 777777])).toBe(0)
+  })
+
+  test("a bare PATH invocation counts", () => {
+    expect(countExtractions("  4242 flake-explorer extract .")).toBe(1)
+  })
+})
+
+describe("main", () => {
+  /** A stand-in extractor: prints the progress and timing lines the harness
+   *  reads, so the driving half can be tested without nix, without a build,
+   *  and in a second. `exit` lets a test make the extraction fail. */
+  function stubBinary(dir: string, exit = 0): string {
+    const path = join(dir, "flake-explorer")
+    writeFileSync(
+      path,
+      [
+        "#!/bin/sh",
+        'echo "extracting manifest of $2 ..."',
+        'echo "timing: manifest 10ms" >&2',
+        'echo "timing:   options nixos/mini 15ms" >&2',
+        'echo "timing: options 20ms" >&2',
+        'echo "  warn: meta unavailable for something" >&2',
+        'echo "timing: total 40ms" >&2',
+        `exit ${exit}`,
+        "",
+      ].join("\n"),
+    )
+    chmodSync(path, 0o755)
+    return path
+  }
+
+  function quiet() {
+    return [spyOn(console, "log"), spyOn(console, "error")].map((s) =>
+      s.mockImplementation(() => {}),
+    )
+  }
+
+  test("runs both legs against the stub and writes an attributable report", async () => {
+    const spies = quiet()
+    const dir = mkdtempSync(join(tmpdir(), "bench-main-"))
+    const json = join(dir, "report.json")
+    const code = await main([
+      ".",
+      "--label",
+      "stub",
+      "--no-build",
+      "--no-wait",
+      "--binary",
+      stubBinary(dir),
+      "--runs",
+      "2",
+      "--warm-runs",
+      "1",
+      "--out",
+      join(dir, "data"),
+      "--json",
+      json,
+      "--format",
+      "json",
+    ])
+    for (const s of spies) s.mockRestore()
+
+    expect(code).toBe(0)
+    const report = JSON.parse(readFileSync(json, "utf8"))
+    expect(report.label).toBe("stub")
+    expect(report.cold.stats.runs).toBe(2)
+    expect(report.warm.stats.runs).toBe(1)
+    expect(report.cold.phases).toEqual({ manifest: 10, options: 20, total: 40 })
+    expect(report.cold.warnings.count).toBe(1)
+    expect(report.cold.warnings.degraded).toBe(false)
+    expect(report.machine.nproc).toBeGreaterThan(0)
+    expect(report.notes.length).toBeGreaterThan(0)
+    // Provenance degrades to a string rather than throwing: this suite also
+    // runs inside a nix build sandbox, which has no `nix` and no git checkout.
+    expect(typeof report.commit).toBe("string")
+    expect(typeof report.machine.nix).toBe("string")
+  })
+
+  test("a failed extraction is not a benchmark", async () => {
+    const spies = quiet()
+    const dir = mkdtempSync(join(tmpdir(), "bench-main-fail-"))
+    const code = await main([
+      ".",
+      "--no-build",
+      "--no-wait",
+      "--binary",
+      stubBinary(dir, 1),
+      "--runs",
+      "1",
+      "--warm-runs",
+      "1",
+      "--out",
+      join(dir, "data"),
+    ])
+    for (const s of spies) s.mockRestore()
+    expect(code).toBe(1)
+  })
+
+  test("refuses a binary that is not there, and bad flags", async () => {
+    const spies = quiet()
+    const missing = await main([".", "--no-build", "--no-wait", "--binary", "/nope/flake-explorer"])
+    const bad = await main(["--bogus"])
+    for (const s of spies) s.mockRestore()
+    expect(missing).toBe(1)
+    expect(bad).toBe(1)
+  })
+})
+
+describe("renderMarkdown", () => {
+  const report = {
+    tool: "bench-extract",
+    schemaVersion: 1,
+    label: "mini-flake",
+    flakeRef: "./fixtures/mini-flake",
+    extractArgs: ["--all"],
+    commit: "37a16e9",
+    dirty: false,
+    startedAt: "2026-07-25T19:00:00.000Z",
+    machine: { nproc: 24, arch: "x64", platform: "linux", nix: "nix 2.34.8", hyperfine: null },
+    cold: {
+      stats: statsOf([1000, 1100, 1200]),
+      phases: { manifest: 100, total: 1100 },
+      cpuPercent: 110,
+      maxRssKb: 1024,
+      warnings: { count: 0, degraded: false, samples: [] },
+      contended: false,
+      loadAvg1: 3.5,
+    },
+    warm: {
+      stats: statsOf([300]),
+      phases: { manifest: 90, total: 300 },
+      cpuPercent: 90,
+      maxRssKb: 512,
+      warnings: { count: 0, degraded: false, samples: [] },
+      contended: false,
+      loadAvg1: 3.5,
+    },
+    notes: ["cold clears the data dir only"],
+  }
+
+  test("a table a human reads and a commit a reader can attribute it to", () => {
+    const md = renderMarkdown(report)
+    expect(md).toContain("mini-flake")
+    expect(md).toContain("37a16e9")
+    expect(md).toContain("| cold |")
+    expect(md).toContain("| warm |")
+    expect(md).toContain("manifest")
+    expect(md).toContain("cold clears the data dir only")
+    // Seconds, not raw milliseconds — the numbers span 0.05s to 150s.
+    expect(md).toContain("1.10")
+    // Load average: the neighbours that skew a sample are not always
+    // extractions, so the report says how busy the machine was regardless.
+    expect(md).toContain("3.5")
+  })
+})

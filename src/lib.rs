@@ -13,6 +13,7 @@ pub mod export;
 pub mod page;
 pub mod reverse_deps;
 pub mod serve;
+pub mod timing;
 
 // Re-exported so `flake_explorer::schema` (and `crate::schema` from the
 // modules above) keeps naming the one shared definition rather than a second
