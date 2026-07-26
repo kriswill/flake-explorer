@@ -10,6 +10,9 @@
     "url": "git+https://github.com/kriswill/flake-explorer.git"
   },
   "homepage": "https://github.com/kriswill/flake-explorer#readme",
+  "bugs": {
+    "url": "https://github.com/kriswill/flake-explorer/issues"
+  },
   "keywords": [
     "nix",
     "flake",

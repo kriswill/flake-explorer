@@ -69,7 +69,7 @@ jobs:
       # main package ships the launcher + the SPA bundle, so build the bundle
       # and stage the package exactly as `npm release` will.
       - run: bun install --frozen-lockfile
-      - run: bun scripts/bundle-app.ts
+      - run: bun scripts/bundle-app.ts --readable
       - run: bun scripts/build-npm.ts --main
       - run: cd dist/npm/flake-explorer && npm pack --dry-run
 
