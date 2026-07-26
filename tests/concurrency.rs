@@ -78,4 +78,29 @@ async fn the_unit_pass_overlaps_and_stays_under_the_gate() {
         "peak concurrent nix processes was {peak}, over the gate's {JOBS} — \
          something is forking outside run_nix::run's gate"
     );
+
+    // Configurations and packages together. Neither pass can reach 6 alone —
+    // the fixture has five packages and its option tree splits into three
+    // chunks — so this only holds if the two are in flight at the same time.
+    // That overlap is the point: against a real flake the option walk of one
+    // large configuration is most of the wall clock, and everything else is
+    // small work that has no reason to wait its turn behind it.
+    reset_peak_nix_in_flight();
+    extract(
+        &flake_ref,
+        &tmp.0.join("all"),
+        Selection::All,
+        Selection::All,
+    )
+    .await;
+    let peak = peak_nix_in_flight();
+    assert!(
+        peak >= 6,
+        "peak concurrent nix processes was {peak} — the configuration pass and \
+         the package pass are still taking turns"
+    );
+    assert!(
+        peak <= JOBS,
+        "peak concurrent nix processes was {peak}, over the gate's {JOBS}"
+    );
 }
