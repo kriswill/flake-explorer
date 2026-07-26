@@ -45,7 +45,7 @@ async fn the_unit_pass_overlaps_and_stays_under_the_gate() {
         return;
     }
     // SAFETY: single test in this binary, set before anything reads it.
-    unsafe { std::env::set_var("FLAKE_EXPLORER_NIX_JOBS", &JOBS.to_string()) };
+    unsafe { std::env::set_var("FLAKE_EXPLORER_NIX_JOBS", JOBS.to_string()) };
     assert_eq!(
         nix_jobs(),
         JOBS,
