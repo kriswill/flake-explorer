@@ -8,7 +8,7 @@ use crate::run_nix::{
 use crate::schema::*;
 use indexmap::IndexMap;
 use serde_json::Value;
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -60,6 +60,12 @@ struct Chunk {
     path: Vec<String>,
     children: Option<Vec<String>>,
     rung: usize,
+    /// Largest batch this chunk may join, halved every time a batch holding it
+    /// dies. Without it the scheduler has no memory: a failed batch's halves go
+    /// back on the queue in sorted order, sit adjacent, and get picked up as
+    /// the same batch that just failed — forever. Halving is what makes the
+    /// sequence terminate, at 1, which is the per-chunk path.
+    cap: usize,
 }
 
 /// The option path a chunk speaks for: its own path, plus the single child once
@@ -99,58 +105,70 @@ type KeyedWarning = (Vec<String>, String);
 /// workers idle at the tail.
 const BATCH_MAX: usize = 8;
 
-/// Group the pending chunks into batches.
+fn chunk_order(a: &Chunk, b: &Chunk) -> std::cmp::Ordering {
+    a.rung
+        .cmp(&b.rung)
+        .then_with(|| a.path.cmp(&b.path))
+        .then_with(|| a.children.cmp(&b.children))
+}
+
+/// Put a chunk back in sorted position. The queue is kept ordered rather than
+/// FIFO so that a batch groups chunks that are ADJACENT in the option tree,
+/// which is also how the flake groups them — and so that what a batch contains
+/// does not depend on the order failures happened to push things back.
+fn enqueue(queue: &mut Vec<Chunk>, c: Chunk) {
+    let at = queue.partition_point(|q| chunk_order(q, &c).is_lt());
+    queue.insert(at, c);
+}
+
+/// Take the next batch off the front of the sorted queue.
 ///
-/// The sort is not cosmetic. Chunks arrive back on the queue as failures split
-/// them, so queue ORDER carries scheduling; sorting makes a batch a function of
-/// WHICH chunks are pending and nothing else. The outcome would be stable
-/// either way — a poisoned batch splits until each chunk is evaluated alone, so
-/// no chunk's final result depends on its batch-mates — but reproducible
-/// batching also makes a slow run reproducible, which is what makes it
-/// debuggable.
+/// Taken when a worker frees rather than planned per round. The round-planned
+/// version measured 8.7% SLOWER than no batching at all on a real 15k-option
+/// configuration: every split waited for the round to drain before it could run,
+/// and that configuration has fourteen poisoned option paths, so it splits
+/// constantly and spent its life in round tails.
 ///
-/// Batches stay at one rung: the detail level is a property of the eval, not of
-/// a chunk inside it, so mixing rungs would force the whole batch down to the
-/// most degraded member's level.
+/// Size targets roughly three batches per worker, so no worker is left holding
+/// a long batch while its neighbours idle — chunks vary by an order of
+/// magnitude in cost. It shrinks as the queue drains, which is what keeps the
+/// tail balanced. Below that density batches of one fall out on their own, and
+/// that is correct: work that already fits the pool has nothing to gain from
+/// sharing a process.
 ///
-/// Sized to leave roughly three batches per worker rather than one: chunks vary
-/// by an order of magnitude in cost, and a worker holding one huge batch while
-/// its neighbours idle is how you turn a parallel pass back into a serial one.
-/// With fewer chunks than that, batches of one fall out naturally — and are
-/// correct, since work that already fits the pool concurrently has nothing to
-/// gain from sharing a process.
-fn plan_batches(mut pending: Vec<Chunk>, workers: usize) -> VecDeque<Vec<Chunk>> {
-    pending.sort_by(|a, b| {
-        a.rung
-            .cmp(&b.rung)
-            .then_with(|| a.path.cmp(&b.path))
-            .then_with(|| a.children.cmp(&b.children))
-    });
-    let per = pending
+/// A batch stays at one rung and within the members' caps. Both are containment:
+/// the rung is a property of the eval, so mixing would drag everyone down to the
+/// most degraded member, and the cap is what stops a failed batch from being
+/// reassembled out of its own halves.
+fn take_batch(queue: &mut Vec<Chunk>, workers: usize) -> Option<Vec<Chunk>> {
+    if queue.is_empty() {
+        return None;
+    }
+    let want = queue
         .len()
         .div_ceil(workers.saturating_mul(3).max(1))
         .clamp(1, BATCH_MAX);
-    let mut out: VecDeque<Vec<Chunk>> = VecDeque::new();
-    let mut cur: Vec<Chunk> = Vec::new();
-    for c in pending {
-        if !cur.is_empty() && (cur[0].rung != c.rung || cur.len() >= per) {
-            out.push_back(std::mem::take(&mut cur));
-        }
-        cur.push(c);
+    let head = queue.remove(0);
+    let limit = want.min(head.cap);
+    let rung = head.rung;
+    let mut batch = vec![head];
+    while batch.len() < limit
+        && queue
+            .first()
+            .is_some_and(|c| c.rung == rung && c.cap >= limit)
+    {
+        batch.push(queue.remove(0));
     }
-    if !cur.is_empty() {
-        out.push_back(cur);
-    }
-    out
+    Some(batch)
 }
 
 struct Shared {
-    /// Chunks discovered mid-round (splits, rung escalations). Re-planned into
-    /// batches at the start of the next round rather than run one at a time, so
-    /// the failure path amortizes its fixpoints too — which is where most of
-    /// the evals are on a configuration with a poisoned namespace.
-    queue: Mutex<VecDeque<Chunk>>,
-    batches: Mutex<VecDeque<Vec<Chunk>>>,
+    /// Everything still to do, kept in sorted order. Workers take batches off
+    /// the front as they free; splits and rung escalations go straight back in,
+    /// so the failure path amortizes its fixpoints too rather than waiting for
+    /// a barrier — which is where most of the evals are on a configuration with
+    /// poisoned namespaces.
+    queue: Mutex<Vec<Chunk>>,
     results: Mutex<Vec<RawOption>>,
     warnings: Mutex<Vec<KeyedWarning>>,
     done: std::sync::atomic::AtomicUsize,
@@ -200,35 +218,30 @@ pub async fn extract_options(
     .await?;
 
     let shared = Arc::new(Shared {
-        queue: Mutex::new(
-            namespaces
+        queue: Mutex::new({
+            let mut q: Vec<Chunk> = namespaces
                 .into_iter()
                 .map(|n| Chunk {
                     path: vec![n],
                     children: None,
                     rung: 0,
+                    cap: BATCH_MAX,
                 })
-                .collect(),
-        ),
-        batches: Mutex::new(VecDeque::new()),
+                .collect();
+            q.sort_by(chunk_order);
+            q
+        }),
         results: Mutex::new(Vec::new()),
         warnings: Mutex::new(Vec::new()),
         done: std::sync::atomic::AtomicUsize::new(0),
         in_flight: std::sync::atomic::AtomicUsize::new(0),
     });
 
-    // Each round plans the whole pending set into batches and drains them;
-    // whatever the round discovers (splits, rung escalations) is planned by the
-    // next one. Workers exit when the batch queue is empty even though a
-    // sibling may still be splitting, so the outer loop runs until nothing is
-    // pending anywhere.
+    // Workers exit when the queue is momentarily empty even though a sibling
+    // may still push splits; loop until the queue fully drains.
     loop {
-        {
-            let pending: Vec<Chunk> = shared.queue.lock().await.drain(..).collect();
-            if pending.is_empty() {
-                break;
-            }
-            *shared.batches.lock().await = plan_batches(pending, concurrency);
+        if shared.queue.lock().await.is_empty() {
+            break;
         }
         let mut handles = Vec::new();
         for _ in 0..concurrency {
@@ -248,6 +261,7 @@ pub async fn extract_options(
                     &label,
                     timeout,
                     skip_invisible,
+                    concurrency,
                     on_progress,
                 )
                 .await;
@@ -327,11 +341,12 @@ async fn worker(
     label: &str,
     timeout: Duration,
     skip_invisible: bool,
+    workers: usize,
     on_progress: Option<ProgressFn>,
 ) {
     use std::sync::atomic::Ordering;
     loop {
-        let batch = { shared.batches.lock().await.pop_front() };
+        let batch = { take_batch(&mut *shared.queue.lock().await, workers) };
         let Some(batch) = batch else { return };
         let n = batch.len();
         // Progress counts CHUNKS, not batches — the caller's totals mean the
@@ -352,11 +367,8 @@ async fn worker(
         shared.in_flight.fetch_sub(n, Ordering::SeqCst);
         let done = shared.done.fetch_add(n, Ordering::SeqCst) + n;
         if let Some(cb) = &on_progress {
-            let queued: usize = shared.batches.lock().await.iter().map(Vec::len).sum();
-            let total = done
-                + queued
-                + shared.queue.lock().await.len()
-                + shared.in_flight.load(Ordering::SeqCst);
+            let total =
+                done + shared.queue.lock().await.len() + shared.in_flight.load(Ordering::SeqCst);
             cb(OptionsProgress {
                 done,
                 total,
@@ -448,12 +460,18 @@ async fn run_batch(
         // about any individual chunk, so split it and ask smaller questions —
         // never degrade, which would charge the healthy members for one bad one.
         _ => {
-            let mid = batch.len().div_ceil(2);
-            let mut q = shared.batches.lock().await;
+            // Halve the cap as well as the batch. The halves go back in sorted
+            // order, land adjacent, and would otherwise be picked up as exactly
+            // the batch that just died.
             let mut batch = batch;
+            let cap = (batch.len() / 2).max(1);
+            let mid = batch.len().div_ceil(2);
             let tail = batch.split_off(mid);
-            q.push_front(tail);
-            q.push_front(batch);
+            let mut q = shared.queue.lock().await;
+            for mut c in batch.into_iter().chain(tail) {
+                c.cap = cap;
+                enqueue(&mut q, c);
+            }
         }
     }
 }
@@ -512,14 +530,20 @@ async fn run_chunk(
     {
         let mid = children.len().div_ceil(2);
         let mut q = shared.queue.lock().await;
-        q.push_back(Chunk {
-            children: Some(children[..mid].to_vec()),
-            ..chunk.clone()
-        });
-        q.push_back(Chunk {
-            children: Some(children[mid..].to_vec()),
-            ..chunk
-        });
+        enqueue(
+            &mut q,
+            Chunk {
+                children: Some(children[..mid].to_vec()),
+                ..chunk.clone()
+            },
+        );
+        enqueue(
+            &mut q,
+            Chunk {
+                children: Some(children[mid..].to_vec()),
+                ..chunk
+            },
+        );
         return;
     }
     // Single child descends a level; a bare namespace splits by its children.
@@ -547,21 +571,30 @@ async fn run_chunk(
         if let Ok(kids) = kids
             && !kids.is_empty()
         {
-            shared.queue.lock().await.push_back(Chunk {
-                path: deeper,
-                children: Some(kids),
-                rung: chunk.rung,
-            });
+            enqueue(
+                &mut *shared.queue.lock().await,
+                Chunk {
+                    path: deeper,
+                    children: Some(kids),
+                    rung: chunk.rung,
+                    // A fresh split earns a fresh allowance: its parent failing
+                    // says nothing about children it has never been asked for.
+                    cap: BATCH_MAX,
+                },
+            );
             return;
         }
         // unlistable — fall through to rung escalation
     }
     // Unsplittable: walk down the ladder, then give up.
     if chunk.rung + 1 < LADDER.len() {
-        shared.queue.lock().await.push_back(Chunk {
-            rung: chunk.rung + 1,
-            ..chunk
-        });
+        enqueue(
+            &mut *shared.queue.lock().await,
+            Chunk {
+                rung: chunk.rung + 1,
+                ..chunk
+            },
+        );
         return;
     }
     shared.warnings.lock().await.push((
