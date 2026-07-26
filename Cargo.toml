@@ -16,7 +16,7 @@ members = ["crates/extract"]
 default-members = [".", "crates/extract"]
 
 [workspace.package]
-version = "0.5.1"
+version = "0.6.0"
 edition = "2024"
 license = "MIT"
 
@@ -54,7 +54,7 @@ description = "Interactive visualizer for Nix flakes: outputs/module tree, optio
 # extraction crate, which is the tree it hashes. sha2/hex/chrono/tree-sitter
 # and the rest of the extractor's deps went with it.
 [dependencies]
-flake-explorer-extract = { path = "crates/extract", version = "0.5.1" }
+flake-explorer-extract = { path = "crates/extract", version = "0.6.0" }
 anyhow.workspace = true
 axum.workspace = true
 futures.workspace = true
