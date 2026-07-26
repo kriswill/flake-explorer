@@ -104,12 +104,9 @@ pub async fn extract_options(
     opts: ExtractOptionsOpts,
 ) -> anyhow::Result<OptionsResult> {
     let t0 = Instant::now();
-    let concurrency = opts.concurrency.unwrap_or_else(|| {
-        let cores = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4);
-        cores.saturating_sub(2).clamp(2, 8)
-    });
+    // One worker per slot in the shared nix gate: more would only queue there,
+    // and the sizing itself now lives next to the gate that enforces it.
+    let concurrency = opts.concurrency.unwrap_or_else(crate::run_nix::nix_jobs);
     let label = format!("{}/{}", kind.as_str(), name);
 
     let namespaces: Vec<String> = eval_extract(

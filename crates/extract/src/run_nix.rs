@@ -11,6 +11,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
@@ -85,7 +86,84 @@ const COMMON_OPTS: [&str; 4] = [
 ];
 const COMMON_FEATURES: &str = "nix-command flakes";
 
+// ------------------------------------------------------------------- the gate
+//
+// Every `nix` invocation in the extractor goes through `run` below, so `run` is
+// the one place that can put a ceiling on how many of them exist at once. It is
+// deliberately not per-pass: the options chunk walk, the package pass and the
+// manifest's three opening evals all draw from THIS counter, so parallelizing
+// another pass widens the extraction without widening the fleet of evals. A
+// per-pass pool would multiply — `--all` on a flake with eight configurations
+// and forty packages would otherwise fork one eval per unit of work, and a nix
+// eval is measured in hundreds of megabytes.
+//
+// A permit is held across the subprocess and nothing else. `run` never calls
+// `run`, so no permit holder can ever wait on a permit, which is what makes the
+// whole arrangement deadlock-free without any ordering discipline at the call
+// sites.
+
+/// Concurrent `nix` processes allowed at once. Two below the core count so an
+/// extraction leaves the machine usable, clamped to 2..=8 because past that the
+/// limit is memory rather than CPU. `FLAKE_EXPLORER_NIX_JOBS` overrides it —
+/// the tests pin it to make the bound machine-independent, and a user on a
+/// memory-tight host can turn it down.
+pub fn nix_jobs() -> usize {
+    static JOBS: OnceLock<usize> = OnceLock::new();
+    *JOBS.get_or_init(|| {
+        if let Some(n) = std::env::var("FLAKE_EXPLORER_NIX_JOBS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|n| *n > 0)
+        {
+            return n;
+        }
+        let cores = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+        cores.saturating_sub(2).clamp(2, 8)
+    })
+}
+
+static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+static PEAK_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+/// Holds one slot in the gate; releases it on drop, including on the error and
+/// timeout paths.
+pub struct NixSlot(#[allow(dead_code)] tokio::sync::SemaphorePermit<'static>);
+
+impl Drop for NixSlot {
+    fn drop(&mut self) {
+        IN_FLIGHT.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Wait for a slot in the gate. Public so the bound can be tested on the
+/// mechanism rather than inferred from a caller's timings.
+pub async fn enter_nix_gate() -> NixSlot {
+    static GATE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+    let permit = GATE
+        .get_or_init(|| tokio::sync::Semaphore::new(nix_jobs()))
+        .acquire()
+        .await
+        .expect("the nix gate is never closed");
+    let now = IN_FLIGHT.fetch_add(1, Ordering::SeqCst) + 1;
+    PEAK_IN_FLIGHT.fetch_max(now, Ordering::SeqCst);
+    NixSlot(permit)
+}
+
+/// Most `nix` processes alive at once since the last reset. The observable half
+/// of the gate: a pass that is supposed to overlap its subprocesses can be
+/// checked for actually doing so, without a wall-clock assertion.
+pub fn peak_nix_in_flight() -> usize {
+    PEAK_IN_FLIGHT.load(Ordering::SeqCst)
+}
+
+pub fn reset_peak_nix_in_flight() {
+    PEAK_IN_FLIGHT.store(IN_FLIGHT.load(Ordering::SeqCst), Ordering::SeqCst);
+}
+
 pub async fn run(args: &[&str], timeout: Duration) -> Result<String, NixError> {
+    let _slot = enter_nix_gate().await;
     let mut cmd = Command::new("nix");
     cmd.args(COMMON_OPTS).arg(COMMON_FEATURES).args(args);
     cmd.stdout(Stdio::piped())
@@ -565,5 +643,37 @@ mod tests {
     #[test]
     fn cache_into_reports_failure_when_no_candidate_works() {
         assert_eq!(cache_into([], "x.nix", "hello"), None);
+    }
+
+    /// The pool is sized off the host, so the only machine-independent facts
+    /// are the clamp bounds — a 1-core builder must still get 2, and a 128-core
+    /// one must not get 128 evals.
+    #[test]
+    fn nix_jobs_stays_inside_the_clamp() {
+        let n = nix_jobs();
+        assert!((2..=8).contains(&n), "nix_jobs() = {n}");
+    }
+
+    /// The fork-bomb constraint, checked on the mechanism rather than on a
+    /// caller: however many callers ask at once, the number holding a slot at
+    /// any instant never exceeds the limit — and with more askers than slots,
+    /// it does reach it (a limiter that serialized everything would also
+    /// satisfy the upper bound alone).
+    #[tokio::test]
+    async fn the_gate_bounds_and_fills_concurrent_callers() {
+        reset_peak_nix_in_flight();
+        let limit = nix_jobs();
+        let mut handles = Vec::new();
+        for _ in 0..limit * 4 {
+            handles.push(tokio::spawn(async {
+                let _slot = enter_nix_gate().await;
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }));
+        }
+        for h in handles {
+            h.await.unwrap();
+        }
+        let peak = peak_nix_in_flight();
+        assert_eq!(peak, limit, "peak {peak} against a limit of {limit}");
     }
 }
