@@ -546,8 +546,22 @@ let
   walkRoot = rootOf path childNames;
 
   # One batch entry. Positional: the caller reads results[i] as chunks[i].
+  # Every attr name actually present at a path, whatever the caller asked to be
+  # walked. This is how a caller replaying a remembered split checks that the
+  # split still describes this flake: it recorded which children it divided a
+  # namespace into, and if the namespace has since gained or lost one, the
+  # remembered division would silently skip the difference. Free to compute —
+  # the attrset is already forced by the walk beside it.
+  childrenAt =
+    p:
+    let
+      st = descend cfg.options p;
+    in
+    if isOption st || !builtins.isAttrs st then [ ] else builtins.attrNames st;
+
   chunkResult = c: {
     options = walk (rootOf (c.path or [ ]) (c.childNames or null));
+    children = childrenAt (c.path or [ ]);
   };
 
   # ----------------------------------------------------------------- package
@@ -689,4 +703,7 @@ else if mode == "package" then
 else if mode == "optionsBatch" then
   { results = map chunkResult chunks; }
 else
-  { options = walk walkRoot; }
+  {
+    options = walk walkRoot;
+    children = childrenAt path;
+  }

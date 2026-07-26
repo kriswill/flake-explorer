@@ -110,6 +110,9 @@ fn main() {
             concurrency: jobs,
             skip_invisible: true,
             on_progress: Some(on_progress),
+            // A probe measures the cold walk on purpose: starting from a
+            // remembered split would hide the discovery cost it exists to time.
+            hint: None,
         },
     ));
     let wall_ms = started.elapsed().as_millis();
