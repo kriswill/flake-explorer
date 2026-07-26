@@ -69,6 +69,15 @@ struct Chunk {
     /// the same batch that just failed — forever. Halving is what makes the
     /// sequence terminate, at 1, which is the per-chunk path.
     cap: usize,
+    /// Which generation of its namespace this chunk belongs to.
+    ///
+    /// Discarding a namespace has to un-count work that is still in flight: a
+    /// chunk a worker already took is in neither the queue nor the results, so
+    /// clearing both leaves it free to append into the walk that replaced it.
+    /// Bumping the generation makes that structural rather than a matter of
+    /// timing — a chunk from a superseded generation is rejected when it tries
+    /// to contribute, however late it arrives.
+    epoch: u64,
 }
 
 /// How one configuration's option tree was found to split, recorded so the next
@@ -129,6 +138,16 @@ async fn verify_hint(shared: &Shared, chunk: &Chunk, actual: &[String]) {
             return;
         }
     }
+    // Retire this namespace's generation BEFORE clearing anything. Chunks a
+    // worker has already taken are in neither the queue nor the results, so the
+    // clearing below cannot reach them; the bump is what stops them appending
+    // into the walk that is about to replace them.
+    let epoch = {
+        let mut epochs = shared.epochs.lock().await;
+        let e = epochs.entry(ns.clone()).or_insert(0);
+        *e += 1;
+        *e
+    };
     let is_ns = |p: &[String]| p.first() == Some(ns);
     shared.results.lock().await.retain(|o| !is_ns(&o.loc));
     shared.warnings.lock().await.retain(|(k, _)| !is_ns(k));
@@ -142,8 +161,18 @@ async fn verify_hint(shared: &Shared, chunk: &Chunk, actual: &[String]) {
             children: None,
             rung: 0,
             cap: BATCH_MAX,
+            epoch,
         },
     );
+}
+
+/// Whether a finished chunk still speaks for its namespace, or has been
+/// superseded by a discard while it was in flight.
+async fn current(shared: &Shared, chunk: &Chunk) -> bool {
+    let Some(ns) = chunk.path.first() else {
+        return true;
+    };
+    chunk.epoch == shared.epochs.lock().await.get(ns).copied().unwrap_or(0)
 }
 
 /// The shape of a chunk, without its rung — what the next walk may start from.
@@ -267,11 +296,29 @@ fn seed_from_hint(namespaces: &[String], hint: &[ChunkHint]) -> (Vec<Chunk>, Exp
                 .or_default()
                 .extend(kids.iter().cloned()),
         }
+        // A child that had to be descended into is accounted for HERE, one
+        // level down, and is named by no entry at its parent. Folding it into
+        // the parent's set is what makes "what the plan accounts for" mean the
+        // same thing as "what the eval will report".
+        //
+        // Getting this wrong is not a missed optimization. The parent looks
+        // short by exactly its descended children, every such namespace is
+        // judged stale on a plan that is perfectly good, and each one is then
+        // discarded and walked a second time.
+        if let Some((child, parent)) = h.path.split_last()
+            && !parent.is_empty()
+        {
+            expected
+                .entry(parent.to_vec())
+                .or_default()
+                .insert(child.clone());
+        }
         out.push(Chunk {
             path: h.path.clone(),
             children: h.children.clone(),
             rung: 0,
             cap: BATCH_MAX,
+            epoch: 0,
         });
     }
     // A path the hint also covers wholesale cannot be missing children.
@@ -285,6 +332,7 @@ fn seed_from_hint(namespaces: &[String], hint: &[ChunkHint]) -> (Vec<Chunk>, Exp
                 children: None,
                 rung: 0,
                 cap: BATCH_MAX,
+                epoch: 0,
             });
         }
     }
@@ -310,6 +358,9 @@ struct Shared {
     /// just replaced would throw it away again, forever.
     expected: ExpectedChildren,
     discarded: Mutex<HashSet<String>>,
+    /// Current generation per namespace; see Chunk::epoch.
+    /// Current generation per namespace; see Chunk::epoch.
+    epochs: Mutex<std::collections::HashMap<String, u64>>,
     warnings: Mutex<Vec<KeyedWarning>>,
     done: std::sync::atomic::AtomicUsize,
     in_flight: std::sync::atomic::AtomicUsize,
@@ -373,6 +424,7 @@ pub async fn extract_options(
                     children: None,
                     rung: 0,
                     cap: BATCH_MAX,
+                    epoch: 0,
                 })
                 .collect();
             q.sort_by(chunk_order);
@@ -384,6 +436,7 @@ pub async fn extract_options(
         queue: Mutex::new(seed),
         expected,
         discarded: Mutex::new(HashSet::new()),
+        epochs: Mutex::new(Default::default()),
         results: Mutex::new(Vec::new()),
         partition: Mutex::new(Vec::new()),
         warnings: Mutex::new(Vec::new()),
@@ -608,11 +661,21 @@ async fn run_batch(
             // takes the same four locks, and discarding a namespace means
             // reaching into the results this loop is still holding open.
             let mut seen: Vec<(Chunk, Vec<String>)> = Vec::new();
+            // Checked before the guards are taken, so the decision to contribute
+            // is made against the same generation the results are appended
+            // under rather than one read earlier and acted on later.
+            let mut live: Vec<bool> = Vec::with_capacity(batch.len());
+            for chunk in &batch {
+                live.push(current(shared, chunk).await);
+            }
             {
                 let mut results = shared.results.lock().await;
                 let mut warnings = shared.warnings.lock().await;
                 let mut partition = shared.partition.lock().await;
-                for (chunk, got) in batch.iter().zip(r.results) {
+                for ((chunk, got), live) in batch.iter().zip(r.results).zip(&live) {
+                    if !*live {
+                        continue;
+                    }
                     if !rung.note.is_empty() {
                         warnings.push((
                             chunk_key(chunk),
@@ -694,8 +757,10 @@ async fn run_chunk(
                     ),
                 ));
             }
-            shared.partition.lock().await.push(hint_of(&chunk));
-            shared.results.lock().await.extend(r.options);
+            if current(shared, &chunk).await {
+                shared.partition.lock().await.push(hint_of(&chunk));
+                shared.results.lock().await.extend(r.options);
+            }
             verify_hint(shared, &chunk, &r.children).await;
             return;
         }
@@ -769,6 +834,7 @@ async fn run_chunk(
                     // A fresh split earns a fresh allowance: its parent failing
                     // says nothing about children it has never been asked for.
                     cap: BATCH_MAX,
+                    epoch: chunk.epoch,
                 },
             );
             return;
@@ -789,6 +855,9 @@ async fn run_chunk(
     // Terminal too. A chunk nobody could evaluate is still part of the shape the
     // next walk should start from, so that it is not rediscovered by failing
     // through the same splits all over again.
+    if !current(shared, &chunk).await {
+        return;
+    }
     shared.partition.lock().await.push(hint_of(&chunk));
     shared.warnings.lock().await.push((
         deeper.clone(),
@@ -967,6 +1036,7 @@ mod batching {
             children: None,
             rung,
             cap,
+            epoch: 0,
         }
     }
 
