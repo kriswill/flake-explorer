@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Extraction is substantially faster. Configurations, packages, and the
+  manifest's opening calls now run concurrently, every `nix` subprocess
+  drawing from one shared gate sized two below the core count (clamped
+  2–8, overridable with `FLAKE_EXPLORER_NIX_JOBS` on memory-tight
+  hosts). Option chunks are batched into one `nix` process each, so a
+  batch pays the flake-load and module-system setup (~580ms on a real
+  configuration) once instead of per chunk; a failing batch splits
+  rather than degrading, so no chunk loses detail because of who it was
+  batched with. And each extraction now records how the option tree
+  split, so the next extraction of the same configuration — after an
+  upgrade or a refresh — replays that plan instead of rediscovering the
+  poisoned paths by binary search. Measured on a real 15,436-option
+  NixOS configuration: whole-flake `--all` dropped from ~146s to ~94s,
+  single-configuration extraction a further 21% with 39% less peak
+  memory, and a re-extraction with a recorded plan runs 1.82x faster
+  than a cold one with 47% fewer `nix` evaluations. Extracted output is
+  byte-identical throughout.
+- The extraction cache invalidates far less often. Extraction code
+  moved into its own crate (`crates/extract`), and the cache
+  fingerprint now covers exactly that crate, its resolved dependency
+  closure, and the nix version — previously it hashed every source file,
+  so a UI-only patch release threw away every user's cached extractions.
+  The boundary is structural rather than a curated list: code outside
+  the crate cannot participate in extraction, and a write-site test
+  guards against new persistence sneaking into the root crate. This
+  release itself moves the fingerprint, so cached extractions
+  re-extract once on upgrade.
+- Extracted data is now deterministic. Persisted option order and
+  warning order previously depended on which worker finished first, so
+  the same flake could produce different bytes on machines with
+  different core counts — options now sort by source location and
+  warnings by the option path they concern, and a test holds the whole
+  data directory byte-identical across repeated `--all` runs.
+- CI is roughly six times faster (~825s to ~136s): coverage gets a
+  dependency layer that actually matches, checks build in the dev
+  profile without debug info, thin LTO, a parallel job graph, and a
+  cargo cache keyed on `flake.lock` instead of a rustc it never used.
+  The two coverage suites (crate and SPA) now post one clearly labelled
+  PR comment instead of two identical-looking ones.
+
+### Added
+
+- Benchmarking infrastructure, and the baselines it exists to defend.
+  `FLAKE_EXPLORER_TIMINGS=1` makes each extraction pass report its wall
+  clock on stderr without altering stdout by a byte.
+  `scripts/bench-extract.ts` measures cold and warm extractions with
+  per-phase medians, CPU, and peak RSS; `scripts/bench-ab.ts` runs
+  interleaved, lock-guarded A/B comparisons between two binaries, and
+  `scripts/datadir-diff.ts` verifies their outputs byte-for-byte.
+  `bench/BASELINES.md` records what extraction costs at each measured
+  commit, and `bench/PHASE2-RECON.md` documents where the options pass
+  spends its time and why. Measurement only — none of it ships in the
+  binary or touches the extraction fingerprint.
+
+### Fixed
+
+- `serve` no longer re-serves a stale error when a request lands in the
+  window between an extraction finishing and its bookkeeping being
+  cleared: clicking refresh after a failed extraction could return the
+  previous failure without extracting anything. The race required CPU
+  contention to hit, which is why it appeared only as a CI flake.
+
 ## [0.5.1] — 2026-07-25
 
 ### Changed
