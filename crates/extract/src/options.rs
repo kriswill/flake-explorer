@@ -2,11 +2,13 @@
 // the options tree, walked in chunks so an uncatchable eval error degrades
 // instead of killing the whole configuration. Split first, degrade last.
 
-use crate::run_nix::{ExtractArgs, OptionsEval, RawOption, ValueEnvelope, eval_extract};
+use crate::run_nix::{
+    ChunkSpec, ExtractArgs, OptionsBatchEval, OptionsEval, RawOption, ValueEnvelope, eval_extract,
+};
 use crate::schema::*;
 use indexmap::IndexMap;
 use serde_json::Value;
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -58,6 +60,12 @@ struct Chunk {
     path: Vec<String>,
     children: Option<Vec<String>>,
     rung: usize,
+    /// Largest batch this chunk may join, halved every time a batch holding it
+    /// dies. Without it the scheduler has no memory: a failed batch's halves go
+    /// back on the queue in sorted order, sit adjacent, and get picked up as
+    /// the same batch that just failed — forever. Halving is what makes the
+    /// sequence terminate, at 1, which is the per-chunk path.
+    cap: usize,
 }
 
 /// The option path a chunk speaks for: its own path, plus the single child once
@@ -82,8 +90,85 @@ fn chunk_label(c: &Chunk) -> String {
 /// the array is a function of the flake rather than of the pool.
 type KeyedWarning = (Vec<String>, String);
 
+/// Most chunks a single `nix` process is asked to evaluate.
+///
+/// Reaching any option costs the flake + module-system fixpoint first — ~580ms
+/// against a real configuration, of which 18ms is nix's own startup — and
+/// nothing memoizes it across processes: an identical eval repeated costs the
+/// same every time, in this `--expr` shape and in the installable shape nix's
+/// eval cache is built for, on a clean flake. So the only way to stop paying it
+/// per chunk is to stop making a process per chunk.
+///
+/// Bounded rather than unbounded because a batch is also the blast radius of an
+/// uncatchable error and the unit of load balancing: one enormous batch would
+/// re-split its way back down on the first poisoned option, and would leave
+/// workers idle at the tail.
+const BATCH_MAX: usize = 8;
+
+fn chunk_order(a: &Chunk, b: &Chunk) -> std::cmp::Ordering {
+    a.rung
+        .cmp(&b.rung)
+        .then_with(|| a.path.cmp(&b.path))
+        .then_with(|| a.children.cmp(&b.children))
+}
+
+/// Put a chunk back in sorted position. The queue is kept ordered rather than
+/// FIFO so that a batch groups chunks that are ADJACENT in the option tree,
+/// which is also how the flake groups them — and so that what a batch contains
+/// does not depend on the order failures happened to push things back.
+fn enqueue(queue: &mut Vec<Chunk>, c: Chunk) {
+    let at = queue.partition_point(|q| chunk_order(q, &c).is_lt());
+    queue.insert(at, c);
+}
+
+/// Take the next batch off the front of the sorted queue.
+///
+/// Taken when a worker frees rather than planned per round. The round-planned
+/// version measured 8.7% SLOWER than no batching at all on a real 15k-option
+/// configuration: every split waited for the round to drain before it could run,
+/// and that configuration has fourteen poisoned option paths, so it splits
+/// constantly and spent its life in round tails.
+///
+/// Size targets roughly three batches per worker, so no worker is left holding
+/// a long batch while its neighbours idle — chunks vary by an order of
+/// magnitude in cost. It shrinks as the queue drains, which is what keeps the
+/// tail balanced. Below that density batches of one fall out on their own, and
+/// that is correct: work that already fits the pool has nothing to gain from
+/// sharing a process.
+///
+/// A batch stays at one rung and within the members' caps. Both are containment:
+/// the rung is a property of the eval, so mixing would drag everyone down to the
+/// most degraded member, and the cap is what stops a failed batch from being
+/// reassembled out of its own halves.
+fn take_batch(queue: &mut Vec<Chunk>, workers: usize) -> Option<Vec<Chunk>> {
+    if queue.is_empty() {
+        return None;
+    }
+    let want = queue
+        .len()
+        .div_ceil(workers.saturating_mul(3).max(1))
+        .clamp(1, BATCH_MAX);
+    let head = queue.remove(0);
+    let limit = want.min(head.cap);
+    let rung = head.rung;
+    let mut batch = vec![head];
+    while batch.len() < limit
+        && queue
+            .first()
+            .is_some_and(|c| c.rung == rung && c.cap >= limit)
+    {
+        batch.push(queue.remove(0));
+    }
+    Some(batch)
+}
+
 struct Shared {
-    queue: Mutex<VecDeque<Chunk>>,
+    /// Everything still to do, kept in sorted order. Workers take batches off
+    /// the front as they free; splits and rung escalations go straight back in,
+    /// so the failure path amortizes its fixpoints too rather than waiting for
+    /// a barrier — which is where most of the evals are on a configuration with
+    /// poisoned namespaces.
+    queue: Mutex<Vec<Chunk>>,
     results: Mutex<Vec<RawOption>>,
     warnings: Mutex<Vec<KeyedWarning>>,
     done: std::sync::atomic::AtomicUsize,
@@ -133,16 +218,19 @@ pub async fn extract_options(
     .await?;
 
     let shared = Arc::new(Shared {
-        queue: Mutex::new(
-            namespaces
+        queue: Mutex::new({
+            let mut q: Vec<Chunk> = namespaces
                 .into_iter()
                 .map(|n| Chunk {
                     path: vec![n],
                     children: None,
                     rung: 0,
+                    cap: BATCH_MAX,
                 })
-                .collect(),
-        ),
+                .collect();
+            q.sort_by(chunk_order);
+            q
+        }),
         results: Mutex::new(Vec::new()),
         warnings: Mutex::new(Vec::new()),
         done: std::sync::atomic::AtomicUsize::new(0),
@@ -150,8 +238,7 @@ pub async fn extract_options(
     });
 
     // Workers exit when the queue is momentarily empty even though a sibling
-    // may still push splits; loop until the queue fully drains — the same
-    // queue fully drains.
+    // may still push splits; loop until the queue fully drains.
     loop {
         if shared.queue.lock().await.is_empty() {
             break;
@@ -174,6 +261,7 @@ pub async fn extract_options(
                     &label,
                     timeout,
                     skip_invisible,
+                    concurrency,
                     on_progress,
                 )
                 .await;
@@ -253,14 +341,63 @@ async fn worker(
     label: &str,
     timeout: Duration,
     skip_invisible: bool,
+    workers: usize,
     on_progress: Option<ProgressFn>,
 ) {
     use std::sync::atomic::Ordering;
     loop {
-        let chunk = { shared.queue.lock().await.pop_front() };
-        let Some(chunk) = chunk else { return };
-        shared.in_flight.fetch_add(1, Ordering::SeqCst);
-        let current = chunk_label(&chunk);
+        let batch = { take_batch(&mut *shared.queue.lock().await, workers) };
+        let Some(batch) = batch else { return };
+        let n = batch.len();
+        // Progress counts CHUNKS, not batches — the caller's totals mean the
+        // same thing they meant before batching existed.
+        shared.in_flight.fetch_add(n, Ordering::SeqCst);
+        let current = chunk_label(&batch[0]);
+        run_batch(
+            shared,
+            flake_ref,
+            kind,
+            name,
+            label,
+            timeout,
+            skip_invisible,
+            batch,
+        )
+        .await;
+        shared.in_flight.fetch_sub(n, Ordering::SeqCst);
+        let done = shared.done.fetch_add(n, Ordering::SeqCst) + n;
+        if let Some(cb) = &on_progress {
+            let total =
+                done + shared.queue.lock().await.len() + shared.in_flight.load(Ordering::SeqCst);
+            cb(OptionsProgress {
+                done,
+                total,
+                current,
+            });
+        }
+    }
+}
+
+/// One `nix` process for a whole batch.
+///
+/// A batch of one is not a batch: it goes down the single-chunk path unchanged,
+/// which is what keeps the rung ladder and its blast-radius argument exactly as
+/// they were. Everything above that is the same discipline one level up — a
+/// batch that dies SPLITS rather than degrading, because the alternative is
+/// letting one poisoned option cost its batch-mates their values.
+#[allow(clippy::too_many_arguments)]
+async fn run_batch(
+    shared: &Shared,
+    flake_ref: &str,
+    kind: ConfigKind,
+    name: &str,
+    label: &str,
+    timeout: Duration,
+    skip_invisible: bool,
+    batch: Vec<Chunk>,
+) {
+    if batch.len() == 1 {
+        let chunk = batch.into_iter().next().unwrap();
         run_chunk(
             shared,
             flake_ref,
@@ -272,16 +409,69 @@ async fn worker(
             chunk,
         )
         .await;
-        shared.in_flight.fetch_sub(1, Ordering::SeqCst);
-        let done = shared.done.fetch_add(1, Ordering::SeqCst) + 1;
-        if let Some(cb) = &on_progress {
-            let total =
-                done + shared.queue.lock().await.len() + shared.in_flight.load(Ordering::SeqCst);
-            cb(OptionsProgress {
-                done,
-                total,
-                current,
-            });
+        return;
+    }
+
+    let rung = &LADDER[batch[0].rung];
+    let attempt: Result<OptionsBatchEval, _> = eval_extract(
+        &ExtractArgs {
+            flake_ref: flake_ref.to_string(),
+            mode: "optionsBatch",
+            kind: Some(kind.as_str()),
+            name: Some(name.to_string()),
+            chunks: Some(
+                batch
+                    .iter()
+                    .map(|c| ChunkSpec {
+                        path: c.path.clone(),
+                        child_names: c.children.clone(),
+                    })
+                    .collect(),
+            ),
+            skip_invisible: Some(skip_invisible),
+            with_values: Some(rung.with_values),
+            with_descriptions: Some(rung.with_descriptions),
+            ..Default::default()
+        },
+        timeout,
+    )
+    .await;
+
+    match attempt {
+        Ok(r) if r.results.len() == batch.len() => {
+            let mut results = shared.results.lock().await;
+            let mut warnings = shared.warnings.lock().await;
+            for (chunk, got) in batch.iter().zip(r.results) {
+                if !rung.note.is_empty() {
+                    warnings.push((
+                        chunk_key(chunk),
+                        format!(
+                            "{label} options.{}: {} (eval error at full detail)",
+                            chunk_label(chunk),
+                            rung.note
+                        ),
+                    ));
+                }
+                results.extend(got.options);
+            }
+        }
+        // Either the eval died, or it came back a shape that cannot be
+        // attributed chunk-to-chunk. Both mean this batch taught us nothing
+        // about any individual chunk, so split it and ask smaller questions —
+        // never degrade, which would charge the healthy members for one bad one.
+        _ => {
+            // Halve the cap as well as the batch. The halves go back in sorted
+            // order, land adjacent, and would otherwise be picked up as exactly
+            // the batch that just died.
+            let mut batch = batch;
+            let cap = (batch.len() / 2).max(1);
+            let mid = batch.len().div_ceil(2);
+            let tail = batch.split_off(mid);
+            let mut q = shared.queue.lock().await;
+            for mut c in batch.into_iter().chain(tail) {
+                c.cap = cap;
+                enqueue(&mut q, c);
+            }
         }
     }
 }
@@ -340,14 +530,20 @@ async fn run_chunk(
     {
         let mid = children.len().div_ceil(2);
         let mut q = shared.queue.lock().await;
-        q.push_back(Chunk {
-            children: Some(children[..mid].to_vec()),
-            ..chunk.clone()
-        });
-        q.push_back(Chunk {
-            children: Some(children[mid..].to_vec()),
-            ..chunk
-        });
+        enqueue(
+            &mut q,
+            Chunk {
+                children: Some(children[..mid].to_vec()),
+                ..chunk.clone()
+            },
+        );
+        enqueue(
+            &mut q,
+            Chunk {
+                children: Some(children[mid..].to_vec()),
+                ..chunk
+            },
+        );
         return;
     }
     // Single child descends a level; a bare namespace splits by its children.
@@ -375,21 +571,30 @@ async fn run_chunk(
         if let Ok(kids) = kids
             && !kids.is_empty()
         {
-            shared.queue.lock().await.push_back(Chunk {
-                path: deeper,
-                children: Some(kids),
-                rung: chunk.rung,
-            });
+            enqueue(
+                &mut *shared.queue.lock().await,
+                Chunk {
+                    path: deeper,
+                    children: Some(kids),
+                    rung: chunk.rung,
+                    // A fresh split earns a fresh allowance: its parent failing
+                    // says nothing about children it has never been asked for.
+                    cap: BATCH_MAX,
+                },
+            );
             return;
         }
         // unlistable — fall through to rung escalation
     }
     // Unsplittable: walk down the ladder, then give up.
     if chunk.rung + 1 < LADDER.len() {
-        shared.queue.lock().await.push_back(Chunk {
-            rung: chunk.rung + 1,
-            ..chunk
-        });
+        enqueue(
+            &mut *shared.queue.lock().await,
+            Chunk {
+                rung: chunk.rung + 1,
+                ..chunk
+            },
+        );
         return;
     }
     shared.warnings.lock().await.push((
@@ -557,6 +762,119 @@ pub fn build_file_index(options: &[OptionEntry]) -> IndexMap<String, FileOptionR
         }
     }
     index
+}
+
+#[cfg(test)]
+mod batching {
+    use super::*;
+
+    fn chunk(path: &str, rung: usize, cap: usize) -> Chunk {
+        Chunk {
+            path: vec![path.to_string()],
+            children: None,
+            rung,
+            cap,
+        }
+    }
+
+    fn queue_of(names: &[&str]) -> Vec<Chunk> {
+        names.iter().map(|n| chunk(n, 0, BATCH_MAX)).collect()
+    }
+
+    #[test]
+    fn enqueue_keeps_the_queue_sorted() {
+        let mut q = Vec::new();
+        for n in ["gamma", "alpha", "beta"] {
+            enqueue(&mut q, chunk(n, 0, BATCH_MAX));
+        }
+        // A later rung sorts after every rung-0 chunk, not next to its namesake:
+        // a batch may not mix detail levels, so grouping by rung first is what
+        // lets take_batch stop at the boundary instead of searching past it.
+        enqueue(&mut q, chunk("alpha", 1, BATCH_MAX));
+        let got: Vec<(&str, usize)> = q.iter().map(|c| (c.path[0].as_str(), c.rung)).collect();
+        assert_eq!(got, [("alpha", 0), ("beta", 0), ("gamma", 0), ("alpha", 1)]);
+    }
+
+    #[test]
+    fn a_batch_never_mixes_rungs() {
+        let mut q = vec![chunk("a", 0, BATCH_MAX), chunk("b", 1, BATCH_MAX)];
+        let batch = take_batch(&mut q, 1).unwrap();
+        assert_eq!(batch.len(), 1, "stopped at the rung boundary");
+        assert_eq!(q.len(), 1);
+    }
+
+    #[test]
+    fn batch_size_shrinks_with_the_queue_so_the_tail_stays_balanced() {
+        // Wide queue, one worker: batches are big because there is plenty to go
+        // round. The same queue against many workers batches thinly, because
+        // work that already fits the pool gains nothing from sharing a process.
+        let names: Vec<String> = (0..48).map(|i| format!("n{i:02}")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut wide = queue_of(&refs);
+        assert_eq!(take_batch(&mut wide, 1).unwrap().len(), BATCH_MAX);
+
+        let mut spread = queue_of(&refs);
+        assert_eq!(take_batch(&mut spread, 16).unwrap().len(), 1);
+
+        let mut empty: Vec<Chunk> = Vec::new();
+        assert!(take_batch(&mut empty, 4).is_none());
+    }
+
+    #[test]
+    fn a_capped_chunk_drags_no_one_into_a_batch_it_may_not_join() {
+        let mut q = queue_of(&["a", "b", "c", "d"]);
+        q[0].cap = 2;
+        let batch = take_batch(&mut q, 1).unwrap();
+        assert_eq!(batch.len(), 2, "the head's cap bounds the whole batch");
+    }
+
+    /// The invariant the whole scheduler rests on, and the one that is not
+    /// obvious from reading it: repeatedly failing a batch must terminate.
+    ///
+    /// The halves of a failed batch go back in SORTED order, so they land
+    /// adjacent and would be taken again as exactly the batch that just died.
+    /// The cap is what breaks that: it halves on every failure, so the sizes
+    /// strictly decrease and the sequence has to bottom out at 1 — which is the
+    /// per-chunk path, where the rung ladder takes over. Without this, a single
+    /// poisoned option is an infinite loop rather than a slow extraction.
+    #[test]
+    fn failing_a_batch_repeatedly_terminates_at_one() {
+        let names: Vec<String> = (0..32).map(|i| format!("n{i:02}")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut q = queue_of(&refs);
+
+        let mut sizes = Vec::new();
+        for _ in 0..64 {
+            let mut batch = take_batch(&mut q, 1).expect("queue never empties here");
+            sizes.push(batch.len());
+            if batch.len() == 1 {
+                break;
+            }
+            // Exactly what run_batch does on an uncatchable failure.
+            let cap = (batch.len() / 2).max(1);
+            let mid = batch.len().div_ceil(2);
+            let tail = batch.split_off(mid);
+            for mut c in batch.into_iter().chain(tail) {
+                c.cap = cap;
+                enqueue(&mut q, c);
+            }
+        }
+
+        assert_eq!(
+            sizes.last(),
+            Some(&1),
+            "never reached a batch of one: {sizes:?}"
+        );
+        assert!(
+            sizes.windows(2).all(|w| w[1] <= w[0]),
+            "batch size must not grow back: {sizes:?}"
+        );
+        assert!(
+            sizes.len() <= BATCH_MAX.ilog2() as usize + 2,
+            "took {} rounds to halve from {BATCH_MAX} to 1: {sizes:?}",
+            sizes.len()
+        );
+    }
 }
 
 #[cfg(test)]
