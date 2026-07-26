@@ -87,6 +87,19 @@ impl Timings {
         }
     }
 
+    /// A span the caller measured both ends of. `phase` brackets work that owns
+    /// the machine for its duration and can read the clock at the end; once a
+    /// pass's units overlap there is no such moment, only a first start and a
+    /// last finish, and those have to be handed in.
+    pub fn window(&self, label: &str, start: Instant, end: Instant) {
+        if self.enabled {
+            eprintln!(
+                "{}",
+                phase_line(label, end.saturating_duration_since(start))
+            );
+        }
+    }
+
     /// The whole run, measured from construction.
     pub fn total(&self) {
         if self.enabled {
@@ -106,6 +119,25 @@ mod tests {
         assert!(!is_enabled(Some(OsStr::new("0"))));
         assert!(is_enabled(Some(OsStr::new("1"))));
         assert!(is_enabled(Some(OsStr::new("yes"))));
+    }
+
+    /// A window measures between two marks the caller kept, not from a mark to
+    /// "now" — which is the whole reason it exists, since the last unit of an
+    /// overlapping pass finishes well before the driver gets to report it.
+    #[test]
+    fn a_window_measures_the_span_it_is_handed() {
+        let t = Timings::new(true);
+        let start = t.mark();
+        let end = start + Duration::from_millis(250);
+        // Same line shape as a phase — a window IS a phase total, differing
+        // only in how its end was decided, so bench's parser sees no new form.
+        assert_eq!(
+            phase_line("packages", end.saturating_duration_since(start)),
+            "timing: packages 250ms"
+        );
+        // An empty span is silent-safe rather than a panic on the reversed
+        // subtraction a completion-ordered pair could hand it.
+        t.window("packages", end, start);
     }
 
     #[test]

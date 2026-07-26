@@ -86,6 +86,111 @@ async fn blob_bytes_are_identical_across_runs() {
     );
 }
 
+/// The same property one level up, for the pass that extracts configurations
+/// and packages together: every unit now settles in whatever order `nix` lets
+/// it, so anything the driver accumulates as they settle is a route for
+/// scheduling to reach disk. manifest.json is the one that matters — the blobs
+/// are written by whichever future produced them and cannot mix.
+///
+/// What this pins, plainly, because it is easy to over-read: the whole data dir
+/// byte for byte across four `--all` runs, minus the four fields that are
+/// timing rather than content. What it does NOT do on this fixture is order the
+/// warnings array against itself — mini-flake yields exactly one extraction
+/// warning, so there is no pair to permute. The driver folds outcomes back in
+/// the order the user asked for rather than completion order; against a flake
+/// with several warning-producing units that is what this would catch, and here
+/// it is a comment rather than an assertion.
+#[tokio::test]
+async fn the_whole_data_dir_is_identical_across_all_runs() {
+    if !nix_available() {
+        return;
+    }
+    let flake_ref = fixture().canonicalize().unwrap().display().to_string();
+    let tmp = TempDir::new("fe-determinism-all");
+
+    let mut runs: Vec<BTreeMap<String, String>> = Vec::new();
+    for i in 0..4 {
+        let out = tmp.0.join(format!("run{i}"));
+        std::fs::create_dir_all(&out).unwrap();
+        extract_to_dir(
+            &flake_ref,
+            &DriveFlags {
+                out: out.display().to_string(),
+                configs: Selection::All,
+                packages: Selection::All,
+                all_systems: false,
+                timeout: Duration::from_secs(60),
+            },
+        )
+        .await
+        .unwrap();
+        runs.push(read_normalized(&out));
+    }
+
+    assert!(
+        runs[0].len() >= 12,
+        "expected a blob + sidecar per unit plus the manifest, saw {}",
+        runs[0].len()
+    );
+    for (i, run) in runs.iter().enumerate().skip(1) {
+        assert_eq!(
+            runs[0].keys().collect::<Vec<_>>(),
+            run.keys().collect::<Vec<_>>(),
+            "run {i} wrote a different set of files"
+        );
+        for (name, body) in &runs[0] {
+            assert_eq!(
+                body, &run[name],
+                "{name} differs between run 0 and run {i} — something the \
+                 concurrent unit pass accumulates is landing in the order the \
+                 units happened to finish rather than the order they were asked \
+                 for (see the fold in src/drive.rs)"
+            );
+        }
+    }
+}
+
+/// Every JSON file in the data dir, keyed by relative path, with the fields
+/// that are timing rather than content stripped: extractedAt/generatedAt are
+/// clocks, durationMs is a stopwatch.
+fn read_normalized(dir: &Path) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            if p.extension().is_none_or(|x| x != "json") {
+                continue;
+            }
+            let mut v: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+            strip_timings(&mut v);
+            let rel = p.strip_prefix(dir).unwrap().display().to_string();
+            out.insert(rel, serde_json::to_string(&v).unwrap());
+        }
+    }
+    out
+}
+
+fn strip_timings(v: &mut serde_json::Value) {
+    match v {
+        serde_json::Value::Object(o) => {
+            for k in ["extractedAt", "generatedAt", "durationMs"] {
+                o.remove(k);
+            }
+            for child in o.values_mut() {
+                strip_timings(child);
+            }
+        }
+        serde_json::Value::Array(a) => a.iter_mut().for_each(strip_timings),
+        _ => {}
+    }
+}
+
 /// The boundary tripwire, and the limits of it.
 ///
 /// The failure this exists for is not "someone edits serve.rs" — the fingerprint

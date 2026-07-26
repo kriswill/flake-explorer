@@ -8,7 +8,7 @@ use crate::cache::{
 };
 use crate::manifest::{ManifestOptions, build_manifest};
 use crate::run_nix::check_nix;
-use crate::schema::{Manifest, RefStatus};
+use crate::schema::{ConfigRef, Manifest, PackageRef, RefStatus};
 use crate::timing::Timings;
 use std::io::Write;
 use std::path::Path;
@@ -90,79 +90,6 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
         }
         Selection::None => Vec::new(),
     };
-
-    // The pass is timed as a whole and per configuration, cache hits included:
-    // a warm run's shape — how much of the pass was skipping — is as much of a
-    // benchmark question as a cold one's.
-    let t_options = timings.mark();
-    for id in &wanted {
-        let t_config = timings.mark();
-        let r#ref = manifest
-            .configurations
-            .iter()
-            .find(|c| &c.id == id)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("no such configuration: {id}"))?;
-        if r#ref.status == RefStatus::Ok {
-            println!("options of {id} cached (flake + extractor + nix unchanged), skipping");
-            timings.item("options", id, t_config);
-            continue;
-        }
-        println!("extracting options of {id} ...");
-        let progress: crate::options::ProgressFn =
-            Arc::new(|p: crate::options::OptionsProgress| {
-                let current: String = p.current.chars().take(40).collect();
-                print!("\r  {}/{} {:<40}", p.done, p.total, current);
-                std::io::stdout().flush().ok();
-            });
-        match extract_and_persist(
-            &flags.out,
-            flake_ref,
-            &cache_key,
-            &r#ref,
-            flags.timeout,
-            Some(progress),
-        )
-        .await
-        {
-            Ok(r) => {
-                println!();
-                if let Some(cur) = manifest.configurations.iter_mut().find(|c| &c.id == id) {
-                    apply_extracted(cur, &r);
-                }
-                manifest.warnings.extend(r.result.warnings.clone());
-                let customized = r
-                    .result
-                    .data
-                    .options
-                    .iter()
-                    .filter(|o| o.customized)
-                    .count();
-                println!(
-                    "  {} options ({customized} customized) in {:.1}s",
-                    r.result.data.options.len(),
-                    r.result.duration_ms as f64 / 1000.0
-                );
-                for w in &r.result.warnings {
-                    eprintln!("  warn: {w}");
-                }
-            }
-            Err(e) => {
-                println!();
-                let msg = e.to_string().lines().next().unwrap_or("error").to_string();
-                if let Some(cur) = manifest.configurations.iter_mut().find(|c| &c.id == id) {
-                    cur.status = RefStatus::Error;
-                    cur.error = Some(msg.clone());
-                }
-                eprintln!("  error: {msg}");
-            }
-        }
-        timings.item("options", id, t_config);
-    }
-    if !wanted.is_empty() {
-        timings.phase("options", t_options);
-    }
-
     let wanted_packages: Vec<String> = match &flags.packages {
         Selection::All => manifest.packages.iter().map(|p| p.id.clone()).collect(),
         Selection::Ids(ids) => {
@@ -176,7 +103,29 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
         Selection::None => Vec::new(),
     };
 
-    let t_packages = timings.mark();
+    // Resolve and reconcile everything before extracting any of it. Two things
+    // hang on that ordering: an unknown id stays the up-front error it was
+    // rather than one arbitrary task failing mid-flight, and the "cached,
+    // skipping" lines all print in the order the user asked for, above the
+    // reordered completion lines instead of mixed into them.
+    let t_units = timings.mark();
+    let mut pending_configs: Vec<ConfigRef> = Vec::new();
+    for id in &wanted {
+        let t_config = timings.mark();
+        let r#ref = manifest
+            .configurations
+            .iter()
+            .find(|c| &c.id == id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("no such configuration: {id}"))?;
+        if r#ref.status == RefStatus::Ok {
+            println!("options of {id} cached (flake + extractor + nix unchanged), skipping");
+            timings.item("options", id, t_config);
+            continue;
+        }
+        pending_configs.push(r#ref);
+    }
+    let mut pending_packages: Vec<PackageRef> = Vec::new();
     for id in &wanted_packages {
         let t_package = timings.mark();
         let r#ref = manifest
@@ -190,37 +139,157 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
             timings.item("package", id, t_package);
             continue;
         }
-        println!("extracting package {id} ...");
-        match extract_and_persist_package(&flags.out, flake_ref, &cache_key, &r#ref, flags.timeout)
-            .await
-        {
+        pending_packages.push(r#ref);
+    }
+
+    let console = Arc::new(Console::new(&pending_configs, &pending_packages));
+
+    // Configurations and packages as ONE set of futures rather than two passes.
+    // Against a real flake nearly all the wall clock is the option walk of the
+    // largest configuration; the small configurations and every package are
+    // work with no dependency on it that used to queue up behind it. How many
+    // of these are inside `nix` at any instant remains run_nix's gate to
+    // decide, so there is no pool to size here and no way for this to fork more
+    // evals than the machine was already going to run.
+    let cache_key = &cache_key;
+    let timings = &timings;
+    let config_futs = pending_configs.iter().map(|r#ref| {
+        let console = console.clone();
+        async move {
+            // Marked inside the future, not around the loop: a span taken where
+            // units are QUEUED would time the queue rather than the unit.
+            let t_config = timings.mark();
+            let done = extract_and_persist(
+                &flags.out,
+                flake_ref,
+                cache_key,
+                r#ref,
+                flags.timeout,
+                Some(console.progress_for(&r#ref.id)),
+            )
+            .await;
+            match &done {
+                Ok(r) => {
+                    let customized = r
+                        .result
+                        .data
+                        .options
+                        .iter()
+                        .filter(|o| o.customized)
+                        .count();
+                    console.finished(
+                        &r#ref.id,
+                        format!(
+                            "  {}: {} options ({customized} customized) in {:.1}s",
+                            r#ref.id,
+                            r.result.data.options.len(),
+                            r.result.duration_ms as f64 / 1000.0
+                        ),
+                        &r.result.warnings,
+                    );
+                }
+                Err(e) => console.failed(&r#ref.id, e),
+            }
+            timings.item("options", &r#ref.id, t_config);
+            (t_config, timings.mark(), done)
+        }
+    });
+    let package_futs = pending_packages.iter().map(|r#ref| {
+        let console = console.clone();
+        async move {
+            let t_package = timings.mark();
+            let done =
+                extract_and_persist_package(&flags.out, flake_ref, cache_key, r#ref, flags.timeout)
+                    .await;
+            match &done {
+                Ok(r) => console.finished(
+                    &r#ref.id,
+                    format!(
+                        "  {}: builder={} in {:.1}s",
+                        r#ref.id,
+                        r.result.data.builder.as_str(),
+                        r.result.duration_ms as f64 / 1000.0
+                    ),
+                    &r.result.warnings,
+                ),
+                Err(e) => console.failed(&r#ref.id, e),
+            }
+            timings.item("package", &r#ref.id, t_package);
+            (t_package, timings.mark(), done)
+        }
+    });
+    let (extracted_configs, extracted_packages) = futures::future::join(
+        futures::future::join_all(config_futs),
+        futures::future::join_all(package_futs),
+    )
+    .await;
+    console.close();
+
+    // "options" and "packages" survive as labels, but they are now WINDOWS —
+    // first unit of that kind to start, last to finish — rather than brackets
+    // around a loop that owned the machine for its duration. The two overlap
+    // each other and both overlap "units", so they no longer sum to it; read
+    // them as "how long was any package in flight", which is the question a
+    // baseline comparison against the serial passes is actually asking.
+    let window = |label: &str, spans: &[(std::time::Instant, std::time::Instant)]| {
+        if let (Some(first), Some(last)) = (
+            spans.iter().map(|s| s.0).min(),
+            spans.iter().map(|s| s.1).max(),
+        ) {
+            timings.window(label, first, last);
+        }
+    };
+    let (config_spans, extracted_configs): (Vec<_>, Vec<_>) = extracted_configs
+        .into_iter()
+        .map(|(a, b, done)| ((a, b), done))
+        .unzip();
+    let (package_spans, extracted_packages): (Vec<_>, Vec<_>) = extracted_packages
+        .into_iter()
+        .map(|(a, b, done)| ((a, b), done))
+        .unzip();
+    window("options", &config_spans);
+    window("packages", &package_spans);
+    if !pending_configs.is_empty() || !pending_packages.is_empty() {
+        timings.phase("units", t_units);
+    }
+
+    // Completion order is scheduling; `pending_*` is the order the user asked
+    // for. Fold the outcomes back in the latter, or which unit finished first
+    // would decide the order of manifest.json's warnings array, and the same
+    // flake on the same machine would serialize differently run to run.
+    for (r#ref, done) in pending_configs.iter().zip(extracted_configs) {
+        let Some(cur) = manifest
+            .configurations
+            .iter_mut()
+            .find(|c| c.id == r#ref.id)
+        else {
+            continue;
+        };
+        match done {
             Ok(r) => {
-                if let Some(cur) = manifest.packages.iter_mut().find(|p| &p.id == id) {
-                    apply_extracted_package(cur, &r);
-                }
+                apply_extracted(cur, &r);
                 manifest.warnings.extend(r.result.warnings.clone());
-                println!(
-                    "  builder={} in {:.1}s",
-                    r.result.data.builder.as_str(),
-                    r.result.duration_ms as f64 / 1000.0
-                );
-                for w in &r.result.warnings {
-                    eprintln!("  warn: {w}");
-                }
             }
             Err(e) => {
-                let msg = e.to_string().lines().next().unwrap_or("error").to_string();
-                if let Some(cur) = manifest.packages.iter_mut().find(|p| &p.id == id) {
-                    cur.status = RefStatus::Error;
-                    cur.error = Some(msg.clone());
-                }
-                eprintln!("  error: {msg}");
+                cur.status = RefStatus::Error;
+                cur.error = Some(first_line(&e));
             }
         }
-        timings.item("package", id, t_package);
     }
-    if !wanted_packages.is_empty() {
-        timings.phase("packages", t_packages);
+    for (r#ref, done) in pending_packages.iter().zip(extracted_packages) {
+        let Some(cur) = manifest.packages.iter_mut().find(|p| p.id == r#ref.id) else {
+            continue;
+        };
+        match done {
+            Ok(r) => {
+                apply_extracted_package(cur, &r);
+                manifest.warnings.extend(r.result.warnings.clone());
+            }
+            Err(e) => {
+                cur.status = RefStatus::Error;
+                cur.error = Some(first_line(&e));
+            }
+        }
     }
 
     let manifest_path = Path::new(&flags.out).join("manifest.json");
@@ -233,4 +302,160 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
         wanted,
         wanted_packages,
     })
+}
+
+fn first_line(e: &anyhow::Error) -> String {
+    e.to_string().lines().next().unwrap_or("error").to_string()
+}
+
+/// The one thing allowed to write to the terminal while the unit pass runs.
+///
+/// The pass is now a set of futures that finish in whatever order `nix` lets
+/// them, and the option walk reports progress from inside several of them at
+/// once. Two writers and a carriage return between them is how you get a line
+/// with half of one configuration's counter and half of another's, so every
+/// write goes through this mutex, and only whole lines are ever written under
+/// it. Nothing here awaits, so the lock is never held across a yield.
+///
+/// The status line is redrawn in place with `\r`; a completion line has to
+/// erase it first, or the tail of a longer status line survives to the right of
+/// a shorter finished one.
+struct Console {
+    state: std::sync::Mutex<ConsoleState>,
+}
+
+struct ConsoleState {
+    units_done: usize,
+    units_total: usize,
+    /// done/total option chunks per STILL-RUNNING configuration. A finished one
+    /// drops out: a frozen "3/3 chunks" next to a counter that is still moving
+    /// reads as stuck, and the units column is already the whole-pass measure.
+    chunks: std::collections::HashMap<String, (usize, usize)>,
+    current: String,
+    current_owner: String,
+    /// Width of the status line currently on screen, 0 when there is none.
+    drawn: usize,
+}
+
+impl Console {
+    fn new(configs: &[ConfigRef], packages: &[PackageRef]) -> Console {
+        let total = configs.len() + packages.len();
+        match (configs, packages) {
+            ([], []) => {}
+            ([one], []) => println!("extracting options of {} ...", one.id),
+            ([], [one]) => println!("extracting package {} ...", one.id),
+            _ => println!(
+                "extracting {} ...",
+                [
+                    (configs.len(), "configuration"),
+                    (packages.len(), "package"),
+                ]
+                .into_iter()
+                .filter(|(n, _)| *n > 0)
+                .map(|(n, noun)| format!("{n} {noun}{}", if n == 1 { "" } else { "s" }))
+                .collect::<Vec<_>>()
+                .join(" and ")
+            ),
+        }
+        Console {
+            state: std::sync::Mutex::new(ConsoleState {
+                units_done: 0,
+                units_total: total,
+                chunks: std::collections::HashMap::new(),
+                current: String::new(),
+                current_owner: String::new(),
+                drawn: 0,
+            }),
+        }
+    }
+
+    /// A progress sink for one configuration's option walk.
+    fn progress_for(self: &Arc<Self>, id: &str) -> crate::options::ProgressFn {
+        let console = self.clone();
+        let id = id.to_string();
+        Arc::new(move |p: crate::options::OptionsProgress| {
+            let mut s = console.state.lock().unwrap();
+            s.chunks.insert(id.clone(), (p.done, p.total));
+            // With several configurations walking at once, the bare option path
+            // does not say whose it is.
+            s.current = if s.units_total == 1 {
+                p.current.chars().take(40).collect()
+            } else {
+                format!("{id}: {}", p.current).chars().take(40).collect()
+            };
+            s.current_owner = id.clone();
+            s.draw();
+        })
+    }
+
+    fn finished(&self, id: &str, line: String, warnings: &[String]) {
+        let mut s = self.state.lock().unwrap();
+        s.retire(id);
+        s.erase();
+        println!("{line}");
+        for w in warnings {
+            eprintln!("  warn: {w}");
+        }
+        s.draw();
+    }
+
+    fn failed(&self, id: &str, e: &anyhow::Error) {
+        let mut s = self.state.lock().unwrap();
+        s.retire(id);
+        s.erase();
+        eprintln!("  error: {id}: {}", first_line(e));
+        s.draw();
+    }
+
+    fn close(&self) {
+        self.state.lock().unwrap().erase();
+    }
+}
+
+impl ConsoleState {
+    /// One unit settled — drop whatever it was still reporting.
+    fn retire(&mut self, id: &str) {
+        self.units_done += 1;
+        self.chunks.remove(id);
+        if self.current_owner == id {
+            self.current.clear();
+            self.current_owner.clear();
+        }
+    }
+
+    fn erase(&mut self) {
+        if self.drawn > 0 {
+            print!("\r{:width$}\r", "", width = self.drawn);
+            self.drawn = 0;
+        }
+    }
+
+    fn draw(&mut self) {
+        if self.units_done >= self.units_total {
+            self.erase();
+            return;
+        }
+        let (done, total) = self
+            .chunks
+            .values()
+            .fold((0, 0), |(d, t), (cd, ct)| (d + cd, t + ct));
+        // A single unit gets the plain counter it had before this was ever
+        // concurrent; the units column only earns its width once there is more
+        // than one thing to count.
+        let line = if self.units_total == 1 {
+            format!("  {done}/{total} {:<40}", self.current)
+        } else if self.chunks.is_empty() {
+            // Only packages left in flight, and they report nothing until they
+            // settle — a chunk counter here would just be a frozen 0/0.
+            format!("  {}/{} done", self.units_done, self.units_total)
+        } else {
+            format!(
+                "  {}/{} done  {done}/{total} chunks  {:<40}",
+                self.units_done, self.units_total, self.current
+            )
+        };
+        print!("\r{line}");
+        std::io::stdout().flush().ok();
+        self.drawn = line.chars().count();
+    }
 }

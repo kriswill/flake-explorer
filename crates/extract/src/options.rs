@@ -60,21 +60,32 @@ struct Chunk {
     rung: usize,
 }
 
-fn chunk_label(c: &Chunk) -> String {
+/// The option path a chunk speaks for: its own path, plus the single child once
+/// it has been narrowed to one. Doubles as the sort key for anything the walk
+/// reports about that chunk.
+fn chunk_key(c: &Chunk) -> Vec<String> {
     match &c.children {
         Some(ch) if ch.len() == 1 => {
             let mut p = c.path.clone();
             p.push(ch[0].clone());
-            p.join(".")
+            p
         }
-        _ => c.path.join("."),
+        _ => c.path.clone(),
     }
 }
+
+fn chunk_label(c: &Chunk) -> String {
+    chunk_key(c).join(".")
+}
+
+/// A warning plus the option path it is about — the key it gets sorted by, so
+/// the array is a function of the flake rather than of the pool.
+type KeyedWarning = (Vec<String>, String);
 
 struct Shared {
     queue: Mutex<VecDeque<Chunk>>,
     results: Mutex<Vec<RawOption>>,
-    warnings: Mutex<Vec<String>>,
+    warnings: Mutex<Vec<KeyedWarning>>,
     done: std::sync::atomic::AtomicUsize,
     in_flight: std::sync::atomic::AtomicUsize,
 }
@@ -104,12 +115,9 @@ pub async fn extract_options(
     opts: ExtractOptionsOpts,
 ) -> anyhow::Result<OptionsResult> {
     let t0 = Instant::now();
-    let concurrency = opts.concurrency.unwrap_or_else(|| {
-        let cores = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4);
-        cores.saturating_sub(2).clamp(2, 8)
-    });
+    // One worker per slot in the shared nix gate: more would only queue there,
+    // and the sizing itself now lives next to the gate that enforces it.
+    let concurrency = opts.concurrency.unwrap_or_else(crate::run_nix::nix_jobs);
     let label = format!("{}/{}", kind.as_str(), name);
 
     let namespaces: Vec<String> = eval_extract(
@@ -177,7 +185,22 @@ pub async fn extract_options(
     }
 
     let mut results = std::mem::take(&mut *shared.results.lock().await);
-    let mut warnings = std::mem::take(&mut *shared.warnings.lock().await);
+
+    // Sort by the option path the warning is about, for the same reason the
+    // options themselves are sorted below: a chunk's warning is appended when
+    // that chunk COMPLETES, so without this the array is in pool-scheduling
+    // order. That was measurable before extraction became concurrent — two runs
+    // against a real 15k-option configuration differ in this array and in
+    // nothing else, in both the manifest and the blob's sidecar — and it is the
+    // last thing making a persisted artifact a function of the machine rather
+    // than of the flake.
+    //
+    // The path is a total order on real data and groups a namespace's warnings
+    // together, which is also the order a reader wants. The message breaks ties
+    // so that two warnings about one path cannot swap.
+    let mut keyed = std::mem::take(&mut *shared.warnings.lock().await);
+    keyed.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    let mut warnings: Vec<String> = keyed.into_iter().map(|(_, w)| w).collect();
     // Dedup preserving order, like `[...new Set(warnings)]`.
     let mut seen = HashSet::new();
     warnings.retain(|w| seen.insert(w.clone()));
@@ -201,9 +224,9 @@ pub async fn extract_options(
     // matters. Sorting before to_entry rather than after keeps build_file_index
     // below reading the vector it will actually be indexing.
     //
-    // This does not make the SIDECAR byte-stable — it carries extractedAt and
-    // durationMs, which are timing — and warning order still follows discovery.
-    // The blob is the artifact the cache serves, and it is now stable.
+    // This does not make the SIDECAR byte-stable: it carries extractedAt and
+    // durationMs, which are timing. Everything in it that is CONTENT now is,
+    // though — the warning order this comment used to except is sorted above.
     results.sort_by(|a, b| a.loc.cmp(&b.loc));
 
     let options: Vec<OptionEntry> = results.into_iter().map(to_entry).collect();
@@ -295,10 +318,13 @@ async fn run_chunk(
     let last_err = match attempt {
         Ok(r) => {
             if !rung.note.is_empty() {
-                shared.warnings.lock().await.push(format!(
-                    "{label} options.{}: {} (eval error at full detail)",
-                    chunk_label(&chunk),
-                    rung.note
+                shared.warnings.lock().await.push((
+                    chunk_key(&chunk),
+                    format!(
+                        "{label} options.{}: {} (eval error at full detail)",
+                        chunk_label(&chunk),
+                        rung.note
+                    ),
                 ));
             }
             shared.results.lock().await.extend(r.options);
@@ -366,10 +392,13 @@ async fn run_chunk(
         });
         return;
     }
-    shared.warnings.lock().await.push(format!(
-        "{label} options.{}: extraction failed — {}",
-        deeper.join("."),
-        err_line(&last_err)
+    shared.warnings.lock().await.push((
+        deeper.clone(),
+        format!(
+            "{label} options.{}: extraction failed — {}",
+            deeper.join("."),
+            err_line(&last_err)
+        ),
     ));
 }
 

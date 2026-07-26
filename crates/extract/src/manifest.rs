@@ -27,13 +27,35 @@ pub async fn build_manifest(flake_ref: &str, opts: &ManifestOptions) -> anyhow::
     let mut warnings: Vec<String> = Vec::new();
     let timeout = opts.timeout;
 
-    let meta = flake_metadata(flake_ref, timeout).await?;
-    let local_checkout = detect_local_checkout(flake_ref, &meta);
-
-    let (show_json, ev) = tokio::join!(
+    // Four independent subprocesses, arranged by what actually depends on what.
+    // `nix flake metadata`, `nix flake show` and the manifest eval each take
+    // nothing but the flakeref, so none of them has a reason to wait on
+    // another; the git walk needs only the local checkout path, which falls out
+    // of the metadata, so it chains behind that one rather than behind the eval
+    // it used to sit after. On the flake this was measured against the metadata
+    // call alone was 0.29s of a 0.8s manifest pass, spent with the machine
+    // otherwise idle.
+    //
+    // The metadata call no longer gates the other two, which for a not-yet-
+    // fetched remote flakeref means three processes reach for the same input at
+    // once instead of one warming it for two. Nix locks its fetches, so the
+    // cost of losing that accidental warm-up is at worst some duplicated
+    // download, and `flake show` and the eval were already racing each other
+    // for it.
+    let (meta_and_git, show_json, ev) = tokio::join!(
+        async {
+            let meta = flake_metadata(flake_ref, timeout).await?;
+            let local_checkout = detect_local_checkout(flake_ref, &meta);
+            let git = match &local_checkout {
+                Some(checkout) => Some(walk_git(checkout).await),
+                None => None,
+            };
+            Ok::<_, NixError>((meta, git))
+        },
         flake_show(flake_ref, opts.all_systems, timeout),
         manifest_eval(flake_ref, timeout)
     );
+    let (meta, git) = meta_and_git?;
     let show_json = match show_json {
         Ok(v) => Some(v),
         Err(e) => {
@@ -51,7 +73,7 @@ pub async fn build_manifest(flake_ref: &str, opts: &ManifestOptions) -> anyhow::
 
     let mut input_follows: Vec<InputFollow> = Vec::new();
     let inputs = input_infos(&meta, &ev, &mut warnings, &mut input_follows);
-    let files = file_entries(&ev, local_checkout.as_deref(), &mut warnings).await;
+    let files = file_entries(&ev, git.as_ref(), &mut warnings);
     let self_files: Vec<String> = files
         .iter()
         .filter(|f| matches!(f.origin, FileOrigin::SelfOrigin))
@@ -494,9 +516,40 @@ fn resolve_follows(meta: &FlakeMetadataJson, path: &[String]) -> Option<String> 
     Some(key)
 }
 
-async fn file_entries(
+/// The git side of the file map, gathered off the local checkout alone so it
+/// can run while the manifest eval is still going. Its warnings ride along
+/// rather than being pushed as they happen: they belong after the input walk's
+/// in the manifest, which is written later, and the manifest's warning order is
+/// part of its bytes.
+struct GitWalk {
+    prefix: Option<String>,
+    commits: HashMap<String, GitFileInfo>,
+    warnings: Vec<String>,
+}
+
+async fn walk_git(checkout: &str) -> GitWalk {
+    let mut warnings = Vec::new();
+    let Some(prefix) = repo_prefix(checkout).await else {
+        warnings.push(format!(
+            "{checkout} is not a git work tree — no per-file commit info"
+        ));
+        return GitWalk {
+            prefix: None,
+            commits: HashMap::new(),
+            warnings,
+        };
+    };
+    let commits = last_commits(checkout, &mut warnings).await;
+    GitWalk {
+        prefix: Some(prefix),
+        commits,
+        warnings,
+    }
+}
+
+fn file_entries(
     ev: &ManifestEval,
-    local_checkout: Option<&str>,
+    git: Option<&GitWalk>,
     warnings: &mut Vec<String>,
 ) -> Vec<FileEntry> {
     let self_prefix = format!("{}/", ev.self_path);
@@ -515,17 +568,12 @@ async fn file_entries(
         })
         .collect();
 
-    if let Some(checkout) = local_checkout {
-        match repo_prefix(checkout).await {
-            None => warnings.push(format!(
-                "{checkout} is not a git work tree — no per-file commit info"
-            )),
-            Some(prefix) => {
-                let commits = last_commits(checkout, warnings).await;
-                for e in &mut entries {
-                    if let Some(info) = commits.get(&format!("{prefix}{}", e.rel_path)) {
-                        e.git = Some(info.clone());
-                    }
+    if let Some(git) = git {
+        warnings.extend(git.warnings.iter().cloned());
+        if let Some(prefix) = &git.prefix {
+            for e in &mut entries {
+                if let Some(info) = git.commits.get(&format!("{prefix}{}", e.rel_path)) {
+                    e.git = Some(info.clone());
                 }
             }
         }
