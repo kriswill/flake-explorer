@@ -45,6 +45,12 @@ Unit tests live inline beside the code, in `src/*.rs` for the root crate and `cr
 | [`tests/export_html.rs`](../tests/export_html.rs) | End-to-end single-file export, re-parsing the embedded data tags out of the HTML |
 | [`tests/degrade.rs`](../tests/degrade.rs) | Per-configuration failure paths — one bad config must not poison the rest |
 | [`tests/mini_flake.rs`](../tests/mini_flake.rs) | The full manifest + option-extraction pipeline against **real nix** |
+| [`tests/determinism.rs`](../tests/determinism.rs) | The two guards on "a blob is a function of the extraction crate and the flake": repeated extractions must be byte-identical (real nix), and the root crate must not grow a new file-writing site (runs everywhere) |
+
+The second suite is the only thing in the repo that fails when the extraction
+boundary stops holding — see [The extraction crate boundary](extraction-pipeline.md#the-extraction-crate-boundary).
+Its own comment is explicit about what it cannot catch, which is worth reading
+before relying on it.
 
 ## Fixture strategy
 
