@@ -2,7 +2,9 @@
 // the options tree, walked in chunks so an uncatchable eval error degrades
 // instead of killing the whole configuration. Split first, degrade last.
 
-use crate::run_nix::{ExtractArgs, OptionsEval, RawOption, ValueEnvelope, eval_extract};
+use crate::run_nix::{
+    ChunkSpec, ExtractArgs, OptionsBatchEval, OptionsEval, RawOption, ValueEnvelope, eval_extract,
+};
 use crate::schema::*;
 use indexmap::IndexMap;
 use serde_json::Value;
@@ -82,8 +84,73 @@ fn chunk_label(c: &Chunk) -> String {
 /// the array is a function of the flake rather than of the pool.
 type KeyedWarning = (Vec<String>, String);
 
+/// Most chunks a single `nix` process is asked to evaluate.
+///
+/// Reaching any option costs the flake + module-system fixpoint first — ~580ms
+/// against a real configuration, of which 18ms is nix's own startup — and
+/// nothing memoizes it across processes: an identical eval repeated costs the
+/// same every time, in this `--expr` shape and in the installable shape nix's
+/// eval cache is built for, on a clean flake. So the only way to stop paying it
+/// per chunk is to stop making a process per chunk.
+///
+/// Bounded rather than unbounded because a batch is also the blast radius of an
+/// uncatchable error and the unit of load balancing: one enormous batch would
+/// re-split its way back down on the first poisoned option, and would leave
+/// workers idle at the tail.
+const BATCH_MAX: usize = 8;
+
+/// Group the pending chunks into batches.
+///
+/// The sort is not cosmetic. Chunks arrive back on the queue as failures split
+/// them, so queue ORDER carries scheduling; sorting makes a batch a function of
+/// WHICH chunks are pending and nothing else. The outcome would be stable
+/// either way — a poisoned batch splits until each chunk is evaluated alone, so
+/// no chunk's final result depends on its batch-mates — but reproducible
+/// batching also makes a slow run reproducible, which is what makes it
+/// debuggable.
+///
+/// Batches stay at one rung: the detail level is a property of the eval, not of
+/// a chunk inside it, so mixing rungs would force the whole batch down to the
+/// most degraded member's level.
+///
+/// Sized to leave roughly three batches per worker rather than one: chunks vary
+/// by an order of magnitude in cost, and a worker holding one huge batch while
+/// its neighbours idle is how you turn a parallel pass back into a serial one.
+/// With fewer chunks than that, batches of one fall out naturally — and are
+/// correct, since work that already fits the pool concurrently has nothing to
+/// gain from sharing a process.
+fn plan_batches(mut pending: Vec<Chunk>, workers: usize) -> VecDeque<Vec<Chunk>> {
+    pending.sort_by(|a, b| {
+        a.rung
+            .cmp(&b.rung)
+            .then_with(|| a.path.cmp(&b.path))
+            .then_with(|| a.children.cmp(&b.children))
+    });
+    let per = pending
+        .len()
+        .div_ceil(workers.saturating_mul(3).max(1))
+        .clamp(1, BATCH_MAX);
+    let mut out: VecDeque<Vec<Chunk>> = VecDeque::new();
+    let mut cur: Vec<Chunk> = Vec::new();
+    for c in pending {
+        if !cur.is_empty() && (cur[0].rung != c.rung || cur.len() >= per) {
+            out.push_back(std::mem::take(&mut cur));
+        }
+        cur.push(c);
+    }
+    if !cur.is_empty() {
+        out.push_back(cur);
+    }
+    out
+}
+
 struct Shared {
+    /// Chunks discovered mid-round (splits, rung escalations). Re-planned into
+    /// batches at the start of the next round rather than run one at a time, so
+    /// the failure path amortizes its fixpoints too — which is where most of
+    /// the evals are on a configuration with a poisoned namespace.
     queue: Mutex<VecDeque<Chunk>>,
+    batches: Mutex<VecDeque<Vec<Chunk>>>,
     results: Mutex<Vec<RawOption>>,
     warnings: Mutex<Vec<KeyedWarning>>,
     done: std::sync::atomic::AtomicUsize,
@@ -143,18 +210,25 @@ pub async fn extract_options(
                 })
                 .collect(),
         ),
+        batches: Mutex::new(VecDeque::new()),
         results: Mutex::new(Vec::new()),
         warnings: Mutex::new(Vec::new()),
         done: std::sync::atomic::AtomicUsize::new(0),
         in_flight: std::sync::atomic::AtomicUsize::new(0),
     });
 
-    // Workers exit when the queue is momentarily empty even though a sibling
-    // may still push splits; loop until the queue fully drains — the same
-    // queue fully drains.
+    // Each round plans the whole pending set into batches and drains them;
+    // whatever the round discovers (splits, rung escalations) is planned by the
+    // next one. Workers exit when the batch queue is empty even though a
+    // sibling may still be splitting, so the outer loop runs until nothing is
+    // pending anywhere.
     loop {
-        if shared.queue.lock().await.is_empty() {
-            break;
+        {
+            let pending: Vec<Chunk> = shared.queue.lock().await.drain(..).collect();
+            if pending.is_empty() {
+                break;
+            }
+            *shared.batches.lock().await = plan_batches(pending, concurrency);
         }
         let mut handles = Vec::new();
         for _ in 0..concurrency {
@@ -257,10 +331,61 @@ async fn worker(
 ) {
     use std::sync::atomic::Ordering;
     loop {
-        let chunk = { shared.queue.lock().await.pop_front() };
-        let Some(chunk) = chunk else { return };
-        shared.in_flight.fetch_add(1, Ordering::SeqCst);
-        let current = chunk_label(&chunk);
+        let batch = { shared.batches.lock().await.pop_front() };
+        let Some(batch) = batch else { return };
+        let n = batch.len();
+        // Progress counts CHUNKS, not batches — the caller's totals mean the
+        // same thing they meant before batching existed.
+        shared.in_flight.fetch_add(n, Ordering::SeqCst);
+        let current = chunk_label(&batch[0]);
+        run_batch(
+            shared,
+            flake_ref,
+            kind,
+            name,
+            label,
+            timeout,
+            skip_invisible,
+            batch,
+        )
+        .await;
+        shared.in_flight.fetch_sub(n, Ordering::SeqCst);
+        let done = shared.done.fetch_add(n, Ordering::SeqCst) + n;
+        if let Some(cb) = &on_progress {
+            let queued: usize = shared.batches.lock().await.iter().map(Vec::len).sum();
+            let total = done
+                + queued
+                + shared.queue.lock().await.len()
+                + shared.in_flight.load(Ordering::SeqCst);
+            cb(OptionsProgress {
+                done,
+                total,
+                current,
+            });
+        }
+    }
+}
+
+/// One `nix` process for a whole batch.
+///
+/// A batch of one is not a batch: it goes down the single-chunk path unchanged,
+/// which is what keeps the rung ladder and its blast-radius argument exactly as
+/// they were. Everything above that is the same discipline one level up — a
+/// batch that dies SPLITS rather than degrading, because the alternative is
+/// letting one poisoned option cost its batch-mates their values.
+#[allow(clippy::too_many_arguments)]
+async fn run_batch(
+    shared: &Shared,
+    flake_ref: &str,
+    kind: ConfigKind,
+    name: &str,
+    label: &str,
+    timeout: Duration,
+    skip_invisible: bool,
+    batch: Vec<Chunk>,
+) {
+    if batch.len() == 1 {
+        let chunk = batch.into_iter().next().unwrap();
         run_chunk(
             shared,
             flake_ref,
@@ -272,16 +397,63 @@ async fn worker(
             chunk,
         )
         .await;
-        shared.in_flight.fetch_sub(1, Ordering::SeqCst);
-        let done = shared.done.fetch_add(1, Ordering::SeqCst) + 1;
-        if let Some(cb) = &on_progress {
-            let total =
-                done + shared.queue.lock().await.len() + shared.in_flight.load(Ordering::SeqCst);
-            cb(OptionsProgress {
-                done,
-                total,
-                current,
-            });
+        return;
+    }
+
+    let rung = &LADDER[batch[0].rung];
+    let attempt: Result<OptionsBatchEval, _> = eval_extract(
+        &ExtractArgs {
+            flake_ref: flake_ref.to_string(),
+            mode: "optionsBatch",
+            kind: Some(kind.as_str()),
+            name: Some(name.to_string()),
+            chunks: Some(
+                batch
+                    .iter()
+                    .map(|c| ChunkSpec {
+                        path: c.path.clone(),
+                        child_names: c.children.clone(),
+                    })
+                    .collect(),
+            ),
+            skip_invisible: Some(skip_invisible),
+            with_values: Some(rung.with_values),
+            with_descriptions: Some(rung.with_descriptions),
+            ..Default::default()
+        },
+        timeout,
+    )
+    .await;
+
+    match attempt {
+        Ok(r) if r.results.len() == batch.len() => {
+            let mut results = shared.results.lock().await;
+            let mut warnings = shared.warnings.lock().await;
+            for (chunk, got) in batch.iter().zip(r.results) {
+                if !rung.note.is_empty() {
+                    warnings.push((
+                        chunk_key(chunk),
+                        format!(
+                            "{label} options.{}: {} (eval error at full detail)",
+                            chunk_label(chunk),
+                            rung.note
+                        ),
+                    ));
+                }
+                results.extend(got.options);
+            }
+        }
+        // Either the eval died, or it came back a shape that cannot be
+        // attributed chunk-to-chunk. Both mean this batch taught us nothing
+        // about any individual chunk, so split it and ask smaller questions —
+        // never degrade, which would charge the healthy members for one bad one.
+        _ => {
+            let mid = batch.len().div_ceil(2);
+            let mut q = shared.batches.lock().await;
+            let mut batch = batch;
+            let tail = batch.split_off(mid);
+            q.push_front(tail);
+            q.push_front(batch);
         }
     }
 }

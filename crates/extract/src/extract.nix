@@ -27,6 +27,19 @@
   # ["packages" "x86_64-linux" "rtk"]), walking `flake.outputs` instead.
   path ? [ ],
   childNames ? null,
+  # optionsBatch mode: several {path, childNames} chunks evaluated in ONE nix
+  # process. Reaching any option at all costs the flake + module-system
+  # fixpoint first — ~580ms against a real configuration, against 18ms of nix
+  # startup — and nothing memoizes that across processes, so a chunk evaluated
+  # alone spends most of its life re-deriving what its siblings just derived.
+  # Batched, N chunks pay it once.
+  #
+  # The results come back positionally, one per chunk, so a caller can attribute
+  # them without matching on paths. What CANNOT be made per-chunk is failure:
+  # an uncatchable error takes down the eval it occurs in, so it takes the whole
+  # batch with it. That is the caller's problem to split, not something to paper
+  # over here.
+  chunks ? [ ],
   skipInvisible ? true,
   # manifest mode: how deep to walk inputs-of-inputs. Resolving a transitive
   # input can fail UNCATCHABLY (a lock whose recorded url disagrees with what
@@ -511,18 +524,31 @@ let
     else
       { };
 
-  subtree = descend cfg.options path;
-
-  walkRoot =
-    if childNames == null || isOption subtree || !builtins.isAttrs subtree then
-      subtree
+  # The root one chunk walks: its subtree, narrowed to the named children when
+  # the caller has split it down to a subset.
+  rootOf =
+    p: cn:
+    let
+      st = descend cfg.options p;
+    in
+    if cn == null || isOption st || !builtins.isAttrs st then
+      st
     else
       builtins.listToAttrs (
         map (n: {
           name = n;
-          value = subtree.${n};
-        }) (builtins.filter (n: subtree ? ${n}) childNames)
+          value = st.${n};
+        }) (builtins.filter (n: st ? ${n}) cn)
       );
+
+  subtree = descend cfg.options path;
+
+  walkRoot = rootOf path childNames;
+
+  # One batch entry. Positional: the caller reads results[i] as chunks[i].
+  chunkResult = c: {
+    options = walk (rootOf (c.path or [ ]) (c.childNames or null));
+  };
 
   # ----------------------------------------------------------------- package
   # Derivation-typed outputs (packages/devShells/checks/formatter), resolved
@@ -660,5 +686,7 @@ else if mode == "optionNames" then
   (if isOption subtree || !builtins.isAttrs subtree then [ ] else builtins.attrNames subtree)
 else if mode == "package" then
   packageInfo
+else if mode == "optionsBatch" then
+  { results = map chunkResult chunks; }
 else
   { options = walk walkRoot; }

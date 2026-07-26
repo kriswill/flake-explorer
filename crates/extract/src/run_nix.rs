@@ -416,6 +416,10 @@ pub struct ExtractArgs {
     pub path: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub child_names: Option<Vec<String>>,
+    /// optionsBatch mode: the chunks to evaluate in one process, in the order
+    /// their results come back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunks: Option<Vec<ChunkSpec>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skip_invisible: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -521,6 +525,22 @@ pub struct ConfigEntry {
 #[derive(Debug, Clone, Deserialize)]
 pub struct OptionsEval {
     pub options: Vec<RawOption>,
+}
+
+/// One chunk of an optionsBatch request: the same (path, childNames) pair the
+/// single-chunk mode takes.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChunkSpec {
+    pub path: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub child_names: Option<Vec<String>>,
+}
+
+/// Positional: `results[i]` is the outcome of `chunks[i]`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OptionsBatchEval {
+    pub results: Vec<OptionsEval>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
