@@ -35,7 +35,7 @@ bun scripts/bench-extract.ts ~/src/github/kriswill/dotfiles --label dotfiles --r
 | Platform | linux/x64 |
 | Nix | `nix (Determinate Nix 3.21.5) 2.34.8` |
 | hyperfine | not installed (the harness times in-process; see the script header) |
-| Commit | `84c1ddc` — `perf/bench-harness`, functionally `00f6a4b` plus opt-in timing |
+| Commit | mini-flake `84c1ddc`, dotfiles `c45eb23` — both `perf/bench-harness`, both functionally `00f6a4b` plus opt-in timing. The commits differ only in the harness's contention check, so the binary measured is the same one |
 | Date | 2026-07-26 |
 
 ## fixtures/mini-flake
