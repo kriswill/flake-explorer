@@ -106,6 +106,46 @@ fn chunk_label(c: &Chunk) -> String {
     chunk_key(c).join(".")
 }
 
+/// Check one chunk's outcome against what the hint claimed, and throw the whole
+/// namespace out if the flake has moved underneath it.
+///
+/// Discarding is per namespace and total: everything that namespace contributed
+/// is removed and it is re-walked from scratch. Anything less would be worse
+/// than useless — a partially-replayed namespace is one whose options are a
+/// mixture of what the flake has now and what it had when the hint was written,
+/// and nothing downstream could tell.
+async fn verify_hint(shared: &Shared, chunk: &Chunk, actual: &[String]) {
+    let Some(want) = shared.expected.get(&chunk.path) else {
+        return;
+    };
+    let Some(ns) = chunk.path.first() else { return };
+    let seen: HashSet<String> = actual.iter().cloned().collect();
+    if &seen == want {
+        return;
+    }
+    {
+        let mut discarded = shared.discarded.lock().await;
+        if !discarded.insert(ns.clone()) {
+            return;
+        }
+    }
+    let is_ns = |p: &[String]| p.first() == Some(ns);
+    shared.results.lock().await.retain(|o| !is_ns(&o.loc));
+    shared.warnings.lock().await.retain(|(k, _)| !is_ns(k));
+    shared.partition.lock().await.retain(|h| !is_ns(&h.path));
+    let mut q = shared.queue.lock().await;
+    q.retain(|c| !is_ns(&c.path));
+    enqueue(
+        &mut q,
+        Chunk {
+            path: vec![ns.clone()],
+            children: None,
+            rung: 0,
+            cap: BATCH_MAX,
+        },
+    );
+}
+
 /// The shape of a chunk, without its rung — what the next walk may start from.
 fn hint_of(c: &Chunk) -> ChunkHint {
     ChunkHint {
@@ -190,6 +230,68 @@ fn take_batch(queue: &mut Vec<Chunk>, workers: usize) -> Option<Vec<Chunk>> {
     Some(batch)
 }
 
+/// What a hint claimed a path's children are, for the paths where it claimed
+/// anything. A hint entry with no `children` covers a whole subtree and so
+/// cannot miss one, which is why those paths are absent here rather than
+/// present-and-unchecked.
+type ExpectedChildren = std::collections::HashMap<Vec<String>, HashSet<String>>;
+
+/// Turn a remembered partition into the chunks to start from, plus the claims
+/// to check it against.
+///
+/// The top-level namespace list is NEVER taken from the hint — it comes from the
+/// eval, every time. A namespace added to the flake since the hint was written
+/// appears in no hint entry, and seeding from the hint alone would mean never
+/// looking at it: not a slow extraction, a silently incomplete one.
+fn seed_from_hint(namespaces: &[String], hint: &[ChunkHint]) -> (Vec<Chunk>, ExpectedChildren) {
+    let known: HashSet<&str> = namespaces.iter().map(String::as_str).collect();
+    let mut expected: ExpectedChildren = Default::default();
+    let mut whole: HashSet<Vec<String>> = HashSet::new();
+    let mut seeded: HashSet<&str> = HashSet::new();
+    let mut out: Vec<Chunk> = Vec::new();
+
+    for h in hint {
+        // A hint for a namespace this flake no longer has is simply dropped;
+        // walking it would ask nix about an attr that is not there.
+        let Some(ns) = h.path.first() else { continue };
+        if !known.contains(ns.as_str()) {
+            continue;
+        }
+        seeded.insert(ns.as_str());
+        match &h.children {
+            None => {
+                whole.insert(h.path.clone());
+            }
+            Some(kids) => expected
+                .entry(h.path.clone())
+                .or_default()
+                .extend(kids.iter().cloned()),
+        }
+        out.push(Chunk {
+            path: h.path.clone(),
+            children: h.children.clone(),
+            rung: 0,
+            cap: BATCH_MAX,
+        });
+    }
+    // A path the hint also covers wholesale cannot be missing children.
+    for p in whole {
+        expected.remove(&p);
+    }
+    for n in namespaces {
+        if !seeded.contains(n.as_str()) {
+            out.push(Chunk {
+                path: vec![n.clone()],
+                children: None,
+                rung: 0,
+                cap: BATCH_MAX,
+            });
+        }
+    }
+    out.sort_by(chunk_order);
+    (out, expected)
+}
+
 struct Shared {
     /// Everything still to do, kept in sorted order. Workers take batches off
     /// the front as they free; splits and rung escalations go straight back in,
@@ -202,6 +304,12 @@ struct Shared {
     /// The chunks that only ever split are deliberately absent: the hint is the
     /// partition the walk ARRIVED at, not the route it took to get there.
     partition: Mutex<Vec<ChunkHint>>,
+    /// What the hint claimed, and which namespaces have already been caught
+    /// claiming it wrongly. A namespace is discarded at most once: the walk that
+    /// replaces it is a cold one, and checking a cold walk against the hint it
+    /// just replaced would throw it away again, forever.
+    expected: ExpectedChildren,
+    discarded: Mutex<HashSet<String>>,
     warnings: Mutex<Vec<KeyedWarning>>,
     done: std::sync::atomic::AtomicUsize,
     in_flight: std::sync::atomic::AtomicUsize,
@@ -212,6 +320,11 @@ pub struct ExtractOptionsOpts {
     pub concurrency: Option<usize>,
     pub skip_invisible: bool,
     pub on_progress: Option<ProgressFn>,
+    /// Where a previous walk found this configuration's option tree to split.
+    /// A starting shape, never an answer: every chunk is still evaluated at full
+    /// detail, and a namespace whose children no longer match what the eval sees
+    /// is discarded and walked from scratch.
+    pub hint: Option<Vec<ChunkHint>>,
 }
 
 impl Default for ExtractOptionsOpts {
@@ -221,6 +334,7 @@ impl Default for ExtractOptionsOpts {
             concurrency: None,
             skip_invisible: true,
             on_progress: None,
+            hint: None,
         }
     }
 }
@@ -249,20 +363,27 @@ pub async fn extract_options(
     )
     .await?;
 
-    let shared = Arc::new(Shared {
-        queue: Mutex::new({
+    let (seed, expected) = match &opts.hint {
+        Some(h) => seed_from_hint(&namespaces, h),
+        None => {
             let mut q: Vec<Chunk> = namespaces
-                .into_iter()
+                .iter()
                 .map(|n| Chunk {
-                    path: vec![n],
+                    path: vec![n.clone()],
                     children: None,
                     rung: 0,
                     cap: BATCH_MAX,
                 })
                 .collect();
             q.sort_by(chunk_order);
-            q
-        }),
+            (q, Default::default())
+        }
+    };
+
+    let shared = Arc::new(Shared {
+        queue: Mutex::new(seed),
+        expected,
+        discarded: Mutex::new(HashSet::new()),
         results: Mutex::new(Vec::new()),
         partition: Mutex::new(Vec::new()),
         warnings: Mutex::new(Vec::new()),
@@ -483,22 +604,32 @@ async fn run_batch(
 
     match attempt {
         Ok(r) if r.results.len() == batch.len() => {
-            let mut results = shared.results.lock().await;
-            let mut warnings = shared.warnings.lock().await;
-            let mut partition = shared.partition.lock().await;
-            for (chunk, got) in batch.iter().zip(r.results) {
-                if !rung.note.is_empty() {
-                    warnings.push((
-                        chunk_key(chunk),
-                        format!(
-                            "{label} options.{}: {} (eval error at full detail)",
-                            chunk_label(chunk),
-                            rung.note
-                        ),
-                    ));
+            // Scoped so every guard is released before verify_hint runs — it
+            // takes the same four locks, and discarding a namespace means
+            // reaching into the results this loop is still holding open.
+            let mut seen: Vec<(Chunk, Vec<String>)> = Vec::new();
+            {
+                let mut results = shared.results.lock().await;
+                let mut warnings = shared.warnings.lock().await;
+                let mut partition = shared.partition.lock().await;
+                for (chunk, got) in batch.iter().zip(r.results) {
+                    if !rung.note.is_empty() {
+                        warnings.push((
+                            chunk_key(chunk),
+                            format!(
+                                "{label} options.{}: {} (eval error at full detail)",
+                                chunk_label(chunk),
+                                rung.note
+                            ),
+                        ));
+                    }
+                    partition.push(hint_of(chunk));
+                    results.extend(got.options);
+                    seen.push((chunk.clone(), got.children));
                 }
-                partition.push(hint_of(chunk));
-                results.extend(got.options);
+            }
+            for (chunk, children) in seen {
+                verify_hint(shared, &chunk, &children).await;
             }
         }
         // Either the eval died, or it came back a shape that cannot be
@@ -565,6 +696,7 @@ async fn run_chunk(
             }
             shared.partition.lock().await.push(hint_of(&chunk));
             shared.results.lock().await.extend(r.options);
+            verify_hint(shared, &chunk, &r.children).await;
             return;
         }
         Err(e) => e.to_string(),

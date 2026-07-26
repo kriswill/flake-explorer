@@ -195,6 +195,10 @@ pub async fn extract_and_persist(
     on_progress: Option<ProgressFn>,
 ) -> anyhow::Result<Extracted<OptionsResult>> {
     let blob_path = guarded_blob_path(out_dir, &r#ref.data_file)?;
+    // Read unconditionally: getting here at all means the key did NOT match, so
+    // the sidecar beside this blob is stale as DATA while still being the best
+    // available guess at the SHAPE of the tree about to be walked.
+    let hint = partition_hint(out_dir, &r#ref.data_file);
     let r = extract_options(
         flake_ref,
         r#ref.kind,
@@ -202,6 +206,7 @@ pub async fn extract_and_persist(
         ExtractOptionsOpts {
             timeout,
             on_progress,
+            hint,
             ..Default::default()
         },
     )

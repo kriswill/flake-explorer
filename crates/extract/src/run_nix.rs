@@ -525,6 +525,13 @@ pub struct ConfigEntry {
 #[derive(Debug, Clone, Deserialize)]
 pub struct OptionsEval {
     pub options: Vec<RawOption>,
+    /// Every attr actually present at the chunk's path, as opposed to the
+    /// subset the caller asked to walk. Defaulted because an older extract.nix
+    /// materialized in the user's cache dir will not send it, and a missing
+    /// verification signal has to read as "cannot verify" rather than as an
+    /// error.
+    #[serde(default)]
+    pub children: Vec<String>,
 }
 
 /// One chunk of an optionsBatch request: the same (path, childNames) pair the
