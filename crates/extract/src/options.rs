@@ -704,6 +704,16 @@ async fn run_chunk(
 
     // Failed. Prefer splitting at the same detail level to isolate the bad
     // option; healthy siblings keep full detail.
+    //
+    // SPLIT FIRST, DEGRADE LAST — and this ordering is now load-bearing beyond
+    // the detail it preserves. The partition hint (see ChunkHint) is only safe
+    // because a warm walk starting from a remembered fine split finds exactly
+    // what a cold walk finds. Reorder this so a namespace degrades BEFORE it is
+    // split, and that stops being true: the cold walk would lose values for a
+    // whole namespace that a warm one, starting already-split, would keep — so
+    // the same flake would produce different bytes depending on whether a plan
+    // happened to be lying next to it.
+
     if let Some(children) = &chunk.children
         && children.len() > 1
     {
