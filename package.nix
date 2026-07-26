@@ -110,8 +110,10 @@ let
     // {
       nativeBuildInputs = [ cargo-llvm-cov ];
       # crane's cargoLlvmCov invocation minus the report, which has nothing to
-      # report on: the dummy sources carry no tests.
-      buildPhaseCargoCommand = "cargoWithProfile llvm-cov test --locked --no-report";
+      # report on: the dummy sources carry no tests. --workspace matches the
+      # check below for the same reason the wrapper is reproduced rather than
+      # hand-copied — a layer built under different package selection is a miss.
+      buildPhaseCargoCommand = "cargoWithProfile llvm-cov test --workspace --locked --no-report";
       # That command already compiles the dev-dependency test binaries the
       # check phase exists to cache; letting it run would only add a second,
       # uninstrumented copy of them.
@@ -252,11 +254,19 @@ craneLib.buildPackage (
         # lcov at $out (crane's default cargoLlvmCovExtraArgs) — CI runs the
         # richer out-of-sandbox variant and feeds octocov. Note this rides on
         # `coverageArtifacts`, not the layer clippy and test share.
+        #
+        # --workspace because cargo-llvm-cov scopes its report to the selected
+        # package, and the workspace root is itself a package: without it this
+        # emitted the root crate's six files plus a stray dummy lib.rs from the
+        # dep layer, and none of the extractor. Unlike cargoTest and cargoClippy
+        # — which pick up both members from default-members and always did —
+        # the report needs asking explicitly.
         coverage = craneLib.cargoLlvmCov (
           devArgs
           // llvmToolEnv
           // {
             cargoArtifacts = coverageArtifacts;
+            cargoExtraArgs = "--workspace";
           }
         );
         # Offline `bun test` for the SPA against the vendored node_modules

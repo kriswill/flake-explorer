@@ -42,7 +42,7 @@ The repo's `package.json` is not the published manifest — it is marked `privat
 | `test typescript` | `bun test --coverage` for the SPA and build scripts; reports coverage via octocov |
 | `check typescript` | `bun run lint:ci` (the lockfile's Biome, not `bunx`'s latest), `tsc --noEmit` + `svelte-check`, then `bun run docs` as a smoke check so a broken docs pipeline surfaces on the PR, not on the Pages deploy |
 | `nix` | `nix flake check -L` (cargo test/clippy/coverage, the offline SPA test derivation, treefmt) and `nix build .#default`, sharing one nix store |
-| `rust-coverage` | `cargo llvm-cov test` **outside** the sandbox with `FLAKE_EXPLORER_REQUIRE_NIX=1` so the real-nix suites run and cannot silently skip; reports the crate's coverage via octocov |
+| `rust-coverage` | `cargo llvm-cov test --workspace` **outside** the sandbox with `FLAKE_EXPLORER_REQUIRE_NIX=1` so the real-nix suites run and cannot silently skip; reports the workspace's coverage via octocov |
 | `build` | Turns `nix` and `rust-coverage` into the pass/fail the ruleset requires, and posts the coverage comment |
 
 Two coverage reports, kept separate so their histories never mix: [`.octocov.yml`](../.octocov.yml) reads `dist/coverage/lcov.info` for the SPA against a fixed `acceptable: 96%` floor, and [`.octocov.rust.yml`](../.octocov.rust.yml) reads `rust-coverage/lcov.info` for the crate as a `current >= prev` ratchet. See [Testing](testing.md).
