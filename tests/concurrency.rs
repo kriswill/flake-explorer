@@ -55,10 +55,28 @@ async fn the_unit_pass_overlaps_and_stays_under_the_gate() {
     let flake_ref = fixture().canonicalize().unwrap().display().to_string();
     let tmp = TempDir::new("fe-concurrency");
 
-    // The package pass on its own. `build_manifest` overlaps its opening evals
-    // by itself and reaches 2, so the lower bound is 3: at 2 this would pass
-    // against a package pass that ran one package at a time, which is the code
-    // it was written to fail against.
+    // The manifest pass on its own: `nix flake metadata`, `nix flake show` and
+    // the manifest eval have no data dependency on each other, so all three
+    // should be in flight together rather than the metadata call gating the
+    // other two.
+    reset_peak_nix_in_flight();
+    extract(
+        &flake_ref,
+        &tmp.0.join("manifest"),
+        Selection::None,
+        Selection::None,
+    )
+    .await;
+    let peak = peak_nix_in_flight();
+    assert!(
+        peak >= 3,
+        "peak concurrent nix processes was {peak} during the manifest pass — \
+         one of its three independent calls is still waiting on another"
+    );
+
+    // The package pass. `build_manifest` overlaps its own calls, so the lower
+    // bound is again 3: at 2 this would pass against a package pass that ran
+    // one package at a time, which is the code it was written to fail against.
     reset_peak_nix_in_flight();
     extract(
         &flake_ref,
