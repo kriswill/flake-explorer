@@ -66,6 +66,21 @@ Being the sole writer is what keeps the two suites from clobbering each other. U
 
 `build` runs under `if: always()`, so it sees failed dependencies by design. A suite whose job died before octocov ran uploads nothing, and its section becomes a warning naming the job and its result rather than a blank or a stale number — a failing `nix` job cannot empty a coverage section, because `nix` measures no coverage. When neither suite reported and there is no existing comment to correct, nothing is posted at all.
 
+## Benchmarking
+
+[`scripts/bench-extract.ts`](../scripts/bench-extract.ts) times `extract` against a flake and prints a markdown table (or `--format json`):
+
+```sh
+bun scripts/bench-extract.ts ./fixtures/mini-flake            # 3 cold + 3 warm runs
+bun scripts/bench-extract.ts ~/src/dotfiles --runs 1 --json out.json
+```
+
+It builds the release binary, then runs two legs against one data directory: **cold** wipes the directory first, so every configuration and package is extracted again, and **warm** reuses what cold left, so the sidecar cache is live. Each leg reports min/median/mean/max/stddev wall clock, plus CPU percentage and peak RSS when GNU `time -v` is on PATH, plus the per-pass breakdown from `FLAKE_EXPLORER_TIMINGS=1` ([CLI reference](cli.md#environment)).
+
+Cold means a cold **data directory**, not a cold machine — nix's eval cache and store stay warm, and they dominate a first-ever run by more than the extractor does. Every report also records the commit measured, whether the tree was dirty, the machine, the load average, and whether the run degraded, so a number can be attributed later. Recorded numbers live in [`bench/BASELINES.md`](../bench/BASELINES.md).
+
+Because several extractions on one machine make every number a lie, the harness waits for any other `flake-explorer extract` before each run and flags samples one appeared beside.
+
 ## GitHub Pages
 
 [`.github/workflows/pages.yml`](../.github/workflows/pages.yml) publishes on pushes to main:

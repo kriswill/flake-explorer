@@ -45,6 +45,13 @@ Defaults come straight from `parse_flags` in [`src/main.rs`](../src/main.rs) (th
 
 Flag parsing is strict: a missing value, a non-positive number, an unknown flag, or a bad `--sources` value is a hard error rather than a silent default.
 
+## Environment
+
+| Variable | Effect |
+| --- | --- |
+| `FLAKE_EXPLORER_PROG` | Name shown in usage and error messages, for wrappers that invoke the binary under another name |
+| `FLAKE_EXPLORER_TIMINGS` | Any value but empty or `0`: report each extraction pass's wall clock on **stderr** (`timing: packages 682ms`, with an indented line per configuration and package). Unset, the run prints exactly what it otherwise would — see [`src/timing.rs`](../src/timing.rs) and [Build & infra](build-and-infra.md#benchmarking) |
+
 ## Help and exit codes
 
 - `--help`, `-h`, `help`, or no command at all prints usage and exits `0`. Help is detected anywhere in the arguments (`serve --help` works) before flag parsing runs.
