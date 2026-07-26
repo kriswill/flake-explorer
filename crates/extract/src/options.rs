@@ -765,6 +765,119 @@ pub fn build_file_index(options: &[OptionEntry]) -> IndexMap<String, FileOptionR
 }
 
 #[cfg(test)]
+mod batching {
+    use super::*;
+
+    fn chunk(path: &str, rung: usize, cap: usize) -> Chunk {
+        Chunk {
+            path: vec![path.to_string()],
+            children: None,
+            rung,
+            cap,
+        }
+    }
+
+    fn queue_of(names: &[&str]) -> Vec<Chunk> {
+        names.iter().map(|n| chunk(n, 0, BATCH_MAX)).collect()
+    }
+
+    #[test]
+    fn enqueue_keeps_the_queue_sorted() {
+        let mut q = Vec::new();
+        for n in ["gamma", "alpha", "beta"] {
+            enqueue(&mut q, chunk(n, 0, BATCH_MAX));
+        }
+        // A later rung sorts after every rung-0 chunk, not next to its namesake:
+        // a batch may not mix detail levels, so grouping by rung first is what
+        // lets take_batch stop at the boundary instead of searching past it.
+        enqueue(&mut q, chunk("alpha", 1, BATCH_MAX));
+        let got: Vec<(&str, usize)> = q.iter().map(|c| (c.path[0].as_str(), c.rung)).collect();
+        assert_eq!(got, [("alpha", 0), ("beta", 0), ("gamma", 0), ("alpha", 1)]);
+    }
+
+    #[test]
+    fn a_batch_never_mixes_rungs() {
+        let mut q = vec![chunk("a", 0, BATCH_MAX), chunk("b", 1, BATCH_MAX)];
+        let batch = take_batch(&mut q, 1).unwrap();
+        assert_eq!(batch.len(), 1, "stopped at the rung boundary");
+        assert_eq!(q.len(), 1);
+    }
+
+    #[test]
+    fn batch_size_shrinks_with_the_queue_so_the_tail_stays_balanced() {
+        // Wide queue, one worker: batches are big because there is plenty to go
+        // round. The same queue against many workers batches thinly, because
+        // work that already fits the pool gains nothing from sharing a process.
+        let names: Vec<String> = (0..48).map(|i| format!("n{i:02}")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut wide = queue_of(&refs);
+        assert_eq!(take_batch(&mut wide, 1).unwrap().len(), BATCH_MAX);
+
+        let mut spread = queue_of(&refs);
+        assert_eq!(take_batch(&mut spread, 16).unwrap().len(), 1);
+
+        let mut empty: Vec<Chunk> = Vec::new();
+        assert!(take_batch(&mut empty, 4).is_none());
+    }
+
+    #[test]
+    fn a_capped_chunk_drags_no_one_into_a_batch_it_may_not_join() {
+        let mut q = queue_of(&["a", "b", "c", "d"]);
+        q[0].cap = 2;
+        let batch = take_batch(&mut q, 1).unwrap();
+        assert_eq!(batch.len(), 2, "the head's cap bounds the whole batch");
+    }
+
+    /// The invariant the whole scheduler rests on, and the one that is not
+    /// obvious from reading it: repeatedly failing a batch must terminate.
+    ///
+    /// The halves of a failed batch go back in SORTED order, so they land
+    /// adjacent and would be taken again as exactly the batch that just died.
+    /// The cap is what breaks that: it halves on every failure, so the sizes
+    /// strictly decrease and the sequence has to bottom out at 1 — which is the
+    /// per-chunk path, where the rung ladder takes over. Without this, a single
+    /// poisoned option is an infinite loop rather than a slow extraction.
+    #[test]
+    fn failing_a_batch_repeatedly_terminates_at_one() {
+        let names: Vec<String> = (0..32).map(|i| format!("n{i:02}")).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut q = queue_of(&refs);
+
+        let mut sizes = Vec::new();
+        for _ in 0..64 {
+            let mut batch = take_batch(&mut q, 1).expect("queue never empties here");
+            sizes.push(batch.len());
+            if batch.len() == 1 {
+                break;
+            }
+            // Exactly what run_batch does on an uncatchable failure.
+            let cap = (batch.len() / 2).max(1);
+            let mid = batch.len().div_ceil(2);
+            let tail = batch.split_off(mid);
+            for mut c in batch.into_iter().chain(tail) {
+                c.cap = cap;
+                enqueue(&mut q, c);
+            }
+        }
+
+        assert_eq!(
+            sizes.last(),
+            Some(&1),
+            "never reached a batch of one: {sizes:?}"
+        );
+        assert!(
+            sizes.windows(2).all(|w| w[1] <= w[0]),
+            "batch size must not grow back: {sizes:?}"
+        );
+        assert!(
+            sizes.len() <= BATCH_MAX.ilog2() as usize + 2,
+            "took {} rounds to halve from {BATCH_MAX} to 1: {sizes:?}",
+            sizes.len()
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
