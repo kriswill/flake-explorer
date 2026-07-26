@@ -72,25 +72,38 @@ export async function main(args: string[], root?: string): Promise<number> {
     const next = bumpVersion(prev, arg)
     const date = new Date().toISOString().slice(0, 10)
     const changelog = releaseChangelog(await Bun.file(changelogPath).text(), prev, next, date)
+    // The crate version follows package.json (single version source); the
+    // binary's package metadata and npm packages must agree. The workspace
+    // has two spots that must move together: [workspace.package] version
+    // (both crates inherit it) and the root crate's requirement on the
+    // extract crate — cargo rejects the tree outright if they disagree.
+    // Cargo.lock's entries must follow too or --locked builds refuse it.
+    // Everything is computed and checked before anything is written, so a
+    // missed spot fails the job instead of leaving a half-bumped tree.
+    const cargoPath = join(dir, "Cargo.toml")
+    const lockPath = join(dir, "Cargo.lock")
+    let cargo: string | undefined
+    let lock: string | undefined
+    if (await Bun.file(cargoPath).exists()) {
+      cargo = await Bun.file(cargoPath).text()
+      for (const spot of [
+        `[workspace.package]\nversion = "${prev}"`,
+        `path = "crates/extract", version = "${prev}"`,
+      ]) {
+        if (!cargo.includes(spot)) throw new Error(`Cargo.toml bump missed: ${spot}`)
+        cargo = cargo.replace(spot, spot.replace(prev, next))
+      }
+      lock = await Bun.file(lockPath).text()
+      for (const crate of ["flake-explorer", "flake-explorer-extract"]) {
+        const entry = `name = "${crate}"\nversion = "${prev}"`
+        if (!lock.includes(entry)) throw new Error(`Cargo.lock has no ${crate} ${prev} entry`)
+        lock = lock.replace(entry, `name = "${crate}"\nversion = "${next}"`)
+      }
+    }
     await Bun.write(pkgPath, pkgText.replace(`"version": "${prev}"`, `"version": "${next}"`))
     await Bun.write(changelogPath, changelog)
-    // The crate version follows package.json (single version source); the
-    // binary's package metadata and npm packages must agree. Cargo.lock's
-    // own entry must follow too or --locked builds refuse the tree.
-    const cargoPath = join(dir, "Cargo.toml")
-    if (await Bun.file(cargoPath).exists()) {
-      const cargoText = await Bun.file(cargoPath).text()
-      await Bun.write(cargoPath, cargoText.replace(`version = "${prev}"`, `version = "${next}"`))
-      const lockPath = join(dir, "Cargo.lock")
-      const lockText = await Bun.file(lockPath).text()
-      await Bun.write(
-        lockPath,
-        lockText.replace(
-          `name = "flake-explorer"\nversion = "${prev}"`,
-          `name = "flake-explorer"\nversion = "${next}"`,
-        ),
-      )
-    }
+    if (cargo !== undefined) await Bun.write(cargoPath, cargo)
+    if (lock !== undefined) await Bun.write(lockPath, lock)
     console.log(next)
     return 0
   }
