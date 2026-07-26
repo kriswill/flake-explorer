@@ -81,6 +81,26 @@ Cold means a cold **data directory**, not a cold machine — nix's eval cache an
 
 Because several extractions on one machine make every number a lie, the harness waits for any other `flake-explorer extract` before each run and flags samples one appeared beside.
 
+### Comparing two builds
+
+[`scripts/bench-ab.ts`](../scripts/bench-ab.ts) times two binaries against one flake:
+
+```sh
+bun scripts/bench-ab.ts --flake ~/src/dotfiles \
+  --arm main=/tmp/bin/fe-main --arm batch=/tmp/bin/fe-batch \
+  --reps 2 --lock /tmp/heavy.lock --json ab.json
+```
+
+Three properties make its numbers comparable rather than merely present. Arms are **interleaved** — rep 1 runs them in order, rep 2 reversed — so session drift lands on both. Each arm's cold and warm legs run inside one hold of an **exclusive lock** (`mkdir`, owner file, released even on a throw), because two agents measuring one flake at once contaminate both directions. And memory is **tree-scoped** via [`scripts/tree-rss.ts`](../scripts/tree-rss.ts): GNU `time -v` reports the largest single child, which for an extractor whose memory lives in N concurrent `nix` processes is the wrong question — the difference measured 5.9 GiB against 10.6 GB on the same run.
+
+Speed without fidelity proves nothing, so the data directories are kept and compared with [`scripts/datadir-diff.ts`](../scripts/datadir-diff.ts):
+
+```sh
+bun scripts/datadir-diff.ts --cross-arm /tmp/bench-ab/ab-main-r1 /tmp/bench-ab/ab-batch-r1
+```
+
+It compares the file list first, blobs byte-for-byte, and JSON with the three fields that vary between any two runs (`durationMs`, `extractedAt`, `generatedAt`) **replaced** rather than deleted, so a field that vanishes is still a difference. `--cross-arm` additionally exempts `extractor`, the extraction fingerprint, which must move whenever `crates/extract` changes; without the flag it stays strict, which is what makes a same-arm control worth running beside every cross-arm diff.
+
 ## GitHub Pages
 
 [`.github/workflows/pages.yml`](../.github/workflows/pages.yml) publishes on pushes to main:

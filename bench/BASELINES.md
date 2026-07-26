@@ -33,8 +33,9 @@ bun scripts/bench-extract.ts ~/src/github/kriswill/dotfiles --label dotfiles --r
   [`scripts/tree-rss.ts`](../scripts/tree-rss.ts), which walks `/proc` and sums the whole process
   tree, reporting both RSS (shared pages counted per process) and PSS (shared pages divided).
 - **A/B rows are interleaved**, not batched by arm: rep 1 runs old-then-new, rep 2 new-then-old, so
-  drift over the session lands on both arms. Every heavy leg holds the team's exclusive lock, since
-  two agents measuring this flake at once contaminated an earlier sweep in both directions.
+  drift over the session lands on both arms. Every heavy leg holds an exclusive lock, since two
+  agents measuring this flake at once contaminated an earlier sweep in both directions. Both are
+  built into [`scripts/bench-ab.ts`](../scripts/bench-ab.ts), which produced the A/B rows below.
 
 ## Machine
 
@@ -104,8 +105,9 @@ as a hypothesis; what is measured is the two tables.)
 
 ### Data fidelity
 
-All 45 files in the data directory are identical between arms, modulo `durationMs`, `extractedAt`,
-`generatedAt` and `extractor`. The first three vary between any two runs of the same binary; the
+Checked with [`scripts/datadir-diff.ts`](../scripts/datadir-diff.ts). All 45 files in the data
+directory are identical between arms, modulo `durationMs`, `extractedAt`, `generatedAt` and
+`extractor`. The first three vary between any two runs of the same binary; the
 fourth is the extraction fingerprint, which must move because the branch changes `crates/extract`.
 Config and package **blobs are byte-identical**. A strict same-arm control (main rep 1 vs main rep 2)
 passes without the fingerprint exemption.
