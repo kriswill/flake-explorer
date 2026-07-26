@@ -17,6 +17,9 @@ pub struct OptionsResult {
     pub data: ConfigData,
     pub warnings: Vec<String>,
     pub duration_ms: u64,
+    /// How this walk ended up splitting the option tree, for the next one to
+    /// start from. Only the shape — see ChunkHint on why the rungs stay out.
+    pub partition: Vec<ChunkHint>,
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +71,23 @@ struct Chunk {
     cap: usize,
 }
 
+/// How one configuration's option tree was found to split, recorded so the next
+/// extraction can start there instead of rediscovering it by failing.
+///
+/// Deliberately NOT a record of how far down the ladder each chunk ended up. A
+/// rung is what the flake refused to give LAST time; replaying it would mean a
+/// user who fixes a poisoned option never gets its value back, because the walk
+/// would never ask again. Degradation may only ever subtract what the flake
+/// currently refuses, so every hinted chunk is attempted at full detail and a
+/// still-poisoned one re-earns its rung for the price of one failed eval.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChunkHint {
+    pub path: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<String>>,
+}
+
 /// The option path a chunk speaks for: its own path, plus the single child once
 /// it has been narrowed to one. Doubles as the sort key for anything the walk
 /// reports about that chunk.
@@ -84,6 +104,14 @@ fn chunk_key(c: &Chunk) -> Vec<String> {
 
 fn chunk_label(c: &Chunk) -> String {
     chunk_key(c).join(".")
+}
+
+/// The shape of a chunk, without its rung — what the next walk may start from.
+fn hint_of(c: &Chunk) -> ChunkHint {
+    ChunkHint {
+        path: c.path.clone(),
+        children: c.children.clone(),
+    }
 }
 
 /// A warning plus the option path it is about — the key it gets sorted by, so
@@ -170,6 +198,10 @@ struct Shared {
     /// poisoned namespaces.
     queue: Mutex<Vec<Chunk>>,
     results: Mutex<Vec<RawOption>>,
+    /// Every chunk that reached a terminal outcome — evaluated, or given up on.
+    /// The chunks that only ever split are deliberately absent: the hint is the
+    /// partition the walk ARRIVED at, not the route it took to get there.
+    partition: Mutex<Vec<ChunkHint>>,
     warnings: Mutex<Vec<KeyedWarning>>,
     done: std::sync::atomic::AtomicUsize,
     in_flight: std::sync::atomic::AtomicUsize,
@@ -232,6 +264,7 @@ pub async fn extract_options(
             q
         }),
         results: Mutex::new(Vec::new()),
+        partition: Mutex::new(Vec::new()),
         warnings: Mutex::new(Vec::new()),
         done: std::sync::atomic::AtomicUsize::new(0),
         in_flight: std::sync::atomic::AtomicUsize::new(0),
@@ -325,10 +358,21 @@ pub async fn extract_options(
         options,
         file_index,
     };
+    // Sorted for the same reason the options and the warnings are: this lands in
+    // a persisted file, and a file whose bytes depend on which worker finished
+    // first is a file that differs between two identical runs.
+    let mut partition = std::mem::take(&mut *shared.partition.lock().await);
+    partition.sort_by(|a, b| {
+        a.path
+            .cmp(&b.path)
+            .then_with(|| a.children.cmp(&b.children))
+    });
+
     Ok(OptionsResult {
         data,
         warnings,
         duration_ms: t0.elapsed().as_millis() as u64,
+        partition,
     })
 }
 
@@ -441,6 +485,7 @@ async fn run_batch(
         Ok(r) if r.results.len() == batch.len() => {
             let mut results = shared.results.lock().await;
             let mut warnings = shared.warnings.lock().await;
+            let mut partition = shared.partition.lock().await;
             for (chunk, got) in batch.iter().zip(r.results) {
                 if !rung.note.is_empty() {
                     warnings.push((
@@ -452,6 +497,7 @@ async fn run_batch(
                         ),
                     ));
                 }
+                partition.push(hint_of(chunk));
                 results.extend(got.options);
             }
         }
@@ -517,6 +563,7 @@ async fn run_chunk(
                     ),
                 ));
             }
+            shared.partition.lock().await.push(hint_of(&chunk));
             shared.results.lock().await.extend(r.options);
             return;
         }
@@ -597,6 +644,10 @@ async fn run_chunk(
         );
         return;
     }
+    // Terminal too. A chunk nobody could evaluate is still part of the shape the
+    // next walk should start from, so that it is not rediscovered by failing
+    // through the same splits all over again.
+    shared.partition.lock().await.push(hint_of(&chunk));
     shared.warnings.lock().await.push((
         deeper.clone(),
         format!(

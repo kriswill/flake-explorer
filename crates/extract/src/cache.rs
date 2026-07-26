@@ -4,7 +4,7 @@
 // to the blobs (config/<kind>.<name>.meta.json).
 
 use crate::manifest::{FINGERPRINT, now_iso};
-use crate::options::{ExtractOptionsOpts, OptionsResult, ProgressFn, extract_options};
+use crate::options::{ChunkHint, ExtractOptionsOpts, OptionsResult, ProgressFn, extract_options};
 use crate::package::{PackageResult, extract_package};
 use crate::schema::*;
 use serde::{Deserialize, Serialize};
@@ -81,6 +81,40 @@ struct SidecarMeta {
     option_count: Option<usize>,
     duration_ms: u64,
     warnings: Vec<String>,
+    /// How the option tree split last time — a hint for the next WALK, never an
+    /// input to freshness (see `partition_hint`). Additive: absent in every
+    /// sidecar written before it existed, and `deny_unknown_fields` is not set,
+    /// so a binary that predates it ignores it rather than choking.
+    ///
+    /// `Value` rather than the typed shape on purpose. This field is read out of
+    /// files written by other versions of this program in both directions, and a
+    /// plan that fails to parse must cost the re-splitting it would have saved
+    /// and nothing else — so the typing happens in `partition_hint`, where a
+    /// mismatch can be swallowed, instead of here, where it would take the whole
+    /// sidecar down with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    plan: Option<serde_json::Value>,
+}
+
+/// The recorded partition for a blob, or None.
+///
+/// Read WITHOUT consulting the cache key, deliberately, and that is the whole
+/// design: a plan is only ever wanted when the key does NOT match, because a
+/// matching key means the blob is served and nothing is walked. That includes
+/// after a flake-explorer upgrade, when the fingerprint moves and every
+/// configuration is re-extracted — the case where starting from a known
+/// partition is worth the most. A partition describes how the FLAKE's option
+/// tree splits, not how this program works, so one written by another version
+/// is still a reasonable guess; and it is verified against what the eval
+/// actually sees, so a wrong guess costs re-splitting.
+///
+/// What this must never do is influence whether the blob beside it is fresh.
+/// That decision belongs to `reconcile_one` and its key comparison, alone.
+pub fn partition_hint(out_dir: &str, data_file: &str) -> Option<Vec<ChunkHint>> {
+    let raw = std::fs::read_to_string(sidecar_path(out_dir, data_file)).ok()?;
+    let meta: SidecarMeta = serde_json::from_str(&raw).ok()?;
+    let plan: Vec<ChunkHint> = serde_json::from_value(meta.plan?).ok()?;
+    (!plan.is_empty()).then_some(plan)
 }
 
 fn sidecar_path(out_dir: &str, data_file: &str) -> PathBuf {
@@ -92,6 +126,9 @@ fn sidecar_path(out_dir: &str, data_file: &str) -> PathBuf {
     Path::new(out_dir).join(meta)
 }
 
+// One parameter per field the sidecar holds; bundling them into a struct would
+// just be the same list spelled twice, since nothing else ever constructs one.
+#[allow(clippy::too_many_arguments)]
 fn write_sidecar(
     out_dir: &str,
     data_file: &str,
@@ -100,6 +137,7 @@ fn write_sidecar(
     option_count: Option<usize>,
     duration_ms: u64,
     warnings: &[String],
+    plan: Option<&[ChunkHint]>,
 ) -> anyhow::Result<()> {
     let meta = SidecarMeta {
         flake_key: Some(key.flake_key.clone()),
@@ -110,6 +148,11 @@ fn write_sidecar(
         option_count,
         duration_ms,
         warnings: warnings.to_vec(),
+        // Written only when there is one, so a configuration whose option tree
+        // never needed splitting adds nothing to its sidecar.
+        plan: plan
+            .filter(|p| !p.is_empty())
+            .and_then(|p| serde_json::to_value(p).ok()),
     };
     std::fs::write(
         sidecar_path(out_dir, data_file),
@@ -173,6 +216,7 @@ pub async fn extract_and_persist(
         Some(r.data.options.len()),
         r.duration_ms,
         &r.warnings,
+        Some(&r.partition),
     )?;
     Ok(Extracted {
         result: r,
@@ -209,6 +253,7 @@ pub async fn extract_and_persist_package(
         None,
         r.duration_ms,
         &r.warnings,
+        None,
     )?;
     Ok(Extracted {
         result: r,
@@ -334,8 +379,105 @@ mod tests {
             Some(7),
             42,
             &[],
+            None,
         )
         .unwrap();
+    }
+
+    /// Rewrite a sidecar's raw JSON, for the cases where the point is a shape
+    /// this version would never write itself.
+    fn patch_sidecar(dir: &Path, data_file: &str, f: impl FnOnce(&mut serde_json::Value)) {
+        let path = sidecar_path(dir.to_str().unwrap(), data_file);
+        let mut v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        f(&mut v);
+        std::fs::write(&path, serde_json::to_string(&v).unwrap()).unwrap();
+    }
+
+    /// The separation that keeps a walk hint from becoming a freshness claim.
+    ///
+    /// A plan says how the option tree splits. It says nothing about whether the
+    /// blob next to it is still valid, and the moment those two are allowed to
+    /// touch, a stale blob with a plausible plan starts getting served. So a
+    /// sidecar whose plan is present and perfectly good but whose key does not
+    /// match is stale, exactly as if the plan were absent.
+    #[test]
+    fn a_plan_never_makes_a_stale_sidecar_look_fresh() {
+        let dir = std::env::temp_dir().join(format!("fe-plan-fresh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let data_file = "config/nixos.host.json";
+        seed(&dir, data_file, "nix (Nix) 2.34.8");
+        patch_sidecar(&dir, data_file, |v| {
+            v.as_object_mut().unwrap().insert(
+                "plan".into(),
+                serde_json::json!([{ "path": ["services"], "children": ["nginx"] }]),
+            );
+        });
+
+        // The plan is readable — this is not a test about an unreadable one.
+        assert!(partition_hint(dir.to_str().unwrap(), data_file).is_some());
+
+        let mut stale = manifest_with(data_file);
+        reconcile(dir.to_str().unwrap(), &mut stale, "nix (Nix) 2.35.0");
+        assert_eq!(
+            stale.configurations[0].status,
+            RefStatus::Pending,
+            "a plan must not vote on freshness"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Sidecars on disk were written by other versions of this program, in both
+    /// directions: older ones have no plan at all, newer ones may have a shape
+    /// this version has never heard of. Every one of those reads as "no hint" —
+    /// never an error, never a warning, because a hint that cannot be read costs
+    /// exactly one thing, which is the re-splitting it would have saved.
+    #[test]
+    fn an_unreadable_plan_reads_as_no_hint() {
+        let dir = std::env::temp_dir().join(format!("fe-plan-junk-{}", std::process::id()));
+        let data_file = "config/nixos.host.json";
+        let at = dir.to_str().unwrap();
+
+        for (name, junk) in [
+            ("absent", None),
+            ("null", Some(serde_json::json!(null))),
+            ("a string", Some(serde_json::json!("services.nginx"))),
+            (
+                "an object",
+                Some(serde_json::json!({"services": ["nginx"]})),
+            ),
+            (
+                "entries of the wrong shape",
+                Some(serde_json::json!([1, 2])),
+            ),
+            (
+                "an entry missing its path",
+                Some(serde_json::json!([{ "children": ["nginx"] }])),
+            ),
+        ] {
+            let _ = std::fs::remove_dir_all(&dir);
+            seed(&dir, data_file, "nix (Nix) 2.34.8");
+            if let Some(j) = junk {
+                patch_sidecar(&dir, data_file, |v| {
+                    v.as_object_mut().unwrap().insert("plan".into(), j);
+                });
+            }
+            assert!(
+                partition_hint(at, data_file).is_none(),
+                "a plan that is {name} should read as no hint"
+            );
+            // And the sidecar is still a sidecar: an unreadable plan must not
+            // take the freshness decision down with it.
+            let mut m = manifest_with(data_file);
+            reconcile(at, &mut m, "nix (Nix) 2.34.8");
+            assert_eq!(
+                m.configurations[0].status,
+                RefStatus::Ok,
+                "an unreadable plan broke reconcile ({name})"
+            );
+        }
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// The reason nix_version is in the key at all: a nix upgrade can change
