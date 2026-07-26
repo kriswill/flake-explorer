@@ -1,7 +1,21 @@
 # flake-explorer: a native binary (crane-built Rust) plus the bun-built
 # Svelte SPA bundle it serves. crane's buildDepsOnly compiles the dependency
 # tree as its own derivation keyed only by Cargo.lock, so CI rebuilds just
-# this crate on source changes while the dep layer stays in the binary cache.
+# this workspace's own crates on source changes while the dep layer stays in
+# the binary cache.
+#
+# Two members since the extraction/presentation split: the root crate (CLI,
+# serve, export) and flake-explorer-extract. Both are in default-members, so
+# every crane driver below — buildPackage, cargoTest, cargoClippy, cargoLlvmCov
+# — selects both without needing --workspace anywhere.
+#
+# The split does NOT make these derivations finer-grained, and it is worth
+# saying so before someone assumes it did: each is keyed on the whole cargo
+# fileset, so an edit anywhere in it rebuilds the derivation and recompiles both
+# members. Only the dep layer stays cached, exactly as before. The split is for
+# the extraction fingerprint's scope (crates/extract/build.rs); smaller
+# recompiles happen only where a target/ dir survives between builds, which in
+# CI is the rust-coverage job's rust-cache and not any of these.
 #
 # The SPA is compiled by bun (scripts/bundle-app.ts) against a fixed-output
 # node_modules derivation, and installed to $out/share/flake-explorer/app-dist
@@ -21,8 +35,13 @@
 let
   version = (builtins.fromJSON (builtins.readFile ./package.json)).version;
 
-  # Everything the cargo build reads: the crate plus the files build.rs
-  # hashes and the sources include_str! (extract.nix, highlight queries).
+  # Everything the cargo build reads, for both workspace members: the root
+  # crate (./src) and the extraction crate (./crates, which carries its own
+  # Cargo.toml, the build.rs that fingerprints it, and the sources include_str!
+  # — extract.nix and the highlight queries). ./crates has to be here whole
+  # rather than as ./crates/extract/src: crane reads every member manifest to
+  # generate the dummy sources for the dependency layers, and a missing member
+  # manifest fails the workspace resolve before any of them compiles.
   # ./tests is here so the sandboxed checks (cargoTest, cargoClippy
   # --all-targets) actually compile the integration suites — without it they
   # silently build nothing but the lib/bin unit tests. The nix fixtures the
@@ -35,7 +54,7 @@ let
     fileset = lib.fileset.unions [
       ./Cargo.toml
       ./Cargo.lock
-      ./build.rs
+      ./crates
       ./src
       ./tests
     ];
@@ -91,8 +110,10 @@ let
     // {
       nativeBuildInputs = [ cargo-llvm-cov ];
       # crane's cargoLlvmCov invocation minus the report, which has nothing to
-      # report on: the dummy sources carry no tests.
-      buildPhaseCargoCommand = "cargoWithProfile llvm-cov test --locked --no-report";
+      # report on: the dummy sources carry no tests. --workspace matches the
+      # check below for the same reason the wrapper is reproduced rather than
+      # hand-copied — a layer built under different package selection is a miss.
+      buildPhaseCargoCommand = "cargoWithProfile llvm-cov test --workspace --locked --no-report";
       # That command already compiles the dev-dependency test binaries the
       # check phase exists to cache; letting it run would only add a second,
       # uninstrumented copy of them.
@@ -233,11 +254,19 @@ craneLib.buildPackage (
         # lcov at $out (crane's default cargoLlvmCovExtraArgs) — CI runs the
         # richer out-of-sandbox variant and feeds octocov. Note this rides on
         # `coverageArtifacts`, not the layer clippy and test share.
+        #
+        # --workspace because cargo-llvm-cov scopes its report to the selected
+        # package, and the workspace root is itself a package: without it this
+        # emitted the root crate's six files plus a stray dummy lib.rs from the
+        # dep layer, and none of the extractor. Unlike cargoTest and cargoClippy
+        # — which pick up both members from default-members and always did —
+        # the report needs asking explicitly.
         coverage = craneLib.cargoLlvmCov (
           devArgs
           // llvmToolEnv
           // {
             cargoArtifacts = coverageArtifacts;
+            cargoExtraArgs = "--workspace";
           }
         );
         # Offline `bun test` for the SPA against the vendored node_modules

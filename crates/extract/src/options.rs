@@ -176,11 +176,35 @@ pub async fn extract_options(
         }
     }
 
-    let results = std::mem::take(&mut *shared.results.lock().await);
+    let mut results = std::mem::take(&mut *shared.results.lock().await);
     let mut warnings = std::mem::take(&mut *shared.warnings.lock().await);
     // Dedup preserving order, like `[...new Set(warnings)]`.
     let mut seen = HashSet::new();
     warnings.retain(|w| seen.insert(w.clone()));
+
+    // Sort by loc so a blob is a function of (code, flake) and nothing else.
+    // Workers above extend `results` as their chunks COMPLETE, and the worker
+    // count comes from available_parallelism(), so without this the option order
+    // — and, since build_file_index walks this vector, the fileIndex key order
+    // and every defines/declares index in it — varied between runs on one
+    // machine and varied systematically between a 4-core and a 16-core one. Ten
+    // runs against fixtures/mini-flake on a 10-core host produced five distinct
+    // blob hashes. Two costs came out of that: the same flake cached different
+    // bytes depending on the machine that extracted it, and no test could tell a
+    // real regression from scheduling jitter, which is what tests/determinism.rs
+    // now relies on.
+    //
+    // loc is the option's path and therefore its identity, so it is a total
+    // order on real data rather than a convenient one. Nothing consumes the
+    // array order as meaning: the client reaches options through fileIndex and
+    // its own loc->index map, and sorts by loc itself where display order
+    // matters. Sorting before to_entry rather than after keeps build_file_index
+    // below reading the vector it will actually be indexing.
+    //
+    // This does not make the SIDECAR byte-stable — it carries extractedAt and
+    // durationMs, which are timing — and warning order still follows discovery.
+    // The blob is the artifact the cache serves, and it is now stable.
+    results.sort_by(|a, b| a.loc.cmp(&b.loc));
 
     let options: Vec<OptionEntry> = results.into_iter().map(to_entry).collect();
     let file_index = build_file_index(&options);

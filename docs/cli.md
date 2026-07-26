@@ -17,7 +17,7 @@ commands:
 
 ### extract
 
-Extract the manifest (plus any selected configurations) to the data dir, via the shared driver in [`src/drive.rs`](../src/drive.rs). Configurations whose cache sidecar matches (narHash + extractor version) are skipped — see [Extraction pipeline](extraction-pipeline.md). Writes `manifest.json` into `--out`.
+Extract the manifest (plus any selected configurations) to the data dir, via the shared driver in [`src/drive.rs`](../src/drive.rs). Configurations whose cache sidecar matches (narHash + extractor fingerprint + lockHash + nix version) are skipped — see [Extraction pipeline](extraction-pipeline.md). Writes `manifest.json` into `--out`.
 
 ### export
 

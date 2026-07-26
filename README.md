@@ -122,7 +122,7 @@ same, copy that workflow and set the repo's Pages source to "GitHub Actions"
 
 The extractor/server is a Rust crate at the repo root; the SPA is Svelte 5
 (runes) bundled by `Bun.build` + `bun-plugin-svelte` — no Vite. The
-extractor emits the JSON contract from `src/schema.rs`; the SPA's
+extractor emits the JSON contract from `crates/extract/src/schema.rs`; the SPA's
 client-side typing of the same contract lives in `web/lib/schema.ts`.
 
 ```console

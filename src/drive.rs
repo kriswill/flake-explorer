@@ -38,7 +38,9 @@ pub struct DriveResult {
 }
 
 pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Result<DriveResult> {
-    check_nix().await?;
+    // The version is part of the cache key, not just a floor check — a nix
+    // upgrade can change what extraction produces (see cache.rs::CacheKey).
+    let nix_version = check_nix().await?;
     std::fs::create_dir_all(Path::new(&flags.out).join("config"))?;
     std::fs::create_dir_all(Path::new(&flags.out).join("package"))?;
 
@@ -61,8 +63,8 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
     for w in &manifest.warnings {
         eprintln!("  warn: {w}");
     }
-    reconcile(&flags.out, &mut manifest);
-    let cache_key = cache_key_of(&manifest);
+    reconcile(&flags.out, &mut manifest, &nix_version);
+    let cache_key = cache_key_of(&manifest, &nix_version);
 
     let wanted: Vec<String> = match &flags.configs {
         Selection::All => manifest
@@ -89,7 +91,7 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("no such configuration: {id}"))?;
         if r#ref.status == RefStatus::Ok {
-            println!("options of {id} cached (flake + extractor unchanged), skipping");
+            println!("options of {id} cached (flake + extractor + nix unchanged), skipping");
             continue;
         }
         println!("extracting options of {id} ...");
@@ -164,7 +166,7 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("no such package: {id}"))?;
         if r#ref.status == RefStatus::Ok {
-            println!("package {id} cached (flake + extractor unchanged), skipping");
+            println!("package {id} cached (flake + extractor + nix unchanged), skipping");
             continue;
         }
         println!("extracting package {id} ...");

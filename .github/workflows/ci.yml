@@ -144,7 +144,16 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: ${{ hashFiles('flake.lock') }}
-      - run: nix develop -c cargo llvm-cov test --locked --lcov --output-path coverage-raw.lcov
+      # --workspace is load-bearing, not decoration. cargo-llvm-cov scopes its
+      # REPORT to the selected package, and with the workspace root also being a
+      # package that means the root crate alone — so after the extraction/
+      # presentation split this measured 6 files instead of 16 and silently
+      # dropped every line of the extractor, which is the code most worth
+      # measuring. It is not the same knob as the workspace's default-members:
+      # that governs which packages cargo TESTS (and does, correctly — all 32
+      # tests run either way), so the tests all executed and simply went
+      # unattributed. The ratchet caught it as an 82.8% -> 73.3% drop.
+      - run: nix develop -c cargo llvm-cov test --workspace --locked --lcov --output-path coverage-raw.lcov
         env:
           FLAKE_EXPLORER_REQUIRE_NIX: "1"
       # Rewrite absolute SF paths repo-relative so octocov matches sources.

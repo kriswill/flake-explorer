@@ -1,35 +1,81 @@
-[package]
-name = "flake-explorer"
+# The root crate is the CLI half: flag parsing, the extraction driver, the HTTP
+# server, the static exporter, page composition. It stays at the repo root
+# because three compile-time contracts are anchored there — page.rs and
+# serve.rs resolve dist/app, scripts/bundle-app.ts and web/ through
+# env!("CARGO_MANIFEST_DIR"), and the devShell shim runs `cargo run
+# --manifest-path $root/Cargo.toml`. Putting the extraction crate under
+# crates/ instead of this one costs nothing and breaks none of them.
+[workspace]
+members = ["crates/extract"]
+# Cargo's default for a workspace whose root is itself a package is to select
+# only the root package, so a bare `cargo test` / `clippy` / `llvm-cov test`
+# would quietly stop compiling and running the extraction crate's unit tests —
+# 26 of the workspace's 32. Spelled out here rather than as --workspace flags
+# so every existing invocation (crane's checks, CI's out-of-sandbox coverage
+# run, a plain local `cargo test`) keeps covering both crates unchanged.
+default-members = [".", "crates/extract"]
+
+[workspace.package]
 version = "0.5.1"
 edition = "2024"
 license = "MIT"
-description = "Interactive visualizer for Nix flakes: outputs/module tree, option provenance, file map"
-build = "build.rs"
 
-[dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs", "net", "sync", "time", "io-util", "signal"] }
+# One version list for both crates. Two dependency tables are two places for
+# serde or tree-sitter to drift into two copies of themselves in one binary.
+[workspace.dependencies]
+anyhow = "1"
 axum = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+fancy-regex = "0.14"
+futures = "0.3.33"
+hex = "0.4"
+indexmap = { version = "2.14.0", features = ["serde"] }
+notify = "8.2.0"
+percent-encoding = "2"
+regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.10"
-hex = "0.4"
-regex = "1"
-fancy-regex = "0.14"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-percent-encoding = "2"
+streaming-iterator = "0.1.9"
+tokio = "1"
+tokio-stream = { version = "0.1.19", features = ["sync"] }
 tree-sitter = "0.25"
 tree-sitter-bash = "0.23"
 tree-sitter-nix = "0.3"
-anyhow = "1"
-indexmap = { version = "2.14.0", features = ["serde"] }
-notify = "8.2.0"
-streaming-iterator = "0.1.9"
-tokio-stream = { version = "0.1.19", features = ["sync"] }
-futures = "0.3.33"
 
-[build-dependencies]
-sha2 = "0.10"
-hex = "0.4"
+[package]
+name = "flake-explorer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Interactive visualizer for Nix flakes: outputs/module tree, option provenance, file map"
+
+# No build.rs here any more: the fingerprint build script moved to the
+# extraction crate, which is the tree it hashes. sha2/hex/chrono/tree-sitter
+# and the rest of the extractor's deps went with it.
+[dependencies]
+flake-explorer-extract = { path = "crates/extract", version = "0.5.1" }
+anyhow.workspace = true
+axum.workspace = true
+futures.workspace = true
+indexmap.workspace = true
+notify.workspace = true
+percent-encoding.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = [
+  "rt-multi-thread",
+  "macros",
+  "process",
+  "fs",
+  "net",
+  "sync",
+  "time",
+  "io-util",
+  "signal",
+] }
+tokio-stream.workspace = true
 
 [profile.release]
 # Thin, not fat. Once the checks moved to the dev profile and buildPackage

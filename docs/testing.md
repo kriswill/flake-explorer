@@ -2,7 +2,7 @@
 
 Two suites, split by language and run by different tools:
 
-- **`cargo test`** — the Rust crate: extractor, server, export, CLI. Unit tests live inline in `src/*.rs`; integration suites live in [`tests/`](../tests) and drive the real binary or an in-process `axum` router.
+- **`cargo test`** — the Rust workspace: extractor, server, export, CLI. Unit tests live inline in each crate's sources (`src/*.rs` and `crates/extract/src/*.rs`); integration suites live in [`tests/`](../tests), belong to the root crate, and drive the real binary or an in-process `axum` router. Both members are in the workspace's `default-members`, so a bare `cargo test` covers both — without that, cargo would select only the root package and silently skip the extraction crate's unit tests.
 - **`bun test`** — the Svelte SPA and the bun build scripts. Every `*.test.ts` sits beside the module it covers.
 
 See [Build & infra](build-and-infra.md) for the CI jobs that run them.
@@ -36,7 +36,7 @@ Tests are **co-located**: [`web/lib/indexes.test.ts`](../web/lib/indexes.test.ts
 
 ## The Rust suite
 
-Unit tests live inline in `src/*.rs`. The integration suites in [`tests/`](../tests) share helpers via [`tests/common/mod.rs`](../tests/common/mod.rs):
+Unit tests live inline beside the code, in `src/*.rs` for the root crate and `crates/extract/src/*.rs` for the extractor. The integration suites in [`tests/`](../tests) share helpers via [`tests/common/mod.rs`](../tests/common/mod.rs):
 
 | Suite | Covers |
 |---|---|
@@ -45,6 +45,12 @@ Unit tests live inline in `src/*.rs`. The integration suites in [`tests/`](../te
 | [`tests/export_html.rs`](../tests/export_html.rs) | End-to-end single-file export, re-parsing the embedded data tags out of the HTML |
 | [`tests/degrade.rs`](../tests/degrade.rs) | Per-configuration failure paths — one bad config must not poison the rest |
 | [`tests/mini_flake.rs`](../tests/mini_flake.rs) | The full manifest + option-extraction pipeline against **real nix** |
+| [`tests/determinism.rs`](../tests/determinism.rs) | The two guards on "a blob is a function of the extraction crate and the flake": repeated extractions must be byte-identical (real nix), and the root crate must not grow a new file-writing site (runs everywhere) |
+
+The second suite is the only thing in the repo that fails when the extraction
+boundary stops holding — see [The extraction crate boundary](extraction-pipeline.md#the-extraction-crate-boundary).
+Its own comment is explicit about what it cannot catch, which is worth reading
+before relying on it.
 
 ## Fixture strategy
 
@@ -66,3 +72,5 @@ Two octocov reports, deliberately separate so their histories never mix:
 - [`.octocov.rust.yml`](../.octocov.rust.yml) — the crate, reading `rust-coverage/lcov.info` as a `current >= prev` ratchet.
 
 `nix flake check` builds four checks from [`package.nix`](../package.nix): `test` (`cargo test`), `clippy`, `coverage`, and `app-test` (an offline `bun test` against the vendored `node_modules`). The sandbox has no `nix` binary and the fixture flakes are outside the crate fileset, so the real-nix suites skip there by design — CI's out-of-sandbox `cargo llvm-cov test` step is where they must run.
+
+**Coverage needs `--workspace`; testing does not.** `cargo test` and `cargo clippy` pick up both workspace members from `default-members`, so all 32 tests run without any flag. `cargo llvm-cov` is different: it scopes its *report* to the selected package, and because the workspace root is itself a package, the default selection is the root crate alone. Omitting `--workspace` therefore produces a report covering 6 files instead of 16 and silently drops every line of the extractor — the tests still run, they just go unattributed. It cost an 82.8% → 73.3% ratchet failure on the PR that introduced the split, and both invocations (the CI step and the `coverage` check in [`package.nix`](../package.nix)) now pass it explicitly.

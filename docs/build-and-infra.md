@@ -20,9 +20,9 @@ Serve mode never embeds `manifest.json` — its presence is the client's static-
 
 [`flake.nix`](../flake.nix) (flake-parts) exposes `packages.flake-explorer` from [`package.nix`](../package.nix): a crane-built Rust binary plus the bun-built SPA bundle it serves, installed to `$out/share/flake-explorer/app-dist` and symlinked from the binary's runtime probe.
 
-- crane's `buildDepsOnly` compiles the dependency tree as its own derivation keyed only by `Cargo.lock`, so CI rebuilds just this crate on source changes while the dep layer stays in the binary cache.
+- crane's `buildDepsOnly` compiles the dependency tree as its own derivation keyed only by `Cargo.lock`, so CI rebuilds just this workspace's own crates on source changes while the dep layer stays in the binary cache. Note the workspace split does **not** make that finer: crane keys each derivation on the whole cargo fileset, so a `serve.rs` edit still changes the `flake-explorer` derivation and recompiles both members inside it (measured — the dep-layer derivation is unchanged, the package derivation is not). Two crates buy a smaller unit of recompilation only where a `target/` dir survives between builds: the dev shell, and the `rust-coverage` job via `Swatinem/rust-cache`. The split was done for the extraction fingerprint's scope, not for build times.
 - `node_modules` is a fixed-output derivation (`bun install --frozen-lockfile`) with a pinned `outputHash`; the lock is pure JS so one hash serves every platform. Refresh procedure is documented next to the hash in [`package.nix`](../package.nix).
-- Sources are explicit fileset include-lists, one per derivation. The crate's includes `./tests` so the sandboxed checks actually compile the integration suites; it deliberately excludes `./fixtures` so a fixture edit doesn't invalidate the dep layer. The SPA's excludes `*.test.ts` and `./web/testing` so test edits don't rebuild the bundle.
+- Sources are explicit fileset include-lists, one per derivation. The cargo one includes `./crates` whole (crane reads every member manifest to generate its dummy sources) and `./tests` so the sandboxed checks actually compile the integration suites; it deliberately excludes `./fixtures` so a fixture edit doesn't invalidate the dep layer. The SPA's excludes `*.test.ts` and `./web/testing` so test edits don't rebuild the bundle.
 - `checks.test` is `cargo test` over the crane dep layer; `checks.app-test` is an offline `bun test` against the vendored `node_modules` inside the sandbox (see [Testing](testing.md)).
 - `nix` itself is deliberately **not** in the dev shell or wrapper: the CLI must use the host's nix so store paths and the flake registry match the user's system.
 - `treefmt` (via treefmt-nix) formats Nix only; Biome owns TS/Svelte through [`biome.json`](../biome.json).
@@ -42,7 +42,7 @@ The repo's `package.json` is not the published manifest — it is marked `privat
 | `test typescript` | `bun test --coverage` for the SPA and build scripts; reports coverage via octocov |
 | `check typescript` | `bun run lint:ci` (the lockfile's Biome, not `bunx`'s latest), `tsc --noEmit` + `svelte-check`, then `bun run docs` as a smoke check so a broken docs pipeline surfaces on the PR, not on the Pages deploy |
 | `nix` | `nix flake check -L` (cargo test/clippy/coverage, the offline SPA test derivation, treefmt) and `nix build .#default`, sharing one nix store |
-| `rust-coverage` | `cargo llvm-cov test` **outside** the sandbox with `FLAKE_EXPLORER_REQUIRE_NIX=1` so the real-nix suites run and cannot silently skip; reports the crate's coverage via octocov |
+| `rust-coverage` | `cargo llvm-cov test --workspace` **outside** the sandbox with `FLAKE_EXPLORER_REQUIRE_NIX=1` so the real-nix suites run and cannot silently skip; reports the workspace's coverage via octocov |
 | `build` | Turns `nix` and `rust-coverage` into the pass/fail the ruleset requires, and posts the coverage comment |
 
 Two coverage reports, kept separate so their histories never mix: [`.octocov.yml`](../.octocov.yml) reads `dist/coverage/lcov.info` for the SPA against a fixed `acceptable: 96%` floor, and [`.octocov.rust.yml`](../.octocov.rust.yml) reads `rust-coverage/lcov.info` for the crate as a `current >= prev` ratchet. See [Testing](testing.md).
@@ -73,7 +73,7 @@ Being the sole writer is what keeps the two suites from clobbering each other. U
 1. `nix run .# -- export . --all --sources all --html dist/site/flake.html` — a single-file static export of this repo's own flake as the live demo; `index.html` is a copy so the site root works.
 2. `bun run docs` — `typedoc` (via `typedoc-plugin-markdown` into `dist/api`), then `bun scripts/build-docs.ts --out dist/site/docs --api dist/api`.
 
-Resulting site layout: `/` is the demo, `/docs/` renders these pages, `/docs/api/` is the generated API reference. [`scripts/build-docs.ts`](../scripts/build-docs.ts) converts `docs/*.md` with marked into a shared shell styled by the same `themeCss()` as the app; mermaid is bundled locally from the [`scripts/docs-mermaid-client.ts`](../scripts/docs-mermaid-client.ts) entry (no CDN) and included only on pages containing a mermaid fence. Links out of `docs/` (e.g. `../src/schema.rs`) are rewritten to the GitHub blob view.
+Resulting site layout: `/` is the demo, `/docs/` renders these pages, `/docs/api/` is the generated API reference. [`scripts/build-docs.ts`](../scripts/build-docs.ts) converts `docs/*.md` with marked into a shared shell styled by the same `themeCss()` as the app; mermaid is bundled locally from the [`scripts/docs-mermaid-client.ts`](../scripts/docs-mermaid-client.ts) entry (no CDN) and included only on pages containing a mermaid fence. Links out of `docs/` (e.g. `../crates/extract/src/schema.rs`) are rewritten to the GitHub blob view.
 
 ## Docs workflow for contributors
 
