@@ -31,6 +31,7 @@ const rootPkg = (await Bun.file(join(ROOT, "package.json")).json()) as {
   license: string
   homepage?: string
   repository?: unknown
+  bugs?: unknown
   keywords?: string[]
 }
 
@@ -57,6 +58,16 @@ function stagePlatform(binary: string, target: Target) {
   chmodSync(join(dir, "bin", "flake-explorer"), 0o755)
   cpSync(join(ROOT, "LICENSE"), join(dir, "LICENSE"))
   writeFileSync(
+    join(dir, "README.md"),
+    `# ${platformName(target)}
+
+The ${target} binary for [flake-explorer](${rootPkg.homepage ?? "https://github.com/kriswill/flake-explorer"}).
+Not meant to be installed directly — it arrives via the \`optionalDependencies\`
+of [${rootPkg.name}](https://www.npmjs.com/package/${rootPkg.name}), which
+keeps only the package matching the host platform.
+`,
+  )
+  writeFileSync(
     join(dir, "package.json"),
     `${JSON.stringify(
       {
@@ -66,6 +77,7 @@ function stagePlatform(binary: string, target: Target) {
         license: rootPkg.license,
         repository: rootPkg.repository,
         homepage: rootPkg.homepage,
+        bugs: rootPkg.bugs,
         os: [os],
         cpu: [cpu],
         files: ["bin/"],
@@ -98,6 +110,7 @@ async function stageMain() {
         license: rootPkg.license,
         repository: rootPkg.repository,
         homepage: rootPkg.homepage,
+        bugs: rootPkg.bugs,
         keywords: rootPkg.keywords,
         publishConfig: { access: "public" },
         bin: { "flake-explorer": "bin/flake-explorer.mjs" },

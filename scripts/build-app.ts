@@ -20,31 +20,41 @@ export interface AppBundle {
 // test/export.test.ts). Serve's dev watcher is the one caller that needs a
 // rebuild after source edits; it passes fresh: true, which replaces the
 // cached entry.
-const bundleCache = new Map<boolean, Promise<AppBundle>>()
+const bundleCache = new Map<string, Promise<AppBundle>>()
 
-export function buildApp(development = false, opts: { fresh?: boolean } = {}): Promise<AppBundle> {
-  let bundle = opts.fresh ? undefined : bundleCache.get(development)
+export function buildApp(
+  development = false,
+  opts: { fresh?: boolean; readable?: boolean } = {},
+): Promise<AppBundle> {
+  const readable = opts.readable === true
+  const key = `${development}:${readable}`
+  let bundle = opts.fresh ? undefined : bundleCache.get(key)
   if (!bundle) {
-    bundle = buildAppUncached(development)
-    bundleCache.set(development, bundle)
+    bundle = buildAppUncached(development, readable)
+    bundleCache.set(key, bundle)
     // A failed build must not stick: the next call should retry, not replay
     // the rejection.
     bundle.catch(() => {
-      if (bundleCache.get(development) === bundle) bundleCache.delete(development)
+      if (bundleCache.get(key) === bundle) bundleCache.delete(key)
     })
   }
   return bundle
 }
 
-async function buildAppUncached(development: boolean): Promise<AppBundle> {
+async function buildAppUncached(development: boolean, readable = false): Promise<AppBundle> {
   const build = await Bun.build({
     entrypoints: [join(import.meta.dir, "..", "web", "main.ts")],
     target: "browser",
     format: "esm",
-    // Whitespace minification stays ON in dev: bun-plugin-svelte derives
-    // Svelte's preserveWhitespace from it, and preserved template whitespace
-    // leaks visible text nodes into the white-space:pre source views.
-    minify: development ? { whitespace: true, syntax: false, identifiers: false } : true,
+    // Whitespace minification stays ON in every mode: bun-plugin-svelte
+    // derives Svelte's preserveWhitespace from it (not overridable via
+    // compilerOptions), and preserved template whitespace leaks visible text
+    // nodes into the white-space:pre source views. "readable" (the npm
+    // artifact — registries flag minified code) keeps names and syntax
+    // intact here and gets its line breaks back from a formatter pass in
+    // bundle-app.ts.
+    minify:
+      development || readable ? { whitespace: true, syntax: false, identifiers: false } : true,
     plugins: [SveltePlugin({ development, compilerOptions: { runes: true } })],
   })
   if (!build.success) {

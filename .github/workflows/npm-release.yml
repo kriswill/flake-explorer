@@ -88,7 +88,9 @@ jobs:
         with:
           path: binaries
       - run: bun install --frozen-lockfile
-      - run: bun scripts/bundle-app.ts
+      # --readable: registries flag minified code as a quality risk, and the
+      # bundle is served from localhost, so npm ships it formatted.
+      - run: bun scripts/bundle-app.ts --readable
       - name: Stage packages
         run: |
           for t in linux-x64 linux-arm64 darwin-arm64; do
