@@ -150,8 +150,9 @@ In rough order of expected value:
    evaluating more per call, or holding one nix evaluation open across chunks —
    attacks the largest single line item, and unlike widening the pool it does not
    cost more CPU-seconds.
-2. **Make failure cheaper than binary search.** 328 of the 387 evals exist to
-   isolate 14 bad options. A cheaper isolation strategy (or evaluating children
+2. **Make failure cheaper than binary search.** 289 of the 348 chunk evals exist
+   to isolate 14 bad options — the 39 `optionNames` calls are the walk descending,
+   not the search. A cheaper isolation strategy (or evaluating children
    individually once a namespace is known to fail, rather than halving repeatedly)
    removes evals outright rather than making them faster.
 3. **Leave the worker count alone.** 8 is at the knee: 12 gains 15% wall for 13%
