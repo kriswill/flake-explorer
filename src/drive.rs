@@ -8,7 +8,7 @@ use crate::cache::{
 };
 use crate::manifest::{ManifestOptions, build_manifest};
 use crate::run_nix::check_nix;
-use crate::schema::{Manifest, RefStatus};
+use crate::schema::{Manifest, PackageRef, RefStatus};
 use crate::timing::Timings;
 use std::io::Write;
 use std::path::Path;
@@ -177,6 +177,10 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
     };
 
     let t_packages = timings.mark();
+    // Resolve every requested package before extracting any of them, so an
+    // unknown id is still the same up-front error it was when this loop ran one
+    // at a time rather than one arbitrary task failing mid-flight.
+    let mut pending: Vec<PackageRef> = Vec::new();
     for id in &wanted_packages {
         let t_package = timings.mark();
         let r#ref = manifest
@@ -190,17 +194,32 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
             timings.item("package", id, t_package);
             continue;
         }
-        println!("extracting package {id} ...");
-        match extract_and_persist_package(&flags.out, flake_ref, &cache_key, &r#ref, flags.timeout)
-            .await
-        {
+        pending.push(r#ref);
+    }
+
+    if !pending.is_empty() {
+        println!("extracting {} packages ...", pending.len());
+    }
+    // One future per package, all polled together. How many of them are inside
+    // `nix` at any instant is run_nix's gate to decide, not this loop's — which
+    // is why there is no pool here to size. Each future prints its own outcome
+    // when it settles, and nothing between the two print calls below awaits, so
+    // the lines cannot interleave with a sibling's.
+    let cache_key = &cache_key;
+    let timings = &timings;
+    let extracted = futures::future::join_all(pending.iter().map(|r#ref| async move {
+        // Marked inside the future rather than around the loop: with the
+        // packages overlapping, a span taken where they are QUEUED would time
+        // the queue, not the package.
+        let t_package = timings.mark();
+        let done =
+            extract_and_persist_package(&flags.out, flake_ref, cache_key, r#ref, flags.timeout)
+                .await;
+        match &done {
             Ok(r) => {
-                if let Some(cur) = manifest.packages.iter_mut().find(|p| &p.id == id) {
-                    apply_extracted_package(cur, &r);
-                }
-                manifest.warnings.extend(r.result.warnings.clone());
                 println!(
-                    "  builder={} in {:.1}s",
+                    "  {}: builder={} in {:.1}s",
+                    r#ref.id,
                     r.result.data.builder.as_str(),
                     r.result.duration_ms as f64 / 1000.0
                 );
@@ -208,16 +227,35 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
                     eprintln!("  warn: {w}");
                 }
             }
+            Err(e) => eprintln!(
+                "  error: {}: {}",
+                r#ref.id,
+                e.to_string().lines().next().unwrap_or("error")
+            ),
+        }
+        timings.item("package", &r#ref.id, t_package);
+        done
+    }))
+    .await;
+
+    // Completion order is scheduling; `pending` is the order the user asked
+    // for. Fold the results back in the latter, or which package finished first
+    // would decide the order of manifest.json's warnings array and the same
+    // flake would serialize differently run to run.
+    for (r#ref, done) in pending.iter().zip(extracted) {
+        let Some(cur) = manifest.packages.iter_mut().find(|p| p.id == r#ref.id) else {
+            continue;
+        };
+        match done {
+            Ok(r) => {
+                apply_extracted_package(cur, &r);
+                manifest.warnings.extend(r.result.warnings.clone());
+            }
             Err(e) => {
-                let msg = e.to_string().lines().next().unwrap_or("error").to_string();
-                if let Some(cur) = manifest.packages.iter_mut().find(|p| &p.id == id) {
-                    cur.status = RefStatus::Error;
-                    cur.error = Some(msg.clone());
-                }
-                eprintln!("  error: {msg}");
+                cur.status = RefStatus::Error;
+                cur.error = Some(e.to_string().lines().next().unwrap_or("error").to_string());
             }
         }
-        timings.item("package", id, t_package);
     }
     if !wanted_packages.is_empty() {
         timings.phase("packages", t_packages);
