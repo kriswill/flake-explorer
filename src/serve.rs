@@ -29,6 +29,8 @@ pub struct ServeFlags {
     pub out: String,
     /// Opt-in: expose configuration graphs (a ~10 s toplevel eval each).
     pub config_graphs: bool,
+    /// Opt-in: the T3 dry-run tier on every graph extraction this server runs.
+    pub graph_dry_run: bool,
     pub all_systems: bool,
     pub timeout: Duration,
     pub port: u16,
@@ -376,6 +378,7 @@ async fn run_extraction(state: &Arc<AppState>, kind: BlobKind, id: &str, cache_k
                 &state.flake_ref,
                 cache_key,
                 &r#ref,
+                state.flags.graph_dry_run,
                 state.flags.timeout,
             )
             .await

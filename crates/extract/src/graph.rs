@@ -282,6 +282,136 @@ pub fn apply_sizes(
     g.tiers.sizes = true;
 }
 
+// ------------------------------------------------------------- dry-run (T3)
+
+/// The exact partition `nix build --dry-run` reported. Both lists empty is a
+/// legal, meaningful answer: the closure is satisfied locally.
+#[derive(Debug, Default, PartialEq)]
+pub struct DryRunPartition {
+    pub to_build: Vec<String>,
+    pub to_fetch: Vec<String>,
+    pub download_bytes: Option<u64>,
+    pub unpacked_bytes: Option<u64>,
+}
+
+/// "9.6 MiB" → bytes. Unknown unit → None (the header then parses without
+/// sizes rather than inventing numbers).
+fn parse_size(s: &str) -> Option<u64> {
+    let (num, unit) = s.trim().split_once(' ')?;
+    let v: f64 = num.parse().ok()?;
+    let mul: f64 = match unit {
+        "B" => 1.0,
+        "KiB" => 1024.0,
+        "MiB" => 1024.0 * 1024.0,
+        "GiB" => 1024.0 * 1024.0 * 1024.0,
+        "TiB" => 1024.0f64.powi(4),
+        _ => return None,
+    };
+    Some((v * mul).round() as u64)
+}
+
+/// Defensive parse of `nix build --dry-run` stderr. The output is PROSE, not
+/// a contract (version-sensitive, localizable in principle), so the rules
+/// are explicit about what degrades and what fails:
+///
+/// - `None` = unparseable — the tier must be reported ABSENT.
+/// - `Some(default)` = a satisfied closure: dry-run printed no partition at
+///   all (verified live: a valid root emits zero build/fetch lines). This is
+///   tier-PRESENT with zero work, distinct from failure.
+/// - `warning:` lines and other noise are ignored, EXCEPT lines containing
+///   "will be" that match no known sentence — a changed load-bearing
+///   sentence must fail the parse, not silently produce an empty partition.
+/// - A section's item count must equal the number its header stated.
+pub fn parse_dry_run_stderr(stderr: &str) -> Option<DryRunPartition> {
+    let built_re =
+        regex::Regex::new(r"^(?:these (\d+) derivations|this derivation) will be built:$").unwrap();
+    let fetch_re = regex::Regex::new(
+        r"^(?:these (\d+) paths|this path) will be fetched(?: \(([^)]+) download, ([^)]+) unpacked\))?:$",
+    )
+    .unwrap();
+
+    let mut p = DryRunPartition::default();
+    let mut lines = stderr.lines().peekable();
+    let mut saw_built = false;
+    let mut saw_fetch = false;
+    while let Some(line) = lines.next() {
+        let take_items = |lines: &mut std::iter::Peekable<std::str::Lines>| {
+            let mut items = Vec::new();
+            while let Some(next) = lines.peek() {
+                let t = next.trim_start();
+                if next.starts_with(' ') && t.starts_with("/nix/store/") {
+                    items.push(t.to_string());
+                    lines.next();
+                } else {
+                    break;
+                }
+            }
+            items
+        };
+        if let Some(c) = built_re.captures(line) {
+            if saw_built {
+                return None; // two build sections is not a shape we know
+            }
+            saw_built = true;
+            let stated: usize = c.get(1).map_or(Some(1), |m| m.as_str().parse().ok())?;
+            p.to_build = take_items(&mut lines);
+            if p.to_build.len() != stated {
+                return None;
+            }
+        } else if let Some(c) = fetch_re.captures(line) {
+            if saw_fetch {
+                return None;
+            }
+            saw_fetch = true;
+            let stated: usize = c.get(1).map_or(Some(1), |m| m.as_str().parse().ok())?;
+            p.download_bytes = c.get(2).and_then(|m| parse_size(m.as_str()));
+            p.unpacked_bytes = c.get(3).and_then(|m| parse_size(m.as_str()));
+            p.to_fetch = take_items(&mut lines);
+            if p.to_fetch.len() != stated {
+                return None;
+            }
+        } else if line.contains("will be") {
+            return None;
+        }
+    }
+    Some(p)
+}
+
+/// Stamp tier T3 onto the graph. Fetch paths stay path-strings (they can
+/// name outputs of nodes we have, or paths outside every node); build items
+/// map onto node indices by drvPath, with a warning if any don't resolve.
+pub fn apply_dry_run(g: &mut GraphData, p: &DryRunPartition) {
+    let index: HashMap<&str, u32> = g
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.drv_path.as_str(), i as u32))
+        .collect();
+    let mut to_build_nodes: Vec<u32> = Vec::new();
+    let mut unknown = 0usize;
+    for drv in &p.to_build {
+        match index.get(drv.as_str()) {
+            Some(&i) => to_build_nodes.push(i),
+            None => unknown += 1,
+        }
+    }
+    if unknown > 0 {
+        g.warnings.push(format!(
+            "dry-run named {unknown} derivation(s) outside the graph"
+        ));
+    }
+    to_build_nodes.sort_unstable();
+    g.stats.to_build_count = Some(p.to_build.len() as u32);
+    g.stats.to_fetch_count = Some(p.to_fetch.len() as u32);
+    g.stats.download_bytes = p.download_bytes;
+    g.stats.unpacked_bytes = p.unpacked_bytes;
+    g.dry_run = Some(GraphDryRun {
+        to_build_nodes,
+        to_fetch_paths: p.to_fetch.clone(),
+    });
+    g.tiers.dry_run = true;
+}
+
 pub struct GraphResult {
     pub data: GraphData,
     pub warnings: Vec<String>,
@@ -289,13 +419,15 @@ pub struct GraphResult {
 }
 
 /// One installable's dependency graph: instantiate the closure
-/// (`derivation show -r`, never builds), project it, stamp T1 presence.
-/// A presence failure degrades to tier-absent with a warning — structure
-/// alone is still a useful document.
+/// (`derivation show -r`, never builds), project it, stamp T1 presence and
+/// T2 sizes, and — opt-in — the T3 dry-run partition. Every tier failure
+/// degrades to tier-absent with a warning — structure alone is still a
+/// useful document.
 pub async fn extract_graph(
     flake_ref: &str,
     id: &str,
     path: &[String],
+    dry_run_tier: bool,
     timeout: Duration,
 ) -> anyhow::Result<GraphResult> {
     let start = Instant::now();
@@ -325,6 +457,25 @@ pub async fn extract_graph(
             "{id}: presence tier unavailable: {}",
             e.to_string().lines().next().unwrap_or("")
         )),
+    }
+
+    // T3 costs a second full eval (~8 s on a system graph) — only on request,
+    // and its stderr is prose: a parse failure leaves the tier absent, never
+    // fails the extraction (an empty partition, by contrast, is a real
+    // answer: nothing to build, nothing to fetch).
+    if dry_run_tier {
+        match crate::run_nix::build_dry_run(&installable, timeout).await {
+            Ok(stderr) => match parse_dry_run_stderr(&stderr) {
+                Some(p) => apply_dry_run(&mut data, &p),
+                None => data
+                    .warnings
+                    .push(format!("{id}: dry-run output not understood; tier skipped")),
+            },
+            Err(e) => data.warnings.push(format!(
+                "{id}: dry-run tier unavailable: {}",
+                e.to_string().lines().next().unwrap_or("")
+            )),
+        }
     }
 
     let warnings = data.warnings.clone();
@@ -702,6 +853,96 @@ mod tests {
             None,
             "the tier cannot cover a pathless fetcher output"
         );
+    }
+
+    /// Line-for-line the shape a real `nix build --dry-run` emitted on
+    /// 2026-07-28 (headers' counts adjusted to the trimmed lists).
+    const DRY_RICH: &str = "\
+warning: Git tree '/home/k/dotfiles' has uncommitted changes
+these 3 derivations will be built:
+  /nix/store/0fw6dhyv9njill1l2d5xlas98zvchfbj-config.ini.drv
+  /nix/store/6s9aivjsvrl2awb2m86k5mqs7m6kdqsn-xwayland-24.1.13.drv
+  /nix/store/a2k6gh6v8kizv0g984xp3hamdm5g4hwz-vi--nvim.drv
+these 2 paths will be fetched (9.6 MiB download, 15.2 GiB unpacked):
+  /nix/store/xidh3mfk8440irr3mvx65f353msqqpia-1password-8.12.28
+  /nix/store/8klgpwdz7zf3jzaj5smslmv1p4wyyw95-50-coredump.conf
+";
+
+    #[test]
+    fn dry_run_rich_output_parses_exactly() {
+        let p = parse_dry_run_stderr(DRY_RICH).unwrap();
+        assert_eq!(p.to_build.len(), 3);
+        assert_eq!(
+            p.to_build[0],
+            "/nix/store/0fw6dhyv9njill1l2d5xlas98zvchfbj-config.ini.drv"
+        );
+        assert_eq!(p.to_fetch.len(), 2);
+        assert_eq!(
+            p.download_bytes,
+            Some((9.6f64 * 1024.0 * 1024.0).round() as u64)
+        );
+        assert_eq!(
+            p.unpacked_bytes,
+            Some((15.2f64 * 1024.0 * 1024.0 * 1024.0).round() as u64)
+        );
+    }
+
+    /// K0 finding (validator): a satisfied closure emits NO partition lines
+    /// at all. That parses as an EMPTY partition — tier present with zero
+    /// work — never as a failure.
+    #[test]
+    fn dry_run_empty_output_is_a_real_empty_partition() {
+        let p =
+            parse_dry_run_stderr("warning: Git tree '/home/k/dotfiles' has uncommitted changes\n")
+                .unwrap();
+        assert_eq!(p, DryRunPartition::default());
+        // And stamping it marks the tier PRESENT with zeros, not absent.
+        let doc = json!({"version": 4, "derivations": {
+            format!("{}-a.drv", hash('1')): {
+                "name": "a", "system": "x86_64-linux",
+                "outputs": {"out": {"path": format!("{}-a", hash('2'))}},
+                "inputs": {"drvs": {}, "srcs": []},
+            },
+        }})
+        .to_string();
+        let mut g = project_graph("p", &doc, TS).unwrap();
+        apply_dry_run(&mut g, &p);
+        assert!(g.tiers.dry_run);
+        assert_eq!(g.stats.to_build_count, Some(0));
+        assert_eq!(g.stats.to_fetch_count, Some(0));
+    }
+
+    #[test]
+    fn dry_run_singular_sentences_parse() {
+        let p = parse_dry_run_stderr(
+            "this derivation will be built:\n  /nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-x.drv\n\
+             this path will be fetched (1.0 KiB download, 2 B unpacked):\n  /nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-y\n",
+        )
+        .unwrap();
+        assert_eq!(p.to_build.len(), 1);
+        assert_eq!(p.to_fetch.len(), 1);
+        assert_eq!(p.download_bytes, Some(1024));
+        assert_eq!(p.unpacked_bytes, Some(2));
+    }
+
+    /// Deliberately unparseable variants → None (tier degrades), each for a
+    /// different reason: count mismatch, and a changed load-bearing sentence.
+    #[test]
+    fn dry_run_unparseable_variants_fail_the_parse() {
+        // Header says 5, list has 2.
+        assert!(parse_dry_run_stderr(
+            "these 5 derivations will be built:\n  /nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-x.drv\n  /nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-y.drv\n"
+        )
+        .is_none());
+        // A "will be" sentence we do not know must NOT read as "nothing to do".
+        assert!(parse_dry_run_stderr("these 3 store paths will be copied:\n").is_none());
+        // A malformed size clause degrades sizes but not the partition.
+        let p = parse_dry_run_stderr(
+            "these 1 paths will be fetched (lots download, plenty unpacked):\n  /nix/store/cccccccccccccccccccccccccccccccc-z\n",
+        )
+        .unwrap();
+        assert_eq!(p.to_fetch.len(), 1);
+        assert_eq!(p.download_bytes, None);
     }
 
     /// T2 semantics: sizes land only on outputs T1 proved present; an absent

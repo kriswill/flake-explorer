@@ -165,7 +165,18 @@ pub fn reset_peak_nix_in_flight() {
 pub async fn run(args: &[&str], timeout: Duration) -> Result<String, NixError> {
     let mut cmd = Command::new("nix");
     cmd.args(COMMON_OPTS).arg(COMMON_FEATURES).args(args);
-    run_gated("nix", args, cmd, timeout).await
+    Ok(run_gated("nix", args, cmd, timeout).await?.0)
+}
+
+/// `nix build --dry-run <installable>` — evaluates and reports the exact
+/// build/fetch partition WITHOUT realising anything (--dry-run stops before
+/// the store mutates). The answer is prose on STDERR, which is why this
+/// returns stderr; the caller parses it defensively (graph.rs).
+pub async fn build_dry_run(installable: &str, timeout: Duration) -> Result<String, NixError> {
+    let args = ["build", "--dry-run", "--impure", installable];
+    let mut cmd = Command::new("nix");
+    cmd.args(COMMON_OPTS).arg(COMMON_FEATURES).args(args);
+    Ok(run_gated("nix", &args, cmd, timeout).await?.1)
 }
 
 /// The classic `nix-store` CLI — a different binary from `nix` (no flake
@@ -175,15 +186,17 @@ pub async fn run(args: &[&str], timeout: Duration) -> Result<String, NixError> {
 async fn run_nix_store(args: &[&str], timeout: Duration) -> Result<String, NixError> {
     let mut cmd = Command::new("nix-store");
     cmd.args(args);
-    run_gated("nix-store", args, cmd, timeout).await
+    Ok(run_gated("nix-store", args, cmd, timeout).await?.0)
 }
 
+/// Returns (stdout, stderr) on success — almost every caller wants stdout
+/// only, but `nix build --dry-run` answers on stderr.
 async fn run_gated(
     program: &str,
     args: &[&str],
     mut cmd: Command,
     timeout: Duration,
-) -> Result<String, NixError> {
+) -> Result<(String, String), NixError> {
     let _slot = enter_nix_gate().await;
     cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -239,7 +252,7 @@ async fn run_gated(
             exit_code,
         });
     }
-    Ok(stdout)
+    Ok((stdout, stderr))
 }
 
 pub async fn run_json<T: serde::de::DeserializeOwned>(

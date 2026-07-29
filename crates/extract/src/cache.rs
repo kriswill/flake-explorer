@@ -281,10 +281,11 @@ pub async fn extract_and_persist_graph(
     flake_ref: &str,
     key: &CacheKey,
     r#ref: &GraphRef,
+    dry_run_tier: bool,
     timeout: Duration,
 ) -> anyhow::Result<Extracted<GraphResult>> {
     let blob_path = guarded_blob_path(out_dir, &r#ref.data_file)?;
-    let r = extract_graph(flake_ref, &r#ref.id, &r#ref.path, timeout).await?;
+    let r = extract_graph(flake_ref, &r#ref.id, &r#ref.path, dry_run_tier, timeout).await?;
     std::fs::write(&blob_path, serde_json::to_string(&r.data)?)?;
     let extracted_at = now_iso();
     write_sidecar(

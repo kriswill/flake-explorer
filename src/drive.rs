@@ -24,6 +24,9 @@ pub struct DriveFlags {
     pub graphs: Selection,
     /// Opt-in: expose configuration graphs (a ~10 s toplevel eval each).
     pub config_graphs: bool,
+    /// Opt-in: the T3 dry-run tier — a second full eval per graph, and its
+    /// stderr is prose, so it degrades rather than fails.
+    pub graph_dry_run: bool,
     pub all_systems: bool,
     pub timeout: Duration,
 }
@@ -271,9 +274,15 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
         let console = console.clone();
         async move {
             let t_graph = timings.mark();
-            let done =
-                extract_and_persist_graph(&flags.out, flake_ref, cache_key, r#ref, flags.timeout)
-                    .await;
+            let done = extract_and_persist_graph(
+                &flags.out,
+                flake_ref,
+                cache_key,
+                r#ref,
+                flags.graph_dry_run,
+                flags.timeout,
+            )
+            .await;
             match &done {
                 Ok(r) => console.finished(
                     &r#ref.id,

@@ -469,10 +469,16 @@ async fn extract_graph_writes_blob_and_sidecar_reconcile_accepts() {
         let r#ref = m.graphs[idx].clone();
         assert_eq!(r#ref.status, RefStatus::Pending);
 
-        let r =
-            extract_and_persist_graph(&out_dir, &flake_ref, &key, &r#ref, Duration::from_secs(60))
-                .await
-                .unwrap();
+        let r = extract_and_persist_graph(
+            &out_dir,
+            &flake_ref,
+            &key,
+            &r#ref,
+            false,
+            Duration::from_secs(60),
+        )
+        .await
+        .unwrap();
         apply_extracted_graph(&mut m.graphs[idx], &r);
         assert_eq!(m.graphs[idx].status, RefStatus::Ok);
 
@@ -593,6 +599,7 @@ async fn config_graphs_are_opt_in_and_root_at_toplevel() {
             packages: flake_explorer::drive::Selection::None,
             graphs: flake_explorer::drive::Selection::Ids(vec!["nixos/mini".into()]),
             config_graphs: false,
+            graph_dry_run: false,
             all_systems: false,
             timeout: Duration::from_secs(60),
         },
@@ -635,6 +642,7 @@ async fn config_graphs_are_opt_in_and_root_at_toplevel() {
         &flake_ref,
         &key,
         r#ref,
+        false,
         Duration::from_secs(60),
     )
     .await
@@ -645,6 +653,53 @@ async fn config_graphs_are_opt_in_and_root_at_toplevel() {
     assert!(g.tiers.presence);
     // Never built: the toplevel's own output is absent from the store.
     assert_eq!(g.nodes[g.root as usize].outputs[0].present, Some(false));
+}
+
+/// T3 against REAL `nix build --dry-run` stderr: the fixture package is
+/// never built, so the partition names its derivations for building — parsed
+/// from live prose, not a fixture.
+#[tokio::test]
+async fn dry_run_tier_partitions_a_real_unbuilt_package() {
+    if !nix_available() {
+        return;
+    }
+    let flake_ref = fixture_ref();
+    let m = build_manifest(&flake_ref, &opts()).await.unwrap();
+    let key = cache_key_of(&m, &nix_version().await);
+    let r#ref = m
+        .graphs
+        .iter()
+        .find(|g| g.id == "packages/x86_64-linux/mini")
+        .unwrap();
+    let tmp = TempDir::new("mini-dry-run");
+    std::fs::create_dir_all(tmp.0.join("graph")).unwrap();
+    let r = extract_and_persist_graph(
+        &tmp.0.to_string_lossy(),
+        &flake_ref,
+        &key,
+        r#ref,
+        true,
+        Duration::from_secs(60),
+    )
+    .await
+    .unwrap();
+    let g = &r.result.data;
+    assert!(
+        g.tiers.dry_run,
+        "tier must be present; warnings: {:?}",
+        g.warnings
+    );
+    let dr = g.dry_run.as_ref().unwrap();
+    // mini + mini-dep are unbuilt: both derivations are in the partition,
+    // mapped onto graph node indices.
+    assert!(g.stats.to_build_count.unwrap() >= 2);
+    let names: Vec<&str> = dr
+        .to_build_nodes
+        .iter()
+        .map(|&i| g.nodes[i as usize].name.as_str())
+        .collect();
+    assert!(names.iter().any(|n| n.contains("mini-0.1.0")), "{names:?}");
+    assert!(names.iter().any(|n| n.contains("mini-dep")), "{names:?}");
 }
 
 /// Real `nix-store --check-validity --print-invalid`: the fixture flake's own

@@ -14,6 +14,7 @@ struct Flags {
     packages: Selection,
     graphs: Selection,
     config_graphs: bool,
+    graph_dry_run: bool,
     all_systems: bool,
     timeout: f64,
     html: String,
@@ -40,6 +41,7 @@ fn parse_flags(argv: &[String]) -> Flags {
         packages: Selection::None,
         graphs: Selection::None,
         config_graphs: false,
+        graph_dry_run: false,
         all_systems: false,
         timeout: 600.0,
         html: "./flake.html".to_string(),
@@ -103,6 +105,7 @@ fn parse_flags(argv: &[String]) -> Flags {
                 );
             }
             "--config-graphs" => f.config_graphs = true,
+            "--graph-dry-run" => f.graph_dry_run = true,
             // Deliberately does NOT include graphs: an 18k-node system graph
             // is a distinct cost the user asks for by name (--graphs).
             "--all" => {
@@ -172,7 +175,9 @@ commands:
       --config-graphs additionally allows configuration ids in --graphs
       (e.g. nixos/myhost): each one instantiates the configuration's
       system.build.toplevel, ~10s of extra eval per configuration —
-      never on by default.
+      never on by default. --graph-dry-run adds the exact build/fetch
+      partition to each graph via `nix build --dry-run` (a second eval
+      per graph; nothing is built).
   export <flakeref> [--html FILE] [--out DIR] [--configs kind/name,... | --all] [--packages path/segs,... | --all] [--all-systems] [--sources self|all] [--timeout SECS]
       Extract, then write ONE standalone HTML file (default ./flake.html)
       that works without a server — file://, any CDN, GitHub Pages.
@@ -234,6 +239,7 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
                     packages: flags.packages.clone(),
                     graphs: flags.graphs.clone(),
                     config_graphs: flags.config_graphs,
+                    graph_dry_run: flags.graph_dry_run,
                     all_systems: flags.all_systems,
                     timeout,
                 },
@@ -253,6 +259,7 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
                     packages: flags.packages.clone(),
                     graphs: flags.graphs.clone(),
                     config_graphs: flags.config_graphs,
+                    graph_dry_run: flags.graph_dry_run,
                     all_systems: flags.all_systems,
                     timeout,
                 },
@@ -282,6 +289,7 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
                 serve::ServeFlags {
                     out: flags.out.clone(),
                     config_graphs: flags.config_graphs,
+                    graph_dry_run: flags.graph_dry_run,
                     all_systems: flags.all_systems,
                     timeout,
                     port: flags.port.unwrap_or(4321),

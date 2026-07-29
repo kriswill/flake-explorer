@@ -285,6 +285,7 @@ fn flags(data_dir: &Path, dev: bool) -> ServeFlags {
     ServeFlags {
         out: data_dir.to_string_lossy().into_owned(),
         config_graphs: false,
+        graph_dry_run: false,
         all_systems: false,
         timeout: Duration::from_secs(60),
         port: 0,

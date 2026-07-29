@@ -31,6 +31,7 @@ async fn extract(flake_ref: &str, out: &Path, configs: Selection, packages: Sele
             out: out.display().to_string(),
             graphs: Selection::None,
             config_graphs: false,
+            graph_dry_run: false,
             configs,
             packages,
             all_systems: false,
