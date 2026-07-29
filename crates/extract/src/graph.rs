@@ -311,17 +311,23 @@ fn parse_size(s: &str) -> Option<u64> {
 }
 
 /// Defensive parse of `nix build --dry-run` stderr. The output is PROSE, not
-/// a contract (version-sensitive, localizable in principle), so the rules
-/// are explicit about what degrades and what fails:
+/// a contract (version-sensitive, localizable in principle), so the parse is
+/// a strict LINE WHITELIST — a line is either something we recognize or the
+/// whole answer is refused:
 ///
-/// - `None` = unparseable — the tier must be reported ABSENT.
-/// - `Some(default)` = a satisfied closure: dry-run printed no partition at
-///   all (verified live: a valid root emits zero build/fetch lines). This is
+/// - `None` = unrecognized or inconsistent — the tier must be reported
+///   ABSENT. This includes any line that is not blank, `warning:`/`error:`
+///   noise, a known header, or an item inside a known section: a localized
+///   nix prints a REAL partition under sentences we cannot read, and
+///   reporting a fabricated "nothing to do" there is a wrong positive claim
+///   (M5 verdict criteria). Over-absence on future noise is the safe
+///   polarity.
+/// - `Some(default)` = a satisfied closure: nothing but noise on stderr
+///   (verified live: a valid root emits zero build/fetch lines). This is
 ///   tier-PRESENT with zero work, distinct from failure.
-/// - `warning:` lines and other noise are ignored, EXCEPT lines containing
-///   "will be" that match no known sentence — a changed load-bearing
-///   sentence must fail the parse, not silently produce an empty partition.
-/// - A section's item count must equal the number its header stated.
+/// - A section's item count must equal the number its header stated;
+///   `warning:` lines interleaved INSIDE a list are nix's own noise channel
+///   and are skipped rather than ending the section.
 pub fn parse_dry_run_stderr(stderr: &str) -> Option<DryRunPartition> {
     let built_re =
         regex::Regex::new(r"^(?:these (\d+) derivations|this derivation) will be built:$").unwrap();
@@ -329,18 +335,27 @@ pub fn parse_dry_run_stderr(stderr: &str) -> Option<DryRunPartition> {
         r"^(?:these (\d+) paths|this path) will be fetched(?: \(([^)]+) download, ([^)]+) unpacked\))?:$",
     )
     .unwrap();
+    let noise = |t: &str| t.is_empty() || t.starts_with("warning:") || t.starts_with("error:");
 
     let mut p = DryRunPartition::default();
     let mut lines = stderr.lines().peekable();
     let mut saw_built = false;
     let mut saw_fetch = false;
     while let Some(line) = lines.next() {
+        let trimmed = line.trim();
         let take_items = |lines: &mut std::iter::Peekable<std::str::Lines>| {
             let mut items = Vec::new();
             while let Some(next) = lines.peek() {
-                let t = next.trim_start();
+                let t = next.trim();
                 if next.starts_with(' ') && t.starts_with("/nix/store/") {
                     items.push(t.to_string());
+                    lines.next();
+                } else if noise(t)
+                    && lines.clone().nth(1).is_some_and(|after| {
+                        after.starts_with(' ') && after.trim().starts_with("/nix/store/")
+                    })
+                {
+                    // Interleaved noise with the list clearly continuing.
                     lines.next();
                 } else {
                     break;
@@ -348,7 +363,10 @@ pub fn parse_dry_run_stderr(stderr: &str) -> Option<DryRunPartition> {
             }
             items
         };
-        if let Some(c) = built_re.captures(line) {
+        if noise(trimmed) {
+            continue;
+        }
+        if let Some(c) = built_re.captures(trimmed) {
             if saw_built {
                 return None; // two build sections is not a shape we know
             }
@@ -358,7 +376,7 @@ pub fn parse_dry_run_stderr(stderr: &str) -> Option<DryRunPartition> {
             if p.to_build.len() != stated {
                 return None;
             }
-        } else if let Some(c) = fetch_re.captures(line) {
+        } else if let Some(c) = fetch_re.captures(trimmed) {
             if saw_fetch {
                 return None;
             }
@@ -370,7 +388,8 @@ pub fn parse_dry_run_stderr(stderr: &str) -> Option<DryRunPartition> {
             if p.to_fetch.len() != stated {
                 return None;
             }
-        } else if line.contains("will be") {
+        } else {
+            // Not on the whitelist — refuse the whole answer.
             return None;
         }
     }
@@ -943,6 +962,94 @@ these 2 paths will be fetched (9.6 MiB download, 15.2 GiB unpacked):
         .unwrap();
         assert_eq!(p.to_fetch.len(), 1);
         assert_eq!(p.download_bytes, None);
+    }
+
+    /// M5-verdict criteria (validator EXPECTATIONS.md): stderr the parser
+    /// does not RECOGNIZE must be None (tier absent), never a fabricated
+    /// empty partition. A localized nix prints real partition content under
+    /// sentences we cannot read — claiming 0/0 there is a wrong positive.
+    #[test]
+    fn dry_run_unrecognized_content_is_not_an_empty_partition() {
+        // Localized headers (real shape from the validator's torture fixture).
+        assert!(
+            parse_dry_run_stderr(
+                "warning: Git tree '/x' has uncommitted changes\n\
+                 es werden 85 Ableitungen gebaut:\n\
+                 \x20\x20/nix/store/0fw6dhyv9njill1l2d5xlas98zvchfbj-config.ini.drv\n\
+                 \x20\x20/nix/store/6s9aivjsvrl2awb2m86k5mqs7m6kdqsn-xwayland-24.1.13.drv\n"
+            )
+            .is_none(),
+            "localized partition content must degrade, not read as empty"
+        );
+        // Binary garbage.
+        assert!(
+            parse_dry_run_stderr("\u{1}\u{2}\u{fffd}PK\u{3}\u{4}garbage\nmore\u{0}junk\n")
+                .is_none(),
+            "binary garbage must degrade, not read as empty"
+        );
+        // An item line OUTSIDE any recognized section is unrecognized too.
+        assert!(
+            parse_dry_run_stderr("  /nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-x.drv\n").is_none()
+        );
+    }
+
+    /// A nix warning interleaved INSIDE an item list must not corrupt the
+    /// partition: either a clean parse or tier-absent, never wrong counts.
+    /// (We parse it cleanly: `warning:` is nix's own noise channel.)
+    #[test]
+    fn dry_run_warning_inside_a_list_does_not_corrupt_the_partition() {
+        let p = parse_dry_run_stderr(
+            "these 2 derivations will be built:\n\
+             \x20\x20/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-x.drv\n\
+             warning: interrupted by the daemon mid-list\n\
+             \x20\x20/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-y.drv\n",
+        )
+        .unwrap();
+        assert_eq!(p.to_build.len(), 2);
+    }
+
+    /// The validator's full torture kit, when its path is provided (the kit
+    /// lives outside the repo). FLAKE_EXPLORER_DRYRUN_KIT=<dir> runs every
+    /// fixture against its published expectation; unset skips.
+    #[test]
+    fn dry_run_validator_kit_expectations() {
+        let Some(dir) = std::env::var_os("FLAKE_EXPLORER_DRYRUN_KIT") else {
+            return;
+        };
+        let read = |name: &str| {
+            String::from_utf8_lossy(&std::fs::read(std::path::Path::new(&dir).join(name)).unwrap())
+                .into_owned()
+        };
+        let rich = parse_dry_run_stderr(&read("rich.err")).expect("rich.err must parse");
+        assert_eq!(rich.to_build.len(), 85);
+        assert_eq!(rich.to_fetch.len(), 1057);
+        assert_eq!(
+            rich.download_bytes,
+            Some((9.6f64 * 1024.0 * 1024.0).round() as u64)
+        );
+        assert_eq!(
+            rich.unpacked_bytes,
+            Some((15.2f64 * 1024.0f64.powi(3)).round() as u64)
+        );
+        let empty = parse_dry_run_stderr(&read("empty.err")).expect("empty.err must parse");
+        assert_eq!(empty, DryRunPartition::default());
+        for absent in [
+            "mangled-truncated-midlist.err",
+            "mangled-nan-count.err",
+            "mangled-localized.err",
+            "mangled-binary.err",
+            "mangled-count-mismatch.err",
+        ] {
+            assert!(
+                parse_dry_run_stderr(&read(absent)).is_none(),
+                "{absent} must degrade to tier-absent"
+            );
+        }
+        // Interleaved warning: clean parse is our chosen branch of "either".
+        let inter = parse_dry_run_stderr(&read("mangled-interleaved-warning.err"))
+            .expect("interleaved warning should parse cleanly");
+        assert_eq!(inter.to_build.len(), 85);
+        assert_eq!(inter.to_fetch.len(), 1057);
     }
 
     /// T2 semantics: sizes land only on outputs T1 proved present; an absent
