@@ -27,6 +27,8 @@ use tokio::sync::{Mutex, RwLock, broadcast, watch};
 
 pub struct ServeFlags {
     pub out: String,
+    /// Opt-in: expose configuration graphs (a ~10 s toplevel eval each).
+    pub config_graphs: bool,
     pub all_systems: bool,
     pub timeout: Duration,
     pub port: u16,
@@ -79,6 +81,7 @@ pub async fn init(flake_ref: String, flags: ServeFlags) -> anyhow::Result<Arc<Ap
         &ManifestOptions {
             all_systems: flags.all_systems,
             timeout: flags.timeout,
+            config_graphs: flags.config_graphs,
         },
     )
     .await?;
@@ -169,6 +172,7 @@ async fn handle(state: Arc<AppState>, req: Request<Body>) -> Response {
             &ManifestOptions {
                 all_systems: state.flags.all_systems,
                 timeout: state.flags.timeout,
+                config_graphs: state.flags.config_graphs,
             },
         )
         .await;

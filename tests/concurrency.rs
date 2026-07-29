@@ -30,6 +30,7 @@ async fn extract(flake_ref: &str, out: &Path, configs: Selection, packages: Sele
         &DriveFlags {
             out: out.display().to_string(),
             graphs: Selection::None,
+            config_graphs: false,
             configs,
             packages,
             all_systems: false,

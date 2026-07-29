@@ -23,6 +23,7 @@ fn opts() -> ManifestOptions {
     ManifestOptions {
         all_systems: false,
         timeout: Duration::from_secs(60),
+        config_graphs: false,
     }
 }
 
@@ -561,6 +562,89 @@ async fn extract_graph_writes_blob_and_sidecar_reconcile_accepts() {
         RefStatus::Pending,
         "never-extracted graphs stay pending"
     );
+}
+
+/// Configuration graphs are OPT-IN: absent by default, present with the flag,
+/// and the extraction really instantiates the fixture's toplevel derivation.
+#[tokio::test]
+async fn config_graphs_are_opt_in_and_root_at_toplevel() {
+    if !nix_available() {
+        return;
+    }
+    let flake_ref = fixture_ref();
+
+    // Default: no configuration ids in the graph ref list.
+    let m = build_manifest(&flake_ref, &opts()).await.unwrap();
+    assert!(
+        !m.graphs.iter().any(|g| g.id == "nixos/mini"),
+        "config graphs must be off by default"
+    );
+
+    // The flag exposes them, and --graphs on a config id without it errors
+    // with the hint (the drive layer's guard).
+    let err = flake_explorer::drive::extract_to_dir(
+        &flake_ref,
+        &flake_explorer::drive::DriveFlags {
+            out: TempDir::new("mini-cfg-hint")
+                .0
+                .to_string_lossy()
+                .into_owned(),
+            configs: flake_explorer::drive::Selection::None,
+            packages: flake_explorer::drive::Selection::None,
+            graphs: flake_explorer::drive::Selection::Ids(vec!["nixos/mini".into()]),
+            config_graphs: false,
+            all_systems: false,
+            timeout: Duration::from_secs(60),
+        },
+    )
+    .await;
+    let err = match err {
+        Ok(_) => panic!("--graphs on a config id without --config-graphs must error"),
+        Err(e) => e,
+    };
+    assert!(
+        err.to_string().contains("--config-graphs"),
+        "error should hint at the flag: {err}"
+    );
+
+    let opts_on = ManifestOptions {
+        all_systems: false,
+        timeout: Duration::from_secs(60),
+        config_graphs: true,
+    };
+    let m = build_manifest(&flake_ref, &opts_on).await.unwrap();
+    let r#ref = m.graphs.iter().find(|g| g.id == "nixos/mini").unwrap();
+    assert_eq!(r#ref.data_file, "graph/nixos.mini.json");
+    assert_eq!(
+        r#ref.path,
+        [
+            "nixosConfigurations",
+            "mini",
+            "config",
+            "system",
+            "build",
+            "toplevel"
+        ]
+    );
+
+    let tmp = TempDir::new("mini-cfg-graph");
+    std::fs::create_dir_all(tmp.0.join("graph")).unwrap();
+    let key = cache_key_of(&m, &nix_version().await);
+    let r = extract_and_persist_graph(
+        &tmp.0.to_string_lossy(),
+        &flake_ref,
+        &key,
+        r#ref,
+        Duration::from_secs(60),
+    )
+    .await
+    .unwrap();
+    let g = &r.result.data;
+    assert_eq!(g.id, "nixos/mini");
+    assert_eq!(g.nodes[g.root as usize].name, "mini-toplevel");
+    assert!(g.tiers.presence);
+    // Never built: the toplevel's own output is absent from the store.
+    assert_eq!(g.nodes[g.root as usize].outputs[0].present, Some(false));
 }
 
 /// Real `nix-store --check-validity --print-invalid`: the fixture flake's own

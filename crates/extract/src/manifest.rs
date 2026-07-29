@@ -19,6 +19,10 @@ use std::time::Duration;
 pub struct ManifestOptions {
     pub all_systems: bool,
     pub timeout: Duration,
+    /// Opt-in: list configuration graphs (instantiating a configuration's
+    /// system.build.toplevel costs a ~10 s eval on a real system, so the refs
+    /// exist only when the user asked for the capability by name).
+    pub config_graphs: bool,
 }
 
 pub const FINGERPRINT: &str = env!("FLAKE_EXPLORER_FINGERPRINT");
@@ -102,7 +106,25 @@ pub async fn build_manifest(flake_ref: &str, opts: &ManifestOptions) -> anyhow::
         },
     };
     let packages = package_refs(&outputs);
-    let graphs = graph_refs(&packages);
+    let configurations: Vec<ConfigRef> = ev
+        .configurations
+        .iter()
+        .map(|c| ConfigRef {
+            id: format!("{}/{}", c.kind.as_str(), c.n),
+            kind: c.kind,
+            name: c.n.clone(),
+            data_file: format!("config/{}.{}.json", c.kind.as_str(), safe_name(&c.n)),
+            status: RefStatus::Pending,
+            error: None,
+            extracted_at: None,
+            option_count: None,
+            duration_ms: None,
+        })
+        .collect();
+    let mut graphs = graph_refs(&packages);
+    if opts.config_graphs {
+        graphs.extend(config_graph_refs(&configurations));
+    }
 
     Ok(Manifest {
         version: SCHEMA_VERSION,
@@ -122,21 +144,7 @@ pub async fn build_manifest(flake_ref: &str, opts: &ManifestOptions) -> anyhow::
         input_refs,
         overlay_defs: Some(overlay_defs),
         input_follows,
-        configurations: ev
-            .configurations
-            .iter()
-            .map(|c| ConfigRef {
-                id: format!("{}/{}", c.kind.as_str(), c.n),
-                kind: c.kind,
-                name: c.n.clone(),
-                data_file: format!("config/{}.{}.json", c.kind.as_str(), safe_name(&c.n)),
-                status: RefStatus::Pending,
-                error: None,
-                extracted_at: None,
-                option_count: None,
-                duration_ms: None,
-            })
-            .collect(),
+        configurations,
         packages,
         graphs,
         package_reverse_deps: None,
@@ -250,6 +258,35 @@ pub fn graph_refs(packages: &[PackageRef]) -> Vec<GraphRef> {
                     .collect::<Vec<_>>()
                     .join(".")
             ),
+            status: RefStatus::Pending,
+            error: None,
+            extracted_at: None,
+            duration_ms: None,
+        })
+        .collect()
+}
+
+/// Graph refs for configurations — OPT-IN only (see ManifestOptions).
+/// The graph is rooted at the configuration's system.build.toplevel, which is
+/// exactly the closure `nixos-rebuild` would realise; the attr path IS the
+/// installable, so extraction needs no special casing downstream.
+pub fn config_graph_refs(configurations: &[ConfigRef]) -> Vec<GraphRef> {
+    configurations
+        .iter()
+        .map(|c| GraphRef {
+            id: c.id.clone(),
+            path: vec![
+                match c.kind {
+                    ConfigKind::Nixos => "nixosConfigurations".to_string(),
+                    ConfigKind::Darwin => "darwinConfigurations".to_string(),
+                },
+                c.name.clone(),
+                "config".to_string(),
+                "system".to_string(),
+                "build".to_string(),
+                "toplevel".to_string(),
+            ],
+            data_file: format!("graph/{}.{}.json", c.kind.as_str(), safe_name(&c.name)),
             status: RefStatus::Pending,
             error: None,
             extracted_at: None,
@@ -712,6 +749,40 @@ mod tests {
                 .data_file
                 .starts_with("graph/devShells.x86_64-linux.a_b-")
         );
+    }
+
+    #[test]
+    fn config_graph_refs_root_at_toplevel() {
+        let config = |kind: ConfigKind, name: &str| ConfigRef {
+            id: format!("{}/{name}", kind.as_str()),
+            kind,
+            name: name.into(),
+            data_file: format!("config/{}.{name}.json", kind.as_str()),
+            status: RefStatus::Pending,
+            error: None,
+            extracted_at: None,
+            option_count: None,
+            duration_ms: None,
+        };
+        let refs = config_graph_refs(&[
+            config(ConfigKind::Nixos, "nebula"),
+            config(ConfigKind::Darwin, "mac"),
+        ]);
+        assert_eq!(refs[0].id, "nixos/nebula");
+        assert_eq!(
+            refs[0].path,
+            [
+                "nixosConfigurations",
+                "nebula",
+                "config",
+                "system",
+                "build",
+                "toplevel"
+            ]
+        );
+        assert_eq!(refs[0].data_file, "graph/nixos.nebula.json");
+        assert_eq!(refs[1].path[0], "darwinConfigurations");
+        assert_eq!(refs[1].data_file, "graph/darwin.mac.json");
     }
 
     #[test]

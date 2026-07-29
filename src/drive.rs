@@ -22,6 +22,8 @@ pub struct DriveFlags {
     pub packages: Selection,
     /// Dependency graphs — never implied by --all (see main.rs).
     pub graphs: Selection,
+    /// Opt-in: expose configuration graphs (a ~10 s toplevel eval each).
+    pub config_graphs: bool,
     pub all_systems: bool,
     pub timeout: Duration,
 }
@@ -59,6 +61,7 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
         &ManifestOptions {
             all_systems: flags.all_systems,
             timeout: flags.timeout,
+            config_graphs: flags.config_graphs,
         },
     )
     .await?;
@@ -166,7 +169,16 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
             .iter()
             .find(|g| &g.id == id)
             .cloned()
-            .ok_or_else(|| anyhow::anyhow!("no such graph target: {id}"))?;
+            .ok_or_else(|| {
+                if manifest.configurations.iter().any(|c| &c.id == id) {
+                    anyhow::anyhow!(
+                        "graph of configuration {id} needs --config-graphs \
+                         (instantiates system.build.toplevel, ~10s of eval per configuration)"
+                    )
+                } else {
+                    anyhow::anyhow!("no such graph target: {id}")
+                }
+            })?;
         if r#ref.status == RefStatus::Ok {
             println!("graph of {id} cached (flake + extractor + nix unchanged), skipping");
             timings.item("graph", id, t_graph);

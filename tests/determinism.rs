@@ -44,6 +44,7 @@ async fn blob_bytes_are_identical_across_runs() {
             &DriveFlags {
                 out: out.display().to_string(),
                 graphs: Selection::None,
+                config_graphs: false,
                 configs: Selection::Ids(vec!["nixos/mini".to_string()]),
                 packages: Selection::None,
                 all_systems: false,
@@ -118,6 +119,7 @@ async fn the_whole_data_dir_is_identical_across_all_runs() {
             &DriveFlags {
                 out: out.display().to_string(),
                 graphs: Selection::None,
+                config_graphs: false,
                 configs: Selection::All,
                 packages: Selection::All,
                 all_systems: false,
