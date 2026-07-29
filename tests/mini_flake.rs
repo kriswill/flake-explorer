@@ -14,7 +14,7 @@ use flake_explorer::cache::{
 };
 use flake_explorer::manifest::{ManifestOptions, build_manifest};
 use flake_explorer::options::{ExtractOptionsOpts, OptionsProgress, extract_options};
-use flake_explorer::run_nix::check_nix;
+use flake_explorer::run_nix::{check_nix, check_validity_invalid, flake_metadata};
 use flake_explorer::schema::*;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -439,6 +439,30 @@ async fn dev_shells_checks_formatter_extract_as_builder_unknown() {
             "{id}"
         );
     }
+}
+
+/// Real `nix-store --check-validity --print-invalid`: the fixture flake's own
+/// store copy is valid by construction, an all-zero hash is not. Full paths
+/// in, full paths out — the bare-basename form errors rather than checking
+/// anything, which is why the graph pipeline's prefix guard exists.
+#[tokio::test]
+async fn check_validity_flags_only_absent_paths() {
+    if !nix_available() {
+        return;
+    }
+    let meta = flake_metadata(&fixture_ref(), Duration::from_secs(60))
+        .await
+        .unwrap();
+    let valid = meta.path.expect("fixture flake has a store path");
+    let fake = "/nix/store/00000000000000000000000000000000-fake-1.0".to_string();
+    let invalid = check_validity_invalid(&[valid.clone(), fake.clone()], Duration::from_secs(60))
+        .await
+        .unwrap();
+    assert!(invalid.contains(&fake), "fake path must be invalid");
+    assert!(
+        !invalid.contains(&valid),
+        "store-fetched flake must be valid"
+    );
 }
 
 #[tokio::test]
