@@ -6,11 +6,13 @@
 // entirely). Projection only; enrichment tiers are stamped on afterwards.
 
 use crate::package::name_from_drv_basename;
+use crate::run_nix::{attr_selector, check_validity_invalid, derivation_show_recursive};
 use crate::schema::*;
 use indexmap::IndexMap;
 use serde::Deserialize;
 use serde::de::IgnoredAny;
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 // ------------------------------------------------------------ raw typed shapes
 //
@@ -256,6 +258,44 @@ pub fn apply_presence(g: &mut GraphData, invalid: &std::collections::HashSet<Str
     }
     g.stats.absent_count = Some(absent.len() as u32);
     g.tiers.presence = true;
+}
+
+pub struct GraphResult {
+    pub data: GraphData,
+    pub warnings: Vec<String>,
+    pub duration_ms: u64,
+}
+
+/// One installable's dependency graph: instantiate the closure
+/// (`derivation show -r`, never builds), project it, stamp T1 presence.
+/// A presence failure degrades to tier-absent with a warning — structure
+/// alone is still a useful document.
+pub async fn extract_graph(
+    flake_ref: &str,
+    id: &str,
+    path: &[String],
+    timeout: Duration,
+) -> anyhow::Result<GraphResult> {
+    let start = Instant::now();
+    let installable = format!("{flake_ref}#{}", attr_selector(path));
+    let raw = derivation_show_recursive(&installable, timeout).await?;
+    let mut data = project_graph(id, &raw, &crate::manifest::now_iso())?;
+
+    let paths = unique_output_paths(&data);
+    match check_validity_invalid(&paths, timeout).await {
+        Ok(invalid) => apply_presence(&mut data, &invalid),
+        Err(e) => data.warnings.push(format!(
+            "{id}: presence tier unavailable: {}",
+            e.to_string().lines().next().unwrap_or("")
+        )),
+    }
+
+    let warnings = data.warnings.clone();
+    Ok(GraphResult {
+        data,
+        warnings,
+        duration_ms: start.elapsed().as_millis() as u64,
+    })
 }
 
 #[cfg(test)]
@@ -529,6 +569,43 @@ mod tests {
         assert_eq!(
             serde_json::to_value(serde_json::from_str::<GraphData>(&a).unwrap()).unwrap(),
             cv
+        );
+    }
+
+    /// A dump with TWO in-degree-0 nodes (should not happen for a single
+    /// installable, but the code must not pick silently): deterministic pick
+    /// of the first by drvPath, plus a warning saying so.
+    #[test]
+    fn multiple_roots_warn_and_pick_first_by_drv_path() {
+        let doc = json!({"version": 4, "derivations": {
+            format!("{}-zeta.drv", hash('9')): {
+                "name": "zeta", "system": "x86_64-linux",
+                "outputs": {"out": {"path": format!("{}-zeta", hash('8'))}},
+                "inputs": {"drvs": {
+                    format!("{}-shared.drv", hash('5')): {"outputs": ["out"]},
+                }, "srcs": []},
+            },
+            format!("{}-alpha.drv", hash('1')): {
+                "name": "alpha", "system": "x86_64-linux",
+                "outputs": {"out": {"path": format!("{}-alpha", hash('2'))}},
+                "inputs": {"drvs": {
+                    format!("{}-shared.drv", hash('5')): {"outputs": ["out"]},
+                }, "srcs": []},
+            },
+            format!("{}-shared.drv", hash('5')): {
+                "name": "shared", "system": "x86_64-linux",
+                "outputs": {"out": {"path": format!("{}-shared", hash('6'))}},
+                "inputs": {"drvs": {}, "srcs": []},
+            },
+        }})
+        .to_string();
+        let g = project_graph("packages/x/y", &doc, TS).unwrap();
+        // alpha's drv basename (hash '1') sorts before zeta's (hash '9').
+        assert_eq!(g.nodes[g.root as usize].name, "alpha");
+        assert!(
+            g.warnings.iter().any(|w| w.contains("2 in-degree-0 nodes")),
+            "warnings: {:?}",
+            g.warnings
         );
     }
 

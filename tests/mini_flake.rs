@@ -9,8 +9,8 @@ mod common;
 
 use common::{TempDir, fixture, nix_available};
 use flake_explorer::cache::{
-    apply_extracted, apply_extracted_package, cache_key_of, extract_and_persist,
-    extract_and_persist_package, reconcile,
+    apply_extracted, apply_extracted_graph, apply_extracted_package, cache_key_of,
+    extract_and_persist, extract_and_persist_graph, extract_and_persist_package, reconcile,
 };
 use flake_explorer::manifest::{ManifestOptions, build_manifest};
 use flake_explorer::options::{ExtractOptionsOpts, OptionsProgress, extract_options};
@@ -439,6 +439,128 @@ async fn dev_shells_checks_formatter_extract_as_builder_unknown() {
             "{id}"
         );
     }
+}
+
+/// The full graph pipeline against real nix: `derivation show -r`, typed
+/// projection, presence via nix-store — blob + sidecar on disk, reconcile
+/// accepts. Structural assertions only (no hardcoded node counts — closures
+/// drift with nixpkgs).
+#[tokio::test]
+async fn extract_graph_writes_blob_and_sidecar_reconcile_accepts() {
+    if !nix_available() {
+        return;
+    }
+    let flake_ref = fixture_ref();
+    let tmp = TempDir::new("mini-extract-graph");
+    let out_dir = tmp.0.to_string_lossy().into_owned();
+    std::fs::create_dir_all(tmp.0.join("graph")).unwrap();
+
+    let mut m = build_manifest(&flake_ref, &opts()).await.unwrap();
+    let key = cache_key_of(&m, &nix_version().await);
+
+    // Every derivation-typed output has a graph ref mirroring its package ref.
+    assert_eq!(m.graphs.len(), m.packages.len());
+    for id in [
+        "packages/x86_64-linux/mini",
+        "devShells/x86_64-linux/default",
+    ] {
+        let idx = m.graphs.iter().position(|g| g.id == id).unwrap();
+        let r#ref = m.graphs[idx].clone();
+        assert_eq!(r#ref.status, RefStatus::Pending);
+
+        let r =
+            extract_and_persist_graph(&out_dir, &flake_ref, &key, &r#ref, Duration::from_secs(60))
+                .await
+                .unwrap();
+        apply_extracted_graph(&mut m.graphs[idx], &r);
+        assert_eq!(m.graphs[idx].status, RefStatus::Ok);
+
+        let g: GraphData =
+            serde_json::from_str(&std::fs::read_to_string(tmp.0.join(&r#ref.data_file)).unwrap())
+                .unwrap();
+        assert_eq!(g.id, id);
+        // The fixture is builtins-only: the devShell is a raw derivation with
+        // ZERO inputDrvs (a legal single-node graph, and a grammar case worth
+        // having); mini has mini-dep, so its closure is bigger.
+        if id == "packages/x86_64-linux/mini" {
+            assert!(g.stats.node_count > 1, "{id}: mini depends on mini-dep");
+        }
+        assert!(g.stats.node_count >= 1, "{id}");
+        assert_eq!(g.nodes.len(), g.stats.node_count as usize);
+        assert_eq!(g.edges.len(), g.nodes.len());
+
+        // The prefix rule, on REAL nix output.
+        for n in &g.nodes {
+            for p in std::iter::once(n.drv_path.as_str())
+                .chain(n.outputs.iter().filter_map(|o| o.path.as_deref()))
+            {
+                assert_eq!(p.matches("/nix/store/").count(), 1, "{id}: bad path {p}");
+            }
+        }
+
+        // Root reaches everything, and it is the installable itself.
+        let mut seen = vec![false; g.nodes.len()];
+        let mut queue = std::collections::VecDeque::from([g.root]);
+        seen[g.root as usize] = true;
+        while let Some(i) = queue.pop_front() {
+            for &j in &g.edges[i as usize] {
+                if !seen[j as usize] {
+                    seen[j as usize] = true;
+                    queue.push_back(j);
+                }
+            }
+        }
+        assert!(seen.iter().all(|&s| s), "{id}: unreachable nodes");
+
+        // T1 landed: fixture packages are never BUILT, so the root's own
+        // output must be absent — while its store-fetched sources are not all.
+        assert!(g.tiers.presence, "{id}: presence tier must be on");
+        assert!(g.stats.absent_count.is_some());
+        let root_out = &g.nodes[g.root as usize].outputs[0];
+        assert_eq!(root_out.present, Some(false), "{id} is never built");
+    }
+    assert_eq!(
+        m.graphs
+            .iter()
+            .find(|g| g.id == "packages/x86_64-linux/mini")
+            .unwrap()
+            .data_file,
+        "graph/packages.x86_64-linux.mini.json"
+    );
+
+    // The mini graph knows mini-dep: an edge from the root, by name.
+    let g: GraphData = serde_json::from_str(
+        &std::fs::read_to_string(tmp.0.join("graph/packages.x86_64-linux.mini.json")).unwrap(),
+    )
+    .unwrap();
+    let dep_names: Vec<&str> = g.edges[g.root as usize]
+        .iter()
+        .map(|&j| g.nodes[j as usize].name.as_str())
+        .collect();
+    assert!(
+        dep_names.iter().any(|n| n.contains("mini-dep")),
+        "root deps {dep_names:?} should include mini-dep"
+    );
+
+    // A fresh manifest reconciles against the persisted sidecars → no re-eval.
+    let mut m2 = build_manifest(&flake_ref, &opts()).await.unwrap();
+    reconcile(&out_dir, &mut m2, &nix_version().await);
+    for id in [
+        "packages/x86_64-linux/mini",
+        "devShells/x86_64-linux/default",
+    ] {
+        let g2 = m2.graphs.iter().find(|g| g.id == id).unwrap();
+        assert_eq!(g2.status, RefStatus::Ok, "{id} should reconcile");
+    }
+    assert_eq!(
+        m2.graphs
+            .iter()
+            .find(|g| g.id == "checks/x86_64-linux/mini-check")
+            .unwrap()
+            .status,
+        RefStatus::Pending,
+        "never-extracted graphs stay pending"
+    );
 }
 
 /// Real `nix-store --check-validity --print-invalid`: the fixture flake's own

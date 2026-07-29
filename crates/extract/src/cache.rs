@@ -3,6 +3,7 @@
 // (extractor fingerprint + flake identity + lock hash). Sidecars live next
 // to the blobs (config/<kind>.<name>.meta.json).
 
+use crate::graph::{GraphResult, extract_graph};
 use crate::manifest::{FINGERPRINT, now_iso};
 use crate::options::{ChunkHint, ExtractOptionsOpts, OptionsResult, ProgressFn, extract_options};
 use crate::package::{PackageResult, extract_package};
@@ -273,6 +274,42 @@ pub fn apply_extracted_package(r#ref: &mut PackageRef, r: &Extracted<PackageResu
     r#ref.duration_ms = Some(r.result.duration_ms);
 }
 
+/// Extraction driver for one dependency graph — same blob+sidecar shape and
+/// path-traversal guard as the other two document kinds.
+pub async fn extract_and_persist_graph(
+    out_dir: &str,
+    flake_ref: &str,
+    key: &CacheKey,
+    r#ref: &GraphRef,
+    timeout: Duration,
+) -> anyhow::Result<Extracted<GraphResult>> {
+    let blob_path = guarded_blob_path(out_dir, &r#ref.data_file)?;
+    let r = extract_graph(flake_ref, &r#ref.id, &r#ref.path, timeout).await?;
+    std::fs::write(&blob_path, serde_json::to_string(&r.data)?)?;
+    let extracted_at = now_iso();
+    write_sidecar(
+        out_dir,
+        &r#ref.data_file,
+        key,
+        &extracted_at,
+        None,
+        r.duration_ms,
+        &r.warnings,
+        None,
+    )?;
+    Ok(Extracted {
+        result: r,
+        extracted_at,
+    })
+}
+
+/// Record a finished extraction on a (current-manifest) GraphRef.
+pub fn apply_extracted_graph(r#ref: &mut GraphRef, r: &Extracted<GraphResult>) {
+    r#ref.status = RefStatus::Ok;
+    r#ref.extracted_at = Some(r.extracted_at.clone());
+    r#ref.duration_ms = Some(r.result.duration_ms);
+}
+
 /// Shared freshness check: same sidecar body for both configurations and
 /// packages. Returns the fields to stamp onto the ref, or None (stays pending).
 fn reconcile_one(out_dir: &str, key: &CacheKey, data_file: &str) -> Option<(SidecarMeta, ())> {
@@ -313,6 +350,14 @@ pub fn reconcile(out_dir: &str, manifest: &mut Manifest, nix_version: &str) {
         }
     }
     for r#ref in &mut manifest.packages {
+        if let Some((meta, ())) = reconcile_one(out_dir, &key, &r#ref.data_file) {
+            r#ref.status = RefStatus::Ok;
+            r#ref.extracted_at = Some(meta.extracted_at.clone());
+            r#ref.duration_ms = Some(meta.duration_ms);
+            cached_warnings.extend(meta.warnings.iter().map(|w| format!("[cached] {w}")));
+        }
+    }
+    for r#ref in &mut manifest.graphs {
         if let Some((meta, ())) = reconcile_one(out_dir, &key, &r#ref.data_file) {
             r#ref.status = RefStatus::Ok;
             r#ref.extracted_at = Some(meta.extracted_at.clone());
@@ -364,6 +409,7 @@ mod tests {
                 duration_ms: None,
             }],
             packages: vec![],
+            graphs: vec![],
             package_reverse_deps: None,
             grafts: vec![],
             output_names: IndexMap::new(),

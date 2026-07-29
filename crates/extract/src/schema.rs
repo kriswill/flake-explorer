@@ -26,6 +26,11 @@ pub struct Manifest {
     pub input_follows: Vec<InputFollow>,
     pub configurations: Vec<ConfigRef>,
     pub packages: Vec<PackageRef>,
+    /// Dependency-graph documents. Additive (older SPA bundles ignore it):
+    /// one ref per derivation-typed output; configuration graphs join only
+    /// when their opt-in flag is on.
+    #[serde(default)]
+    pub graphs: Vec<GraphRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub package_reverse_deps: Option<IndexMap<String, Vec<String>>>,
     pub grafts: Vec<GraftInfo>,
@@ -271,6 +276,28 @@ pub struct ConfigRef {
     pub extracted_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub option_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+}
+
+/// Manifest ref for a GraphData document (graph/<id>.json). Mirrors
+/// PackageRef; graph ids REUSE the underlying ref's id space (package-kind
+/// categories and config kinds are disjoint, so `packages/x/y` and `nixos/z`
+/// can never collide).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphRef {
+    pub id: String,
+    /// Attr path of the installable the graph is rooted at, e.g.
+    /// ["packages","x86_64-linux","rtk"] or
+    /// ["nixosConfigurations","nebula","config","system","build","toplevel"].
+    pub path: Vec<String>,
+    pub data_file: String,
+    pub status: RefStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extracted_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
 }

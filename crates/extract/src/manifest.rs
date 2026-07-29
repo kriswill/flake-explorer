@@ -102,6 +102,7 @@ pub async fn build_manifest(flake_ref: &str, opts: &ManifestOptions) -> anyhow::
         },
     };
     let packages = package_refs(&outputs);
+    let graphs = graph_refs(&packages);
 
     Ok(Manifest {
         version: SCHEMA_VERSION,
@@ -137,6 +138,7 @@ pub async fn build_manifest(flake_ref: &str, opts: &ManifestOptions) -> anyhow::
             })
             .collect(),
         packages,
+        graphs,
         package_reverse_deps: None,
         grafts: ev.grafts.clone(),
         output_names: ev.output_names.clone(),
@@ -229,6 +231,31 @@ pub fn package_refs(outputs: &OutputNode) -> Vec<PackageRef> {
         }
     }
     refs
+}
+
+/// One graph ref per derivation-typed output, same id space as the package
+/// refs they mirror. data_file follows the package convention with the graph/
+/// prefix: safe_name'd path segments joined by ".".
+pub fn graph_refs(packages: &[PackageRef]) -> Vec<GraphRef> {
+    packages
+        .iter()
+        .map(|p| GraphRef {
+            id: p.id.clone(),
+            path: p.path.clone(),
+            data_file: format!(
+                "graph/{}.json",
+                p.path
+                    .iter()
+                    .map(|s| safe_name(s))
+                    .collect::<Vec<_>>()
+                    .join(".")
+            ),
+            status: RefStatus::Pending,
+            error: None,
+            extracted_at: None,
+            duration_ms: None,
+        })
+        .collect()
 }
 
 fn make_package_ref(path: Vec<String>) -> PackageRef {
@@ -661,6 +688,31 @@ fn classic_node(node: &Value) -> OutputNode {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn graph_refs_mirror_package_refs() {
+        let refs = vec![
+            make_package_ref(vec!["packages".into(), "x86_64-linux".into(), "rtk".into()]),
+            make_package_ref(vec![
+                "devShells".into(),
+                "x86_64-linux".into(),
+                "a b".into(),
+            ]),
+        ];
+        let graphs = graph_refs(&refs);
+        assert_eq!(graphs.len(), 2);
+        assert_eq!(graphs[0].id, "packages/x86_64-linux/rtk");
+        assert_eq!(graphs[0].path, refs[0].path);
+        assert_eq!(graphs[0].data_file, "graph/packages.x86_64-linux.rtk.json");
+        assert_eq!(graphs[0].status, RefStatus::Pending);
+        // Hostile names go through the same safe_name slugging as packages.
+        assert!(!graphs[1].data_file.contains(' '));
+        assert!(
+            graphs[1]
+                .data_file
+                .starts_with("graph/devShells.x86_64-linux.a_b-")
+        );
+    }
 
     #[test]
     fn safe_name_passthrough_and_slug() {
