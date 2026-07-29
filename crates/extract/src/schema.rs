@@ -486,6 +486,119 @@ pub struct FileOptionRefs {
     pub declares: Vec<usize>,
 }
 
+// ------------------------------------------------------------------ GraphData
+//
+// Third document kind: the derivation dependency graph of one installable
+// (package, devShell, check, formatter, or — opt-in — a configuration's
+// system.build.toplevel), written to graph/<id>.json. Produced from
+// `nix derivation show -r` WITHOUT ever building. `extractedAt` is the ONE
+// volatile field: two projections of the same raw dump are byte-identical
+// modulo extractedAt (nodes sorted by drvPath, edge lists ascending).
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphData {
+    pub version: u32,
+    pub id: String,
+    /// Index into `nodes`; every node is reachable from it.
+    pub root: u32,
+    /// When the snapshot was taken — presence claims are relative to this
+    /// instant (the store may have been GC'd since).
+    pub extracted_at: String,
+    /// Sorted by drvPath, so indices are deterministic for a given dump.
+    pub nodes: Vec<GraphNode>,
+    /// Adjacency, aligned with `nodes`: `edges[i]` holds the ascending node
+    /// indices node i depends on (its inputDrvs).
+    pub edges: Vec<Vec<u32>>,
+    pub tiers: GraphTiers,
+    pub stats: GraphStats,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dry_run: Option<GraphDryRun>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphNode {
+    /// Full "/nix/store/<hash>-<name>.drv" — never a bare basename.
+    pub drv_path: String,
+    pub name: String,
+    /// Note: "builtin" occurs (fixed-output fetchers).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<String>,
+    pub outputs: Vec<GraphNodeOutput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphNodeOutput {
+    pub name: String,
+    /// Full store path; absent for outputs with no static path (CA/dynamic).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// T1: valid in the local store at `extractedAt` — a snapshot, NOT a
+    /// claim about what a build would do. Absent when the tier is off or the
+    /// output has no path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub present: Option<bool>,
+    /// T2, present paths only — absent is "not collected", never zero.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nar_size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closure_size: Option<u64>,
+}
+
+/// Which enrichment tiers this document actually carries; the UI must render
+/// an off tier as "not collected", never as zero. `substituters` (T4) is
+/// always false — out of scope for the extractor today, in the schema so the
+/// document format doesn't move when it lands.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphTiers {
+    pub presence: bool,
+    pub sizes: bool,
+    pub dry_run: bool,
+    pub substituters: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphStats {
+    pub node_count: u32,
+    pub edge_count: u32,
+    /// Output entries with a path vs distinct paths: fixed-output drvs shared
+    /// between e.g. bootstrap chains legitimately collide (measured on a real
+    /// system graph: 25,568 entries → 16,881 unique).
+    pub output_path_count: u32,
+    pub unique_output_path_count: u32,
+    /// T1: UNIQUE output paths not valid locally at extractedAt.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub absent_count: Option<u32>,
+    /// T3 (dry-run) aggregates. Present-with-zero means a satisfied closure;
+    /// absent means the tier was not collected or its parse failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_build_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_fetch_count: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub download_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unpacked_bytes: Option<u64>,
+}
+
+/// T3 detail: the exact partition `nix build --dry-run` reported. Both lists
+/// may be empty (a fully satisfied closure) — that is tier-PRESENT with zero
+/// work, distinct from the tier being off.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphDryRun {
+    /// Node indices of derivations that would be built.
+    pub to_build_nodes: Vec<u32>,
+    /// Full store paths that would be fetched (may include paths outside any
+    /// node's outputs).
+    pub to_fetch_paths: Vec<String>,
+}
+
 /// Well-known mk-priority values (lib.mkOverride n).
 pub const PRIO_OPTION_DEFAULT: i64 = 1500;
 
@@ -589,6 +702,93 @@ mod tests {
             serde_json::to_string(&omitted).unwrap(),
             r#"{"kind":"omitted"}"#
         );
+    }
+
+    /// The tiers/stats split exists so the SPA can distinguish "not
+    /// collected" from a genuine zero: an uncollected count is an ABSENT
+    /// key, never 0.
+    #[test]
+    fn graph_stats_distinguish_not_collected_from_zero() {
+        let mut stats = GraphStats {
+            node_count: 2,
+            edge_count: 1,
+            output_path_count: 2,
+            unique_output_path_count: 1,
+            absent_count: None,
+            to_build_count: None,
+            to_fetch_count: None,
+            download_bytes: None,
+            unpacked_bytes: None,
+        };
+        let s = serde_json::to_string(&stats).unwrap();
+        assert!(
+            !s.contains("absentCount"),
+            "not collected must be absent: {s}"
+        );
+        stats.absent_count = Some(0);
+        let s = serde_json::to_string(&stats).unwrap();
+        assert!(
+            s.contains(r#""absentCount":0"#),
+            "a real zero must serialize: {s}"
+        );
+    }
+
+    /// Field names are the client protocol — camelCase on the wire.
+    #[test]
+    fn graph_data_wire_shape() {
+        let g = GraphData {
+            version: SCHEMA_VERSION,
+            id: "packages/x86_64-linux/mini".into(),
+            root: 0,
+            extracted_at: "1970-01-01T00:00:00.000Z".into(),
+            nodes: vec![GraphNode {
+                drv_path: "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-mini-0.1.0.drv".into(),
+                name: "mini-0.1.0".into(),
+                system: Some("x86_64-linux".into()),
+                outputs: vec![GraphNodeOutput {
+                    name: "out".into(),
+                    path: Some("/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-mini-0.1.0".into()),
+                    present: None,
+                    nar_size: None,
+                    closure_size: None,
+                }],
+            }],
+            edges: vec![vec![]],
+            tiers: GraphTiers {
+                presence: false,
+                sizes: false,
+                dry_run: false,
+                substituters: false,
+            },
+            stats: GraphStats {
+                node_count: 1,
+                edge_count: 0,
+                output_path_count: 1,
+                unique_output_path_count: 1,
+                absent_count: None,
+                to_build_count: None,
+                to_fetch_count: None,
+                download_bytes: None,
+                unpacked_bytes: None,
+            },
+            dry_run: None,
+            warnings: vec![],
+        };
+        let v = serde_json::to_value(&g).unwrap();
+        assert_eq!(v["extractedAt"], "1970-01-01T00:00:00.000Z");
+        assert_eq!(
+            v["nodes"][0]["drvPath"]
+                .as_str()
+                .unwrap()
+                .matches("/nix/store/")
+                .count(),
+            1
+        );
+        assert_eq!(v["tiers"]["dryRun"], false);
+        assert!(v.get("dryRun").is_none(), "absent tier detail stays absent");
+        // present:false and absent present-flags differ on the wire (snapshot
+        // semantics — absent means "presence tier not collected").
+        assert!(v["nodes"][0]["outputs"][0].get("present").is_none());
     }
 
     #[test]
