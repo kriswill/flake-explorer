@@ -218,6 +218,46 @@ pub fn project_graph(id: &str, raw_json: &str, extracted_at: &str) -> anyhow::Re
     })
 }
 
+/// The distinct output paths of a graph, sorted — the batch fed to store
+/// validity checks. Deduped because distinct outputs legitimately share a
+/// path (56 measured on a real system graph), and sorted so batching is
+/// deterministic.
+pub fn unique_output_paths(g: &GraphData) -> Vec<String> {
+    let mut paths: Vec<String> = g
+        .nodes
+        .iter()
+        .flat_map(|n| n.outputs.iter().filter_map(|o| o.path.clone()))
+        .collect();
+    paths.sort_unstable();
+    paths.dedup();
+    paths
+}
+
+/// Stamp tier T1 onto a projected graph from the set of paths the store
+/// reported INVALID. `present` means "valid in the local store at
+/// extractedAt" — a snapshot, not a claim about what a build would do.
+/// Pathless outputs (v4 fixed-output fetchers) stay untouched: the tier
+/// structurally cannot cover them.
+pub fn apply_presence(g: &mut GraphData, invalid: &std::collections::HashSet<String>) {
+    let mut absent: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for n in &mut g.nodes {
+        for o in &mut n.outputs {
+            if let Some(p) = &o.path {
+                o.present = Some(!invalid.contains(p));
+            }
+        }
+    }
+    for n in &g.nodes {
+        for o in &n.outputs {
+            if o.present == Some(false) {
+                absent.insert(o.path.as_deref().unwrap_or_default());
+            }
+        }
+    }
+    g.stats.absent_count = Some(absent.len() as u32);
+    g.tiers.presence = true;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,6 +529,64 @@ mod tests {
         assert_eq!(
             serde_json::to_value(serde_json::from_str::<GraphData>(&a).unwrap()).unwrap(),
             cv
+        );
+    }
+
+    /// Presence semantics end to end on a projected graph: flags stamped per
+    /// path-bearing output, pathless outputs untouched, absentCount over
+    /// UNIQUE paths, tier flipped on.
+    #[test]
+    fn presence_stamps_paths_skips_pathless_counts_unique() {
+        let shared = format!("{}-shared-src", hash('5'));
+        let doc = json!({"version": 4, "derivations": {
+            format!("{}-fetch-a.drv", hash('1')): {
+                "name": "fetch-a", "system": "builtin",
+                "outputs": {"out": {"path": shared}},
+                "inputs": {"drvs": {}, "srcs": []},
+            },
+            format!("{}-fetch-b.drv", hash('2')): {
+                "name": "fetch-b", "system": "builtin",
+                "outputs": {"out": {"path": shared}},
+                "inputs": {"drvs": {}, "srcs": []},
+            },
+            format!("{}-pathless.drv", hash('9')): {
+                "name": "pathless", "system": "builtin",
+                "outputs": {"out": {"hash": "sha256-0000", "method": "flat"}},
+                "inputs": {"drvs": {}, "srcs": []},
+            },
+            format!("{}-top.drv", hash('3')): {
+                "name": "top", "system": "x86_64-linux",
+                "outputs": {"out": {"path": format!("{}-top", hash('4'))}},
+                "inputs": {"drvs": {
+                    format!("{}-fetch-a.drv", hash('1')): {"outputs": ["out"]},
+                    format!("{}-fetch-b.drv", hash('2')): {"outputs": ["out"]},
+                    format!("{}-pathless.drv", hash('9')): {"outputs": ["out"]},
+                }, "srcs": []},
+            },
+        }})
+        .to_string();
+        let mut g = project_graph("packages/x/y", &doc, TS).unwrap();
+
+        let paths = unique_output_paths(&g);
+        assert_eq!(paths.len(), 2, "deduped: shared-src once + top");
+        assert!(paths.iter().all(|p| p.starts_with("/nix/store/")));
+
+        // The shared fetch path is absent; top's output is valid.
+        let invalid: std::collections::HashSet<String> =
+            [format!("/nix/store/{}-shared-src", hash('5'))].into();
+        apply_presence(&mut g, &invalid);
+
+        assert!(g.tiers.presence);
+        // Two output ENTRIES are absent but they are ONE path.
+        assert_eq!(g.stats.absent_count, Some(1));
+        let by_name = |name: &str| g.nodes.iter().find(|n| n.name == name).unwrap();
+        assert_eq!(by_name("fetch-a").outputs[0].present, Some(false));
+        assert_eq!(by_name("fetch-b").outputs[0].present, Some(false));
+        assert_eq!(by_name("top").outputs[0].present, Some(true));
+        assert_eq!(
+            by_name("pathless").outputs[0].present,
+            None,
+            "the tier cannot cover a pathless fetcher output"
         );
     }
 
