@@ -260,6 +260,28 @@ pub fn apply_presence(g: &mut GraphData, invalid: &std::collections::HashSet<Str
     g.tiers.presence = true;
 }
 
+/// Stamp tier T2 (sizes) from a `path-info` answer map. Present paths only:
+/// a path that is absent (or was not asked about) keeps its sizes ABSENT —
+/// the UI must render "not collected", never zero.
+pub fn apply_sizes(
+    g: &mut GraphData,
+    info: &std::collections::HashMap<String, Option<crate::run_nix::PathInfoRaw>>,
+) {
+    for n in &mut g.nodes {
+        for o in &mut n.outputs {
+            if o.present != Some(true) {
+                continue;
+            }
+            let Some(p) = &o.path else { continue };
+            if let Some(Some(i)) = info.get(p) {
+                o.nar_size = Some(i.nar_size);
+                o.closure_size = i.closure_size;
+            }
+        }
+    }
+    g.tiers.sizes = true;
+}
+
 pub struct GraphResult {
     pub data: GraphData,
     pub warnings: Vec<String>,
@@ -283,7 +305,22 @@ pub async fn extract_graph(
 
     let paths = unique_output_paths(&data);
     match check_validity_invalid(&paths, timeout).await {
-        Ok(invalid) => apply_presence(&mut data, &invalid),
+        Ok(invalid) => {
+            apply_presence(&mut data, &invalid);
+            // T2 rides on T1: sizes only exist for paths T1 proved present.
+            let present: Vec<String> = paths
+                .iter()
+                .filter(|p| !invalid.contains(p.as_str()))
+                .cloned()
+                .collect();
+            match crate::run_nix::path_info_batch(&present, timeout).await {
+                Ok(info) => apply_sizes(&mut data, &info),
+                Err(e) => data.warnings.push(format!(
+                    "{id}: size tier unavailable: {}",
+                    e.to_string().lines().next().unwrap_or("")
+                )),
+            }
+        }
         Err(e) => data.warnings.push(format!(
             "{id}: presence tier unavailable: {}",
             e.to_string().lines().next().unwrap_or("")
@@ -664,6 +701,77 @@ mod tests {
             by_name("pathless").outputs[0].present,
             None,
             "the tier cannot cover a pathless fetcher output"
+        );
+    }
+
+    /// T2 semantics: sizes land only on outputs T1 proved present; an absent
+    /// output never gets a size even if path-info answered for its path, and
+    /// a present path with no answer stays "not collected".
+    #[test]
+    fn sizes_stamp_only_present_outputs() {
+        let doc = json!({"version": 4, "derivations": {
+            format!("{}-a.drv", hash('1')): {
+                "name": "a", "system": "x86_64-linux",
+                "outputs": {"out": {"path": format!("{}-a", hash('2'))}},
+                "inputs": {"drvs": {
+                    format!("{}-b.drv", hash('3')): {"outputs": ["out"]},
+                    format!("{}-c.drv", hash('5')): {"outputs": ["out"]},
+                }, "srcs": []},
+            },
+            format!("{}-b.drv", hash('3')): {
+                "name": "b", "system": "x86_64-linux",
+                "outputs": {"out": {"path": format!("{}-b", hash('4'))}},
+                "inputs": {"drvs": {}, "srcs": []},
+            },
+            format!("{}-c.drv", hash('5')): {
+                "name": "c", "system": "x86_64-linux",
+                "outputs": {"out": {"path": format!("{}-c", hash('6'))}},
+                "inputs": {"drvs": {}, "srcs": []},
+            },
+        }})
+        .to_string();
+        let mut g = project_graph("packages/x/y", &doc, TS).unwrap();
+        let absent_b: std::collections::HashSet<String> =
+            [format!("/nix/store/{}-b", hash('4'))].into();
+        apply_presence(&mut g, &absent_b);
+
+        let info: std::collections::HashMap<String, Option<crate::run_nix::PathInfoRaw>> = [
+            // b is ABSENT — an answer for it must be ignored.
+            (
+                format!("/nix/store/{}-b", hash('4')),
+                Some(crate::run_nix::PathInfoRaw {
+                    nar_size: 111,
+                    closure_size: Some(222),
+                    references: vec![],
+                }),
+            ),
+            (
+                format!("/nix/store/{}-a", hash('2')),
+                Some(crate::run_nix::PathInfoRaw {
+                    nar_size: 1000,
+                    closure_size: Some(5000),
+                    references: vec![],
+                }),
+            ),
+            // c is present but path-info said null: stays not-collected.
+            (format!("/nix/store/{}-c", hash('6')), None),
+        ]
+        .into();
+        apply_sizes(&mut g, &info);
+
+        assert!(g.tiers.sizes);
+        let by_name = |name: &str| g.nodes.iter().find(|n| n.name == name).unwrap();
+        assert_eq!(by_name("a").outputs[0].nar_size, Some(1000));
+        assert_eq!(by_name("a").outputs[0].closure_size, Some(5000));
+        assert_eq!(
+            by_name("b").outputs[0].nar_size,
+            None,
+            "absent stays sizeless"
+        );
+        assert_eq!(
+            by_name("c").outputs[0].nar_size,
+            None,
+            "no answer stays absent"
         );
     }
 

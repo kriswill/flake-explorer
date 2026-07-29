@@ -425,6 +425,30 @@ pub async fn path_info(out_path: &str, timeout: Duration) -> Result<Option<PathI
     Ok(result.get(out_path).cloned().flatten())
 }
 
+/// Batched `nix path-info` over many already-instantiated paths — query
+/// only, same null-means-invalid contract as `path_info`. Chunked like
+/// check_validity (argv limits); measured ~0.4 s for ~3k paths.
+pub async fn path_info_batch(
+    paths: &[String],
+    timeout: Duration,
+) -> Result<std::collections::HashMap<String, Option<PathInfoRaw>>, NixError> {
+    let mut all = std::collections::HashMap::new();
+    for chunk in paths.chunks(CHECK_VALIDITY_BATCH) {
+        let mut args = vec![
+            "path-info",
+            "--json",
+            "--json-format",
+            "1",
+            "--closure-size",
+        ];
+        args.extend(chunk.iter().map(|s| s.as_str()));
+        let result: std::collections::HashMap<String, Option<PathInfoRaw>> =
+            run_json(&args, timeout).await?;
+        all.extend(result);
+    }
+    Ok(all)
+}
+
 /// Read a file out of a flake input directly through Nix, bypassing the
 /// (possibly stale) store path. A directory-mounted "module" resolves to
 /// default.nix on retry.
