@@ -5,8 +5,8 @@
 // finishes). POST /api/refresh re-runs the manifest pass.
 
 use crate::cache::{
-    CacheKey, apply_extracted, apply_extracted_package, cache_key_of, extract_and_persist,
-    extract_and_persist_package, reconcile,
+    CacheKey, apply_extracted, apply_extracted_graph, apply_extracted_package, cache_key_of,
+    extract_and_persist, extract_and_persist_graph, extract_and_persist_package, reconcile,
 };
 use crate::highlight::tokenize_nix;
 use crate::manifest::{ManifestOptions, build_manifest};
@@ -58,6 +58,7 @@ pub async fn init(flake_ref: String, flags: ServeFlags) -> anyhow::Result<Arc<Ap
     let nix_version = check_nix().await?;
     std::fs::create_dir_all(Path::new(&flags.out).join("config"))?;
     std::fs::create_dir_all(Path::new(&flags.out).join("package"))?;
+    std::fs::create_dir_all(Path::new(&flags.out).join("graph"))?;
 
     println!("loading UI ...");
     let title = format!("flake-explorer — {flake_ref}");
@@ -147,10 +148,11 @@ async fn handle(state: Arc<AppState>, req: Request<Body>) -> Response {
         return axum::Json(&*manifest).into_response();
     }
 
-    // /data/(config|package)/<name>.json — deliberately narrow charset.
+    // /data/(config|package|graph)/<name>.json — deliberately narrow charset.
     static BLOB_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let blob_re = BLOB_RE
-        .get_or_init(|| Regex::new(r"^/data/((?:config|package)/[\w@%.+-]+\.json)$").unwrap());
+    let blob_re = BLOB_RE.get_or_init(|| {
+        Regex::new(r"^/data/((?:config|package|graph)/[\w@%.+-]+\.json)$").unwrap()
+    });
     if let Some(m) = blob_re.captures(&path) {
         let rel = percent_decode_str(&m[1]).decode_utf8_lossy().into_owned();
         return serve_blob(&state, &rel).await;
@@ -183,28 +185,56 @@ async fn handle(state: Arc<AppState>, req: Request<Body>) -> Response {
     (StatusCode::NOT_FOUND, "not found").into_response()
 }
 
-/// On-demand extraction of one entity (configuration or package), single-
-/// flighted so concurrent requests for the same id extract once. The cache
-/// key is captured at extraction START (a refresh can swap the manifest), and
-/// results settle onto the ref in the manifest CURRENT at completion.
+/// Which document kind a /data blob path names — decides the manifest ref
+/// list, the extraction driver, and the in-flight keyspace.
+#[derive(Clone, Copy, PartialEq)]
+enum BlobKind {
+    Config,
+    Package,
+    Graph,
+}
+
+impl BlobKind {
+    fn of_rel(rel: &str) -> BlobKind {
+        if rel.starts_with("package/") {
+            BlobKind::Package
+        } else if rel.starts_with("graph/") {
+            BlobKind::Graph
+        } else {
+            BlobKind::Config
+        }
+    }
+}
+
+/// On-demand extraction of one entity (configuration, package, or graph),
+/// single-flighted so concurrent requests for the same id extract once. The
+/// cache key is captured at extraction START (a refresh can swap the
+/// manifest), and results settle onto the ref in the manifest CURRENT at
+/// completion.
 async fn serve_blob(state: &Arc<AppState>, rel: &str) -> Response {
-    let is_package = rel.starts_with("package/");
+    let kind = BlobKind::of_rel(rel);
 
     // No manifest ref claims this dataFile → 404 before touching disk. This
     // keeps sidecar .meta.json files private and stops encoded-traversal
     // names from serving files outside the data dir.
     let (id, status) = {
         let m = state.manifest.read().await;
-        let found = if is_package {
-            m.packages
+        let found = match kind {
+            BlobKind::Package => m
+                .packages
                 .iter()
                 .find(|p| p.data_file == rel)
-                .map(|p| (p.id.clone(), p.status))
-        } else {
-            m.configurations
+                .map(|p| (p.id.clone(), p.status)),
+            BlobKind::Graph => m
+                .graphs
+                .iter()
+                .find(|g| g.data_file == rel)
+                .map(|g| (g.id.clone(), g.status)),
+            BlobKind::Config => m
+                .configurations
                 .iter()
                 .find(|c| c.data_file == rel)
-                .map(|c| (c.id.clone(), c.status))
+                .map(|c| (c.id.clone(), c.status)),
         };
         match found {
             Some(x) => x,
@@ -213,20 +243,26 @@ async fn serve_blob(state: &Arc<AppState>, rel: &str) -> Response {
     };
 
     if status != RefStatus::Ok {
-        on_demand(state, is_package, &id).await;
+        on_demand(state, kind, &id).await;
         // Re-resolve: /api/refresh may have swapped the manifest while the
         // extraction ran.
         let m = state.manifest.read().await;
-        let cur = if is_package {
-            m.packages
+        let cur = match kind {
+            BlobKind::Package => m
+                .packages
                 .iter()
                 .find(|p| p.data_file == rel)
-                .map(|p| (p.status, p.error.clone()))
-        } else {
-            m.configurations
+                .map(|p| (p.status, p.error.clone())),
+            BlobKind::Graph => m
+                .graphs
+                .iter()
+                .find(|g| g.data_file == rel)
+                .map(|g| (g.status, g.error.clone())),
+            BlobKind::Config => m
+                .configurations
                 .iter()
                 .find(|c| c.data_file == rel)
-                .map(|c| (c.status, c.error.clone()))
+                .map(|c| (c.status, c.error.clone())),
         };
         match cur {
             Some((RefStatus::Ok, _)) => {}
@@ -247,12 +283,15 @@ async fn serve_blob(state: &Arc<AppState>, rel: &str) -> Response {
     }
 }
 
-async fn on_demand(state: &Arc<AppState>, is_package: bool, id: &str) {
-    // Keyspace prefix — a package id must never collide with a config id.
-    let key = if is_package {
-        format!("pkg:{id}")
-    } else {
-        id.to_string()
+async fn on_demand(state: &Arc<AppState>, kind: BlobKind, id: &str) {
+    // Keyspace prefix — the three ref kinds must never collide. Configs keep
+    // the bare id (the original keyspace); graphs reuse package/config ids,
+    // so their prefix is what keeps "packages/x/y" the package apart from
+    // "packages/x/y" the graph.
+    let key = match kind {
+        BlobKind::Config => id.to_string(),
+        BlobKind::Package => format!("pkg:{id}"),
+        BlobKind::Graph => format!("graph:{id}"),
     };
     let mut rx = {
         let mut inflight = state.inflight.lock().await;
@@ -265,7 +304,7 @@ async fn on_demand(state: &Arc<AppState>, is_package: bool, id: &str) {
             let id = id.to_string();
             tokio::spawn(async move {
                 let cache_key = cache_key_of(&*state.manifest.read().await, &state.nix_version);
-                run_extraction(&state, is_package, &id, &cache_key).await;
+                run_extraction(&state, kind, &id, &cache_key).await;
                 // Drop the entry BEFORE signalling, so an entry always means
                 // live work: `wait_for` returns immediately on an already-true
                 // value, so a request that cloned the receiver in between would
@@ -282,88 +321,137 @@ async fn on_demand(state: &Arc<AppState>, is_package: bool, id: &str) {
     let _ = rx.wait_for(|done| *done).await;
 }
 
-async fn run_extraction(state: &Arc<AppState>, is_package: bool, id: &str, cache_key: &CacheKey) {
-    if is_package {
-        let r#ref = {
-            let m = state.manifest.read().await;
-            m.packages.iter().find(|p| p.id == id).cloned()
-        };
-        let Some(r#ref) = r#ref else { return };
-        if r#ref.status == RefStatus::Ok {
-            return;
-        }
-        println!("extracting package {id} ...");
-        match extract_and_persist_package(
-            &state.flags.out,
-            &state.flake_ref,
-            cache_key,
-            &r#ref,
-            state.flags.timeout,
-        )
-        .await
-        {
-            Ok(r) => {
-                let mut m = state.manifest.write().await;
-                if let Some(cur) = m.packages.iter_mut().find(|p| p.id == id) {
-                    apply_extracted_package(cur, &r);
-                }
-                m.warnings.extend(r.result.warnings.clone());
-                println!(
-                    "  {id}: builder={} in {:.1}s",
-                    r.result.data.builder.as_str(),
-                    r.result.duration_ms as f64 / 1000.0
-                );
+async fn run_extraction(state: &Arc<AppState>, kind: BlobKind, id: &str, cache_key: &CacheKey) {
+    match kind {
+        BlobKind::Package => {
+            let r#ref = {
+                let m = state.manifest.read().await;
+                m.packages.iter().find(|p| p.id == id).cloned()
+            };
+            let Some(r#ref) = r#ref else { return };
+            if r#ref.status == RefStatus::Ok {
+                return;
             }
-            Err(e) => stamp_error(state, is_package, id, &e).await,
-        }
-    } else {
-        let r#ref = {
-            let m = state.manifest.read().await;
-            m.configurations.iter().find(|c| c.id == id).cloned()
-        };
-        let Some(r#ref) = r#ref else { return };
-        if r#ref.status == RefStatus::Ok {
-            return;
-        }
-        println!("extracting options of {id} ...");
-        match extract_and_persist(
-            &state.flags.out,
-            &state.flake_ref,
-            cache_key,
-            &r#ref,
-            state.flags.timeout,
-            None,
-        )
-        .await
-        {
-            Ok(r) => {
-                let mut m = state.manifest.write().await;
-                if let Some(cur) = m.configurations.iter_mut().find(|c| c.id == id) {
-                    apply_extracted(cur, &r);
+            println!("extracting package {id} ...");
+            match extract_and_persist_package(
+                &state.flags.out,
+                &state.flake_ref,
+                cache_key,
+                &r#ref,
+                state.flags.timeout,
+            )
+            .await
+            {
+                Ok(r) => {
+                    let mut m = state.manifest.write().await;
+                    if let Some(cur) = m.packages.iter_mut().find(|p| p.id == id) {
+                        apply_extracted_package(cur, &r);
+                    }
+                    m.warnings.extend(r.result.warnings.clone());
+                    println!(
+                        "  {id}: builder={} in {:.1}s",
+                        r.result.data.builder.as_str(),
+                        r.result.duration_ms as f64 / 1000.0
+                    );
                 }
-                m.warnings.extend(r.result.warnings.clone());
-                println!(
-                    "  {id}: {} options in {:.1}s",
-                    r.result.data.options.len(),
-                    r.result.duration_ms as f64 / 1000.0
-                );
+                Err(e) => stamp_error(state, kind, id, &e).await,
             }
-            Err(e) => stamp_error(state, is_package, id, &e).await,
+        }
+        BlobKind::Graph => {
+            let r#ref = {
+                let m = state.manifest.read().await;
+                m.graphs.iter().find(|g| g.id == id).cloned()
+            };
+            let Some(r#ref) = r#ref else { return };
+            if r#ref.status == RefStatus::Ok {
+                return;
+            }
+            println!("extracting graph of {id} ...");
+            match extract_and_persist_graph(
+                &state.flags.out,
+                &state.flake_ref,
+                cache_key,
+                &r#ref,
+                state.flags.timeout,
+            )
+            .await
+            {
+                Ok(r) => {
+                    let mut m = state.manifest.write().await;
+                    if let Some(cur) = m.graphs.iter_mut().find(|g| g.id == id) {
+                        apply_extracted_graph(cur, &r);
+                    }
+                    m.warnings.extend(r.result.warnings.clone());
+                    println!(
+                        "  {id}: {} nodes, {} edges in {:.1}s",
+                        r.result.data.stats.node_count,
+                        r.result.data.stats.edge_count,
+                        r.result.duration_ms as f64 / 1000.0
+                    );
+                }
+                Err(e) => stamp_error(state, kind, id, &e).await,
+            }
+        }
+        BlobKind::Config => {
+            let r#ref = {
+                let m = state.manifest.read().await;
+                m.configurations.iter().find(|c| c.id == id).cloned()
+            };
+            let Some(r#ref) = r#ref else { return };
+            if r#ref.status == RefStatus::Ok {
+                return;
+            }
+            println!("extracting options of {id} ...");
+            match extract_and_persist(
+                &state.flags.out,
+                &state.flake_ref,
+                cache_key,
+                &r#ref,
+                state.flags.timeout,
+                None,
+            )
+            .await
+            {
+                Ok(r) => {
+                    let mut m = state.manifest.write().await;
+                    if let Some(cur) = m.configurations.iter_mut().find(|c| c.id == id) {
+                        apply_extracted(cur, &r);
+                    }
+                    m.warnings.extend(r.result.warnings.clone());
+                    println!(
+                        "  {id}: {} options in {:.1}s",
+                        r.result.data.options.len(),
+                        r.result.duration_ms as f64 / 1000.0
+                    );
+                }
+                Err(e) => stamp_error(state, kind, id, &e).await,
+            }
         }
     }
 }
 
-async fn stamp_error(state: &Arc<AppState>, is_package: bool, id: &str, e: &anyhow::Error) {
+async fn stamp_error(state: &Arc<AppState>, kind: BlobKind, id: &str, e: &anyhow::Error) {
     let msg = e.to_string().lines().take(3).collect::<Vec<_>>().join(" ");
     let mut m = state.manifest.write().await;
-    if is_package {
-        if let Some(cur) = m.packages.iter_mut().find(|p| p.id == id) {
-            cur.status = RefStatus::Error;
-            cur.error = Some(msg.clone());
+    match kind {
+        BlobKind::Package => {
+            if let Some(cur) = m.packages.iter_mut().find(|p| p.id == id) {
+                cur.status = RefStatus::Error;
+                cur.error = Some(msg.clone());
+            }
         }
-    } else if let Some(cur) = m.configurations.iter_mut().find(|c| c.id == id) {
-        cur.status = RefStatus::Error;
-        cur.error = Some(msg.clone());
+        BlobKind::Graph => {
+            if let Some(cur) = m.graphs.iter_mut().find(|g| g.id == id) {
+                cur.status = RefStatus::Error;
+                cur.error = Some(msg.clone());
+            }
+        }
+        BlobKind::Config => {
+            if let Some(cur) = m.configurations.iter_mut().find(|c| c.id == id) {
+                cur.status = RefStatus::Error;
+                cur.error = Some(msg.clone());
+            }
+        }
     }
     eprintln!("  {id} failed: {msg}");
 }
