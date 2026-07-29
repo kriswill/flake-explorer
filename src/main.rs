@@ -12,6 +12,7 @@ struct Flags {
     out: String,
     configs: Selection,
     packages: Selection,
+    graphs: Selection,
     all_systems: bool,
     timeout: f64,
     html: String,
@@ -36,6 +37,7 @@ fn parse_flags(argv: &[String]) -> Flags {
         out: "./flake-explorer-data".to_string(),
         configs: Selection::None,
         packages: Selection::None,
+        graphs: Selection::None,
         all_systems: false,
         timeout: 600.0,
         html: "./flake.html".to_string(),
@@ -88,6 +90,18 @@ fn parse_flags(argv: &[String]) -> Flags {
                         .collect(),
                 );
             }
+            "--graphs" => {
+                i += 1;
+                f.graphs = Selection::Ids(
+                    arg(a, argv.get(i))
+                        .split(',')
+                        .filter(|s| !s.is_empty())
+                        .map(String::from)
+                        .collect(),
+                );
+            }
+            // Deliberately does NOT include graphs: an 18k-node system graph
+            // is a distinct cost the user asks for by name (--graphs).
             "--all" => {
                 f.configs = Selection::All;
                 f.packages = Selection::All;
@@ -145,11 +159,13 @@ fn usage() -> String {
         r#"usage: {prog} <command> [args]
 
 commands:
-  extract <flakeref> [--out DIR] [--configs kind/name,... | --all] [--packages path/segs,... | --all] [--all-systems] [--timeout SECS]
+  extract <flakeref> [--out DIR] [--configs kind/name,... | --all] [--packages path/segs,... | --all] [--graphs path/segs,...] [--all-systems] [--timeout SECS]
       Extract manifest (+ selected configurations/packages) to the data dir.
       --packages takes ids like "packages/x86_64-linux/rtk" (path.join("/") —
       also devShells/checks/formatter). --all means all configurations
-      AND all packages.
+      AND all packages. --graphs extracts the full derivation dependency
+      graph of the named outputs (same id space as --packages; never
+      implied by --all — a system-scale graph is a cost you opt into).
   export <flakeref> [--html FILE] [--out DIR] [--configs kind/name,... | --all] [--packages path/segs,... | --all] [--all-systems] [--sources self|all] [--timeout SECS]
       Extract, then write ONE standalone HTML file (default ./flake.html)
       that works without a server — file://, any CDN, GitHub Pages.
@@ -209,6 +225,7 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
                     out: flags.out.clone(),
                     configs: flags.configs.clone(),
                     packages: flags.packages.clone(),
+                    graphs: flags.graphs.clone(),
                     all_systems: flags.all_systems,
                     timeout,
                 },
@@ -226,6 +243,7 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
                     out: flags.out.clone(),
                     configs: flags.configs.clone(),
                     packages: flags.packages.clone(),
+                    graphs: flags.graphs.clone(),
                     all_systems: flags.all_systems,
                     timeout,
                 },

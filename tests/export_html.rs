@@ -61,6 +61,7 @@ async fn export_embeds_blobs_and_downgrades_unembedded_refs() {
         &flake_ref,
         &DriveFlags {
             out: out_dir.clone(),
+            graphs: Selection::None,
             configs: Selection::All,
             packages: Selection::Ids(vec![MINI.to_string(), CHECK.to_string()]),
             all_systems: false,
