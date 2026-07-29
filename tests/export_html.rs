@@ -56,12 +56,12 @@ async fn export_embeds_blobs_and_downgrades_unembedded_refs() {
     let out_dir = out.0.to_string_lossy().into_owned();
     let html_path = out.0.join("flake.html");
 
-    // Extract the one configuration plus TWO packages...
+    // Extract the one configuration plus TWO packages and TWO graphs...
     let r = extract_to_dir(
         &flake_ref,
         &DriveFlags {
             out: out_dir.clone(),
-            graphs: Selection::None,
+            graphs: Selection::Ids(vec![MINI.to_string(), CHECK.to_string()]),
             config_graphs: false,
             graph_dry_run: false,
             configs: Selection::All,
@@ -88,6 +88,8 @@ async fn export_embeds_blobs_and_downgrades_unembedded_refs() {
             timeout: Duration::from_secs(60),
             wanted: r.wanted.clone(),
             wanted_packages: vec![MINI.to_string()],
+            // Two graphs extracted, ONE embedded — the other must downgrade.
+            wanted_graphs: vec![MINI.to_string()],
         },
     )
     .await
@@ -112,6 +114,27 @@ async fn export_embeds_blobs_and_downgrades_unembedded_refs() {
     assert!(check.extracted_at.is_none());
     // Present in exports (built from the embedded blobs), absent in serve.
     assert!(manifest.package_reverse_deps.is_some());
+
+    // Graph embedding mirrors packages exactly: the embedded one is verbatim
+    // and ok, the extracted-but-not-embedded one downgrades to pending.
+    assert!(html.contains(r#"id="data:graph/packages.x86_64-linux.mini.json""#));
+    assert!(!html.contains(r#"id="data:graph/checks"#));
+    let mini_graph = manifest.graphs.iter().find(|g| g.id == MINI).unwrap();
+    assert_eq!(mini_graph.status, RefStatus::Ok);
+    let check_graph = manifest.graphs.iter().find(|g| g.id == CHECK).unwrap();
+    assert_eq!(check_graph.status, RefStatus::Pending);
+    assert!(check_graph.extracted_at.is_none());
+    let graph = embedded_json(&html, "graph/packages.x86_64-linux.mini.json").unwrap();
+    assert_eq!(graph["id"], MINI);
+    assert_eq!(graph["tiers"]["presence"], true);
+    let graph_on_disk: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(out.0.join("graph/packages.x86_64-linux.mini.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        graph, graph_on_disk,
+        "embedded graph blob differs from the on-disk blob"
+    );
 
     let config = embedded_json(&html, "config/nixos.mini.json").unwrap();
     assert_eq!(config["id"], "nixos/mini");
@@ -142,6 +165,7 @@ async fn export_embeds_blobs_and_downgrades_unembedded_refs() {
             timeout: Duration::from_secs(60),
             wanted: r.wanted,
             wanted_packages: vec![MINI.to_string()],
+            wanted_graphs: vec![MINI.to_string()],
         },
     )
     .await

@@ -178,11 +178,12 @@ commands:
       never on by default. --graph-dry-run adds the exact build/fetch
       partition to each graph via `nix build --dry-run` (a second eval
       per graph; nothing is built).
-  export <flakeref> [--html FILE] [--out DIR] [--configs kind/name,... | --all] [--packages path/segs,... | --all] [--all-systems] [--sources self|all] [--timeout SECS]
+  export <flakeref> [--html FILE] [--out DIR] [--configs kind/name,... | --all] [--packages path/segs,... | --all] [--graphs path/segs,...] [--all-systems] [--sources self|all] [--timeout SECS]
       Extract, then write ONE standalone HTML file (default ./flake.html)
       that works without a server — file://, any CDN, GitHub Pages.
       --sources all also embeds every file the exported configurations
-      reference (can be large against nixpkgs).
+      reference (can be large against nixpkgs). --graphs embeds the named
+      dependency graphs (explicit only, never implied by --all).
   serve <flakeref> [--port N] [--host ADDR] [--out DIR] [--dev]
       Extract manifest, then serve the explorer UI with on-demand
       per-configuration extraction. --dev watches web/ and live-reloads
@@ -275,6 +276,7 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
                     timeout,
                     wanted: r.wanted,
                     wanted_packages: r.wanted_packages,
+                    wanted_graphs: r.wanted_graphs,
                 },
             )
             .await
