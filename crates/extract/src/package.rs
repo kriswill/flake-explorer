@@ -235,7 +235,7 @@ fn phases_from_env(env: &serde_json::Map<String, Value>) -> Vec<DrvPhase> {
         .collect()
 }
 
-fn name_from_drv_basename(basename: &str) -> String {
+pub(crate) fn name_from_drv_basename(basename: &str) -> String {
     let re = regex::Regex::new(r"^[a-z0-9]{32}-(.+)\.drv$").unwrap();
     match re.captures(basename) {
         Some(c) => c[1].to_string(),

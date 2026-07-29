@@ -566,12 +566,16 @@ pub struct GraphTiers {
 pub struct GraphStats {
     pub node_count: u32,
     pub edge_count: u32,
-    /// Output entries with a path vs distinct paths: fixed-output drvs shared
-    /// between e.g. bootstrap chains legitimately collide (measured on a real
-    /// system graph: 25,568 entries → 16,881 unique).
+    /// Output entries that CARRY a path. Not all do: v4 `derivation show`
+    /// emits fixed-output fetcher outputs as `{hash, method}` with no path at
+    /// all (measured on a real system graph: 8,632 pathless of 25,568 total).
     pub output_path_count: u32,
+    /// Distinct paths among the path-bearing entries — true duplicates exist
+    /// but are rare (56 measured on the same graph).
     pub unique_output_path_count: u32,
-    /// T1: UNIQUE output paths not valid locally at extractedAt.
+    /// T1: UNIQUE output paths not valid locally at extractedAt. Pathless
+    /// fetcher outputs are structurally outside the presence tier — this
+    /// counts over uniqueOutputPathCount, never over all output entries.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub absent_count: Option<u32>,
     /// T3 (dry-run) aggregates. Present-with-zero means a satisfied closure;
