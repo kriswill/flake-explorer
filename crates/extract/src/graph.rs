@@ -335,7 +335,17 @@ pub fn parse_dry_run_stderr(stderr: &str) -> Option<DryRunPartition> {
         r"^(?:these (\d+) paths|this path) will be fetched(?: \(([^)]+) download, ([^)]+) unpacked\))?:$",
     )
     .unwrap();
-    let noise = |t: &str| t.is_empty() || t.starts_with("warning:") || t.starts_with("error:");
+    // "waiting for …" is nix's lock/fetch-contention channel — observed live
+    // ("waiting for another Nix process to finish fetching input '…'") when
+    // several extractions share the gate. It can never carry partition
+    // content, so it is noise; any OTHER unknown line still refuses the
+    // answer (over-absence is the safe polarity).
+    let noise = |t: &str| {
+        t.is_empty()
+            || t.starts_with("warning:")
+            || t.starts_with("error:")
+            || t.starts_with("waiting for ")
+    };
 
     let mut p = DryRunPartition::default();
     let mut lines = stderr.lines().peekable();
@@ -376,20 +386,19 @@ pub fn parse_dry_run_stderr(stderr: &str) -> Option<DryRunPartition> {
             if p.to_build.len() != stated {
                 return None;
             }
-        } else if let Some(c) = fetch_re.captures(trimmed) {
-            if saw_fetch {
-                return None;
-            }
-            saw_fetch = true;
-            let stated: usize = c.get(1).map_or(Some(1), |m| m.as_str().parse().ok())?;
-            p.download_bytes = c.get(2).and_then(|m| parse_size(m.as_str()));
-            p.unpacked_bytes = c.get(3).and_then(|m| parse_size(m.as_str()));
-            p.to_fetch = take_items(&mut lines);
-            if p.to_fetch.len() != stated {
-                return None;
-            }
-        } else {
-            // Not on the whitelist — refuse the whole answer.
+            continue;
+        }
+        // The last whitelisted shape — anything else refuses the answer.
+        let c = fetch_re.captures(trimmed)?;
+        if saw_fetch {
+            return None;
+        }
+        saw_fetch = true;
+        let stated: usize = c.get(1).map_or(Some(1), |m| m.as_str().parse().ok())?;
+        p.download_bytes = c.get(2).and_then(|m| parse_size(m.as_str()));
+        p.unpacked_bytes = c.get(3).and_then(|m| parse_size(m.as_str()));
+        p.to_fetch = take_items(&mut lines);
+        if p.to_fetch.len() != stated {
             return None;
         }
     }
@@ -1006,6 +1015,20 @@ these 2 paths will be fetched (9.6 MiB download, 15.2 GiB unpacked):
         )
         .unwrap();
         assert_eq!(p.to_build.len(), 2);
+    }
+
+    /// Observed live under gate contention: nix prepends a lock-wait line.
+    /// It is known noise, not an unrecognized answer.
+    #[test]
+    fn dry_run_lock_wait_noise_is_tolerated() {
+        let p = parse_dry_run_stderr(
+            "waiting for another Nix process to finish fetching input 'git+file:///x'...\n\
+             warning: Git tree '/x' has uncommitted changes\n\
+             this derivation will be built:\n\
+             \x20\x20/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-x.drv\n",
+        )
+        .unwrap();
+        assert_eq!(p.to_build.len(), 1);
     }
 
     /// The validator's full torture kit, when its path is provided (the kit
