@@ -40,7 +40,9 @@ let showAll = $state(false)
 let rootEl = $state<HTMLElement | null>(null)
 
 const cap = $derived(showAll ? Number.POSITIVE_INFINITY : budget)
-const result = $derived(buildGraphRows(indexes, anchor, open, dir, cap))
+const result = $derived(
+  buildGraphRows(indexes, anchor, open, dir, cap, (i) => data.nodes[i]?.name ?? ""),
+)
 const noun = $derived(dir === "deps" ? "dependencies" : "dependents")
 
 function toggle(node: number) {

@@ -5,8 +5,9 @@
  * graph reaches 18,765 nodes through 133,288 edges, and one node (`bash`) is
  * depended on by 10,384 of them. Two rules keep that finite and honest:
  *
- *   - a node is rendered IN FULL at its first occurrence in document order;
- *     later occurrences are `repeat` leaves pointing back at it;
+ *   - a node is rendered IN FULL at its first occurrence in document order
+ *     (siblings sorted by name — see `nameOf` on `buildGraphRows`); later
+ *     occurrences are `repeat` leaves pointing back at it;
  *   - a node already on its own ancestor path is a `cycle` leaf.
  *
  * Both are dead ends, so the walk descends into each node at most once and
@@ -79,6 +80,13 @@ const childrenOf = (gx: GraphIndexes, i: number, dir: Direction): ArrayLike<numb
   dir === "deps" ? dependenciesOf(gx, i) : dependentsOf(gx, i)
 
 /**
+ * Sibling display order. Numeric-aware so "gzip-1.2.4" precedes "gzip-1.14";
+ * pinned to one locale so the order is a property of the document, not of the
+ * viewer's environment.
+ */
+const byName = new Intl.Collator("en", { numeric: true, sensitivity: "base" })
+
+/**
  * Rows for the subtree under `anchor`, in DFS pre-order. `anchor` itself is
  * not a row — the caller already renders it as the thing being expanded.
  *
@@ -89,6 +97,14 @@ const childrenOf = (gx: GraphIndexes, i: number, dir: Direction): ArrayLike<numb
  * `budget` caps emitted rows; `total` still counts what the walk would have
  * produced, so a truncation label is read off the same walk as the rows it
  * describes and cannot drift from them. Pass `Infinity` for no cap.
+ *
+ * `nameOf` decides sibling order: siblings render sorted by it (numeric-aware,
+ * ties broken by index), because adjacency order is node-index order, node
+ * indices follow `drvPath`, and a drvPath leads with the store HASH — an order
+ * that is deterministic but reads as shuffled. Document order — and with it
+ * which occurrence of a shared node is the `primary` — is therefore the SORTED
+ * order. The default sorts by stringified index, i.e. plain adjacency order,
+ * which is what fixture tests pin; rendering call sites pass the node's name.
  */
 export function buildGraphRows(
   gx: GraphIndexes,
@@ -96,6 +112,7 @@ export function buildGraphRows(
   open: ReadonlySet<number>,
   dir: Direction,
   budget: number,
+  nameOf: (node: number) => string = String,
 ): GraphRowsResult {
   const rows: GraphRow[] = []
   const firstKeyOf = new Map<number, string>()
@@ -103,13 +120,20 @@ export function buildGraphRows(
   const stack: Item[] = []
   let total = 0
 
-  /** Children pushed in reverse so the stack pops them in document order. */
+  /**
+   * Children pushed in reverse so the stack pops them in document order.
+   * `Array.from` before sorting is load-bearing: the deps direction hands back
+   * the document's own adjacency row and the dependents direction a live CSR
+   * view — sorting either in place would corrupt the loaded graph.
+   */
   const pushChildren = (parent: number, depth: number) => {
-    const kids = childrenOf(gx, parent, dir)
+    const kids = Array.from(childrenOf(gx, parent, dir)).sort(
+      (a, b) => byName.compare(nameOf(a), nameOf(b)) || a - b,
+    )
     for (let k = kids.length - 1; k >= 0; k--) {
       stack.push({
         close: false,
-        node: kids[k] as number,
+        node: kids[k],
         parent,
         depth,
         lastSibling: k === kids.length - 1,

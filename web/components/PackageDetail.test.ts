@@ -471,8 +471,9 @@ describe("graph-backed dependency expansion", () => {
       const rows = [...host.querySelectorAll(".graph-rows .row .name")].map((e) =>
         e.textContent?.trim(),
       )
-      // fixtureGraph: hello(root 2) -> stdenv(1), fetch(3)
-      expect(rows).toEqual(["stdenv", "source"])
+      // fixtureGraph: hello(root 2) -> stdenv(1), fetch(3, named "source");
+      // siblings render in name order, so "source" precedes "stdenv".
+      expect(rows).toEqual(["source", "stdenv"])
     })
   })
 
