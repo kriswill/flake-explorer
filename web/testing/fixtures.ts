@@ -1,6 +1,13 @@
 // Shared hand-written fixtures for unit and component tests.
 
-import type { ConfigData, Manifest, OptionEntry, PackageRef } from "../lib/schema"
+import type {
+  ConfigData,
+  GraphData,
+  GraphRef,
+  Manifest,
+  OptionEntry,
+  PackageRef,
+} from "../lib/schema"
 
 export const SELF = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-source"
 export const SOPS = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-source"
@@ -147,6 +154,97 @@ export function fixturePackageRefs(): PackageRef[] {
     ref(["formatter", "x86_64-linux"]),
   ]
 }
+
+/**
+ * Graph refs for the same outputs — the ids deliberately coincide with
+ * fixturePackageRefs()' (real manifests have identical id sets), while the
+ * dataFile does not.
+ *
+ * Deliberately NOT wired into fixtureManifest(): `manifest.graphs` is
+ * `#[serde(default)]` on the extractor side, so a manifest with no `graphs`
+ * key at all is a real shape, and leaving the default fixture that way makes
+ * every other test a standing check that nothing throws on it. Tests that
+ * need graphs assign this explicitly.
+ */
+export function fixtureGraphRefs(): GraphRef[] {
+  const ref = (path: string[]): GraphRef => ({
+    id: path.join("/"),
+    path,
+    dataFile: `graph/${path.join(".")}.json`,
+    status: "pending",
+  })
+  return [ref(["packages", "x86_64-linux", "hello"]), ref(["devShells", "x86_64-linux", "default"])]
+}
+
+/**
+ * A small but structurally real GraphData: root is NOT index 0, one output is
+ * pathless, and the presence tier is on so `present` means something.
+ *
+ *   hello(2) -> stdenv(1) -> bash(0)
+ *   hello(2) -> fetch(3)   (a fixed-output fetcher: pathless output)
+ */
+export const fixtureGraph = (id = "packages/x86_64-linux/hello"): GraphData => ({
+  version: 1,
+  id,
+  root: 2,
+  extractedAt: "2026-07-29T06:52:37.030Z",
+  nodes: [
+    {
+      drvPath: "/nix/store/g0000000000000000000000000000000-bash.drv",
+      name: "bash",
+      system: "x86_64-linux",
+      outputs: [
+        {
+          name: "out",
+          path: "/nix/store/g1111111111111111111111111111111-bash",
+          present: true,
+          narSize: 1024,
+          closureSize: 4096,
+        },
+      ],
+    },
+    {
+      drvPath: "/nix/store/g2222222222222222222222222222222-stdenv.drv",
+      name: "stdenv",
+      system: "x86_64-linux",
+      outputs: [
+        {
+          name: "out",
+          path: "/nix/store/g3333333333333333333333333333333-stdenv",
+          present: false,
+        },
+      ],
+    },
+    {
+      drvPath: "/nix/store/g4444444444444444444444444444444-hello-1.0.drv",
+      name: "hello-1.0",
+      system: "x86_64-linux",
+      outputs: [
+        {
+          name: "out",
+          path: "/nix/store/g5555555555555555555555555555555-hello-1.0",
+          present: false,
+        },
+      ],
+    },
+    {
+      drvPath: "/nix/store/g6666666666666666666666666666666-source.drv",
+      name: "source",
+      system: "builtin",
+      outputs: [{ name: "out" }],
+    },
+  ],
+  edges: [[], [0], [1, 3], []],
+  tiers: { presence: true, sizes: true, dryRun: false, substituters: false },
+  stats: {
+    nodeCount: 4,
+    edgeCount: 4,
+    outputPathCount: 3,
+    uniqueOutputPathCount: 3,
+    absentCount: 2,
+  },
+  warnings: [],
+})
 
 export const fixtureConfig = (): ConfigData => ({
   version: 1,
