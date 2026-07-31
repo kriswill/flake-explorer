@@ -197,8 +197,13 @@ describe("PackageDetail", () => {
       expect(phaseSummary).not.toBeUndefined()
 
       expect(host.textContent).toContain("in store")
-      expect(host.textContent).toMatch(/narSize .*KB/)
-      expect(host.textContent).toMatch(/closureSize .*MB/)
+      // EXACT strings, not /narSize .*KB/: humanBytes moved out of this
+      // component into web/lib/graph-annotations, and a loose regex would have
+      // passed a formatter that rounded differently. 123_456 and 5_000_000 are
+      // the fixture's sizes; these are what the pre-move implementation
+      // rendered for them.
+      expect(host.textContent).toContain("narSize 121 KB")
+      expect(host.textContent).toContain("closureSize 4.8 MB")
     })
   })
 
