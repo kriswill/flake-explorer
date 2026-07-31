@@ -88,12 +88,12 @@ describe("rows and expansion", () => {
 
   test("the child count leads the row, in its own column left of the expander", () => {
     mountExpand(diamond(), (host) => {
-      const first = host.querySelector(".row")
-      const cell = first?.firstElementChild
+      const line = host.querySelector(".row .rowline")
+      const cell = line?.firstElementChild
       expect(cell?.classList.contains("count")).toBe(true)
       expect(cell?.textContent).toBe("1")
       // The expander comes after the count, never before it.
-      const children = [...(first?.children ?? [])]
+      const children = [...(line?.children ?? [])]
       expect(children.findIndex((c) => c.classList.contains("count"))).toBeLessThan(
         children.findIndex((c) => c.classList.contains("expand")),
       )
@@ -106,8 +106,9 @@ describe("rows and expansion", () => {
       flushSync()
       const rows = [...host.querySelectorAll(".row")]
       const zlib = rows.find((r) => r.querySelector(".name")?.textContent?.trim() === "zlib")
-      expect(zlib?.firstElementChild?.classList.contains("count")).toBe(true)
-      expect(zlib?.firstElementChild?.textContent).toBe("")
+      const line = zlib?.querySelector(".rowline")
+      expect(line?.firstElementChild?.classList.contains("count")).toBe(true)
+      expect(line?.firstElementChild?.textContent).toBe("")
     })
   })
 
@@ -173,6 +174,30 @@ describe("repeats and cycles are visible, not silent", () => {
       const zlibRows = rows.filter((r) => r.querySelector(".name")?.textContent?.trim() === "zlib")
       expect(zlibRows.length).toBe(2)
       expect(zlibRows[1]?.querySelector(".expand")).toBe(null)
+    })
+  })
+
+  test("unfurling a node moves its output pills into a box under the name", () => {
+    mountExpand(diamond(), (host) => {
+      const bashRow = () =>
+        [...host.querySelectorAll(".row")].find(
+          (r) => r.querySelector(".name")?.textContent?.trim() === "bash",
+        )
+      // Collapsed: pills inline on the row line, no box.
+      expect(bashRow()?.querySelector(".rowline .outs")).not.toBe(null)
+      expect(bashRow()?.querySelector(".outbox")).toBe(null)
+
+      ;(expanders(host)[0] as HTMLButtonElement).click()
+      flushSync()
+      // Unfurled: pills in the box, off the row line — children read clean.
+      expect(bashRow()?.querySelector(".outbox .outs")).not.toBe(null)
+      expect(bashRow()?.querySelector(".rowline .outs")).toBe(null)
+      // The child row (collapsed leaf) keeps its inline pills.
+      const zlib = [...host.querySelectorAll(".row")].find(
+        (r) => r.querySelector(".name")?.textContent?.trim() === "zlib",
+      )
+      expect(zlib?.querySelector(".rowline .outs")).not.toBe(null)
+      expect(zlib?.querySelector(".outbox")).toBe(null)
     })
   })
 
