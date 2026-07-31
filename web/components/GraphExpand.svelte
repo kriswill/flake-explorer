@@ -108,17 +108,6 @@ function focusFirst(key: string | undefined) {
                  row's own expander is what a keyboard reaches. -->
             <span class="name mono" data-key={row.key} tabindex="-1">{n.name}</span>
           {/if}
-          <!-- Each output carries its own presence state: presence is per-output,
-               and a node-level summary would be an aggregate that can mislead.
-               Inline only while collapsed — an unfurled node's pills move into
-               the box below so its children read clean directly beneath it. -->
-          {#if !row.expanded}
-            <span class="outs">
-              {#each n.outputs as o (o.name)}
-                <OutputStatus output={o} tiers={data.tiers} />
-              {/each}
-            </span>
-          {/if}
           <!-- Repeat and cycle are distinguished by WORDS. Neither meaning is
                carried by colour or by a glyph alone. -->
           {#if row.kind === "repeat"}
@@ -127,6 +116,13 @@ function focusFirst(key: string | undefined) {
             <span class="cycle muted">already on this path</span>
           {/if}
         </div>
+        <!-- The ONE place output pills render in the tree: the box under an
+             unfurled node's name. Each output carries its own presence state —
+             presence is per-output, and a node-level summary would be an
+             aggregate that can mislead. Collapsed rows stay bare (count,
+             arrow, name); a leaf's detail is one click away in the path view.
+             Keeping pills off every closed row is what lets the unfurled
+             children beneath this box read as one clean list. -->
         {#if row.expanded}
           <div class="outbox">
             <span class="outs">
