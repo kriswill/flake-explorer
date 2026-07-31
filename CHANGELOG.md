@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Dependency graphs. Every derivation-typed output — and, behind
+  `--config-graphs`, every configuration's toplevel — now has a third
+  document kind alongside options and packages: its full derivation
+  dependency graph, projected from `nix derivation show -r`, embedded
+  in exports, and extracted on demand by `serve` the first time it is
+  asked for (a real 18,767-node system graph extracts in ~19s; a
+  1,426-node package graph in ~1.4s). Tiers keep separable facts
+  separate: local-store presence and per-output nar/closure sizes are
+  collected by default, and the dry-run partition — what a build would
+  actually do — is opt-in behind `--graph-dry-run`, because absence
+  from the store is not build intent: the same system graph carried
+  12,573 absent output paths against a dry-run wanting nothing at all.
+- The SPA renders those graphs three ways. A package's drv-level
+  inputs become walkable to any depth, both directions — each level
+  reveals its children with a leading count gutter, repeated subtrees
+  render once and later occurrences link back with "shown above", and
+  lists past 500 rows say "showing 500 of N" rather than truncating
+  silently (one real node has 10,384 dependents). A "why is this here"
+  view answers the question a dependency tree implies: a breadcrumb of
+  hops from the graph root, honest about ties — it says "a shortest
+  path" and how many exist, because roughly one node in nine has more
+  than one. And presence/size annotations mark every output with a
+  four-state legend (in the store, not in your store, presence not
+  collected, no output path recorded) beside the extraction timestamp,
+  since presence is a snapshot any garbage collection can invalidate.
+  Graph nodes have shareable addresses (`#/g/<id>/n/<drv-basename>`,
+  stable across re-extraction where node indices are not), sibling
+  lists sort by name with a numeric-aware compare, and an unfurled
+  node's output pills move into a box under its name so its children
+  read as one clean list. Not in this release: the unrolled
+  whole-graph tree view, graph nodes in search, and rendering of the
+  dry-run and substituter tiers the extractor already collects.
+
+### Changed
+
+- The npm bundle ships readable JavaScript instead of minified —
+  identifiers and formatting intact. The bundle is served from
+  localhost, so nothing was gained by minifying it, and supply-chain
+  scanners reasonably flag unreadable published code. The README now
+  documents the per-platform packages, and `package.json` carries the
+  `bugs` link.
+- Routine dependency bumps: svelte 5.56.8, svelte-check 4.7.4, the
+  nixpkgs pin (`7525d99` → `38a4887`), and the pinned GitHub Actions
+  (upload-artifact 7.0.1, download-artifact 8.0.1, setup-node 7.0.0,
+  octocov-action 1.5.2, flakehub-push).
+
 ## [0.6.0] — 2026-07-26
 
 ### Changed
