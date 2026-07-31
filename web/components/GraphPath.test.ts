@@ -8,7 +8,7 @@
 //     them a blank stage;
 //   - the number on screen is the BFS distance, never a walk's indent depth.
 
-import { beforeEach, describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { buildGraphIndexes } from "../lib/indexes"
 import type { GraphData, GraphNode } from "../lib/schema"
 import { SCHEMA_VERSION } from "../lib/schema"
@@ -291,6 +291,29 @@ describe("headings carry no floating scope label", () => {
           e.getAttribute("aria-label")?.includes("within this graph"),
         ),
       ).toBe(true)
+    })
+  })
+})
+
+describe("static export: an unembedded graph is stated, never a dead button", () => {
+  const tags: HTMLElement[] = []
+  const injectData = (name: string, value: unknown) => {
+    const el = document.createElement("script")
+    el.type = "application/json"
+    el.id = `data:${name}`
+    el.textContent = JSON.stringify(value)
+    document.head.appendChild(el)
+    tags.push(el)
+  }
+  afterEach(() => {
+    for (const el of tags.splice(0)) el.remove()
+  })
+
+  test("a node route into a graph the export did not embed states the condition", () => {
+    injectData("manifest.json", app.manifest)
+    mountPath("anything.drv", (host) => {
+      expect(buttonsWithText(host, "dependency graph").length).toBe(0)
+      expect(text(host)).toContain("not included in this export")
     })
   })
 })

@@ -550,6 +550,42 @@ describe("graph-backed dependency expansion", () => {
     })
   })
 
+  // Static export: a graph the export did not embed can never load, so the
+  // page states that instead of offering a button whose only outcome is an
+  // error (a real alias package hit exactly this on the published demo).
+  const staticTags: HTMLElement[] = []
+  const injectData = (name: string, value: unknown) => {
+    const el = document.createElement("script")
+    el.type = "application/json"
+    el.id = `data:${name}`
+    el.textContent = JSON.stringify(value)
+    document.head.appendChild(el)
+    staticTags.push(el)
+  }
+  afterEach(() => {
+    for (const el of staticTags.splice(0)) el.remove()
+  })
+
+  test("static export: an unembedded graph is a stated note, not a dead button", () => {
+    withGraphRefs()
+    injectData("manifest.json", app.manifest)
+    mountLoaded((host) => {
+      expect(buttonsWithText(host, "dependency graph").length).toBe(0)
+      expect(host.textContent).toContain("graph not included in this export")
+    })
+  })
+
+  test("static export: an embedded graph offers a load that does not claim to extract", () => {
+    withGraphRefs()
+    injectData("manifest.json", app.manifest)
+    injectData("graph/packages.x86_64-linux.hello.json", fixtureGraph())
+    mountLoaded((host) => {
+      const btn = buttonsWithText(host, "dependency graph")[0]
+      expect(btn).toBeDefined()
+      expect(btn?.textContent).not.toContain("may extract")
+    })
+  })
+
   test("the plain drv-level list stays while the graph is loading or errored", () => {
     withGraphRefs()
     app.graphs = { [PKG_ID]: "loading" }

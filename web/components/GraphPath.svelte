@@ -1,4 +1,5 @@
 <script lang="ts">
+import { hasEmbedded, isStatic } from "../lib/data"
 import { shortestPathTo } from "../lib/graph-path"
 import { app, loadedGraph } from "../lib/state.svelte"
 import AsyncSlot from "./AsyncSlot.svelte"
@@ -15,6 +16,13 @@ const { graphId, drvBase }: Props = $props()
 
 const graphRef = $derived(app.manifest?.graphs?.find((g) => g.id === graphId) ?? null)
 const slot = $derived(graphRef ? app.graphs[graphId] : undefined)
+
+/**
+ * Static export with this graph not embedded: loading can never succeed, so
+ * the page states that instead of offering a button whose only outcome is an
+ * error. (A published demo's alias package hit exactly this.)
+ */
+const unloadable = $derived(graphRef !== null && isStatic() && !hasEmbedded(graphRef.dataFile))
 
 /**
  * Resolution reconstructs the full drvPath from the carried storeDir. That is
@@ -34,13 +42,20 @@ function resolve(g: NonNullable<ReturnType<typeof loadedGraph>>): number | undef
   <div class="head">
     <h2 class="mono">{drvBase}</h2>
   </div>
-  <p class="muted">
-    This derivation's path comes from the <span class="mono">{graphId}</span> dependency graph,
-    which is not loaded yet.
-  </p>
-  <button class="loadall" onclick={() => app.loadGraph(graphId)}>
-    load the full dependency graph (may extract)
-  </button>
+  {#if unloadable}
+    <p class="muted">
+      This derivation's path comes from the <span class="mono">{graphId}</span> dependency
+      graph, which is not included in this export.
+    </p>
+  {:else}
+    <p class="muted">
+      This derivation's path comes from the <span class="mono">{graphId}</span> dependency graph,
+      which is not loaded yet.
+    </p>
+    <button class="loadall" onclick={() => app.loadGraph(graphId)}>
+      load the full dependency graph{isStatic() ? "" : " (may extract)"}
+    </button>
+  {/if}
 {:else}
   <AsyncSlot
     value={slot}
