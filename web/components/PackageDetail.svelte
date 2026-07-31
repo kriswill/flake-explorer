@@ -1,5 +1,6 @@
 <script lang="ts">
 import { colorFor } from "../lib/color"
+import { humanBytes } from "../lib/graph-annotations"
 import { parsePosition, resolveFile } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
 import { segmentLines } from "../lib/segments"
@@ -8,6 +9,7 @@ import { webUrl } from "../lib/url"
 import AsyncSlot from "./AsyncSlot.svelte"
 import Dot from "./Dot.svelte"
 import GraphExpand from "./GraphExpand.svelte"
+import GraphLegend from "./GraphLegend.svelte"
 import HeaderChip from "./HeaderChip.svelte"
 import SourceView from "./SourceView.svelte"
 
@@ -43,17 +45,6 @@ const depGroups = $derived(
 )
 
 const spdxUrl = (spdxId: string) => `https://spdx.org/licenses/${spdxId}.html`
-
-function humanBytes(n: number): string {
-  const units = ["B", "KB", "MB", "GB", "TB"]
-  let v = n
-  let i = 0
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i++
-  }
-  return `${i > 0 && v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`
-}
 
 /** meta.position is "file:line" — only a clickable chip when it's under the flake's own path. */
 const positionInfo = $derived.by(() => {
@@ -363,6 +354,7 @@ const isGraphRoot = $derived(graph !== null && myNode === graph.data.root)
                 This derivation is not present in this graph — nothing to expand.
               </p>
             {:else}
+              <GraphLegend data={g.data} />
               <div class="graph-rows">
                 <GraphExpand data={g.data} indexes={g.indexes} anchor={myNode} dir="deps" graphId={refId} />
               </div>

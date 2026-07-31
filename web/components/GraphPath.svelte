@@ -3,6 +3,8 @@ import { shortestPathTo } from "../lib/graph-path"
 import { app, loadedGraph } from "../lib/state.svelte"
 import AsyncSlot from "./AsyncSlot.svelte"
 import GraphExpand from "./GraphExpand.svelte"
+import GraphLegend from "./GraphLegend.svelte"
+import OutputStatus from "./OutputStatus.svelte"
 
 interface Props {
   graphId: string
@@ -23,8 +25,6 @@ const slot = $derived(graphRef ? app.graphs[graphId] : undefined)
 function resolve(g: NonNullable<ReturnType<typeof loadedGraph>>): number | undefined {
   return g.indexes.byDrvPath.get(`${g.indexes.storeDir}/${drvBase}`)
 }
-
-const outputNames = (outs: { name: string }[]) => outs.map((o) => o.name).join(", ")
 </script>
 
 {#if !graphRef}
@@ -60,6 +60,7 @@ const outputNames = (outs: { name: string }[]) => outs.map((o) => o.name).join("
         </p>
       {:else}
         {@const p = shortestPathTo(g.indexes, g.data.root, node)}
+        <GraphLegend data={g.data} />
         <section>
           <h3>
             Why is this here <span class="scope">within this graph</span>
@@ -94,10 +95,11 @@ const outputNames = (outs: { name: string }[]) => outs.map((o) => o.name).join("
                             drvBase: n.drvPath.slice(n.drvPath.lastIndexOf("/") + 1),
                           })}>{n.name}</button
                       >
-                      <!-- Output NAMES only: a third of all output entries on a
-                           system graph are pathless, and naming them is what
-                           keeps such a hop from rendering blank. -->
-                      <span class="outs muted mono">({outputNames(n.outputs)})</span>
+                      <span class="outs">
+                        {#each n.outputs as o (o.name)}
+                          <OutputStatus output={o} tiers={g.data.tiers} />
+                        {/each}
+                      </span>
                     </li>
                   {/if}
                 {/each}
@@ -218,7 +220,11 @@ const outputNames = (outs: { name: string }[]) => outs.map((o) => o.name).join("
   .link[aria-current="true"] {
     font-weight: 600;
   }
-  .outs,
+  .outs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+  }
   .summary {
     font-size: var(--text-3xs);
   }
