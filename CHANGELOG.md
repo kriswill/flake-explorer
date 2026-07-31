@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-07-31
+
 ### Added
 
 - Dependency graphs. Every derivation-typed output — and, behind
@@ -513,7 +515,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI guardrails: tests with a coverage ratchet (78% → 97% line coverage),
   typecheck, Biome lint, `nix flake check`, Dependabot.
 
-[Unreleased]: https://github.com/kriswill/flake-explorer/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/kriswill/flake-explorer/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/kriswill/flake-explorer/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kriswill/flake-explorer/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/kriswill/flake-explorer/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/kriswill/flake-explorer/compare/v0.4.0...v0.5.0
