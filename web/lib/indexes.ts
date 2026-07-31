@@ -483,6 +483,19 @@ export interface GraphIndexes {
    * across reloads rather than whichever node happened to come last.
    */
   byOutputPath: Map<string, number>
+  /**
+   * The store directory, taken from the ROOT node's own `drvPath`. Measured
+   * constant within a document (one distinct value across all of the real
+   * documents, and the root's dirname equals it), but `nix --store /alt` is
+   * legal, so it is carried rather than assumed: a literal "/nix/store"
+   * anywhere on a resolve path would pass every test written against real
+   * data and fail silently on a custom store.
+   *
+   * `${storeDir}/${basename}` reproduces any node's drvPath byte-for-byte,
+   * which is what lets a route carry the basename alone and resolve it
+   * through `byDrvPath` without a second name-keyed index to drift.
+   */
+  storeDir: string
 }
 
 /** The nodes `i` depends on. The document's own row — do not mutate it. */
@@ -548,5 +561,9 @@ export function buildGraphIndexes(data: GraphData): GraphIndexes {
     }
   }
 
-  return { forward: data.edges, revOffsets, revTargets, byDrvPath, byOutputPath }
+  // The root is validated in range above, so this dereference is safe.
+  const rootPath = data.nodes[data.root]!.drvPath
+  const storeDir = rootPath.slice(0, rootPath.lastIndexOf("/"))
+
+  return { forward: data.edges, revOffsets, revTargets, byDrvPath, byOutputPath, storeDir }
 }

@@ -364,7 +364,7 @@ const isGraphRoot = $derived(graph !== null && myNode === graph.data.root)
               </p>
             {:else}
               <div class="graph-rows">
-                <GraphExpand data={g.data} indexes={g.indexes} anchor={myNode} dir="deps" />
+                <GraphExpand data={g.data} indexes={g.indexes} anchor={myNode} dir="deps" graphId={refId} />
               </div>
             {/if}
           {/snippet}
@@ -425,6 +425,7 @@ const isGraphRoot = $derived(graph !== null && myNode === graph.data.root)
               indexes={graph.indexes}
               anchor={myNode}
               dir="dependents"
+              graphId={refId}
             />
           </div>
         {/if}

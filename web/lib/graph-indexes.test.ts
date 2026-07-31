@@ -319,3 +319,39 @@ describe("buildGraphIndexes — scale", () => {
     }
   })
 })
+
+/**
+ * storeDir. A custom store is legal (`nix --store /alt`), and a hard-coded
+ * "/nix/store" anywhere on the resolve path would silently fail there while
+ * passing every test written against the real documents — all three of which
+ * happen to use /nix/store. So it is carried, from the root node's own path.
+ */
+describe("storeDir", () => {
+  test("comes from the root node's drvPath, not from a constant", () => {
+    const gx = buildGraphIndexes(graph())
+    expect(gx.storeDir).toBe("/nix/store")
+  })
+
+  test("a custom store is carried through, not normalised away", () => {
+    const data = graph()
+    const alt = data.nodes.map((n) => ({
+      ...n,
+      drvPath: n.drvPath.replace("/nix/store/", "/alt/store/"),
+    }))
+    const gx = buildGraphIndexes({ ...data, nodes: alt })
+    expect(gx.storeDir).toBe("/alt/store")
+  })
+
+  test("storeDir + '/' + basename reproduces every node's drvPath byte-for-byte", () => {
+    // This is the resolve mechanism itself, not a separate assertion about it:
+    // the route carries a basename and resolution reconstructs the drvPath.
+    const data = graph()
+    const gx = buildGraphIndexes(data)
+    for (const n of data.nodes) {
+      const base = n.drvPath.slice(n.drvPath.lastIndexOf("/") + 1)
+      const rebuilt = `${gx.storeDir}/${base}`
+      expect(rebuilt).toBe(n.drvPath)
+      expect(gx.byDrvPath.get(rebuilt)).toBe(data.nodes.indexOf(n))
+    }
+  })
+})

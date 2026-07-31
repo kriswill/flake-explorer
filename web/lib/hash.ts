@@ -11,6 +11,16 @@
 //   #/f/<fileId>                      file selection
 //   #/i/<inputName>                   flake input selection
 //   #/diff/<configA>/<configB>        two-configuration option diff
+//   #/g/<graphId>                     dependency-graph selection
+//   #/g/<graphId>/n/<drvBasename>     a node within that graph
+//
+// The graph node segment is the derivation's store BASENAME, never its index:
+// nodes are sorted by drvPath, so inserting one shifts every later index and a
+// shared link would silently point at a different derivation after a rebuild.
+// Basenames are measured unique within every real document (18,765/18,765 on a
+// system graph) because the nix hash is their prefix. It is a SINGLE segment,
+// not a dot-joined one — every basename ends ".drv", so a dot-joined form
+// would shatter all of them.
 // filters: ?q=<search>&all=1 (option filter "all" instead of "customized")
 //          &L=<line> (scroll the source view to a line; replace-state like
 //          the other filters — Back walks selections, not line jumps)
@@ -24,6 +34,8 @@ export type Selection =
   | { kind: "file"; fileId: string }
   | { kind: "input"; name: string }
   | { kind: "diff"; a: string; b: string }
+  | { kind: "graph"; graphId: string }
+  | { kind: "graphNode"; graphId: string; drvBase: string }
 
 export interface Filters {
   q: string
@@ -65,6 +77,12 @@ function encodeSel(sel: Selection | null): string {
       return `/i/${enc(sel.name)}`
     case "diff":
       return `/diff/${enc(sel.a)}/${enc(sel.b)}`
+    case "graph":
+      return `/g/${enc(sel.graphId)}`
+    case "graphNode":
+      // enc() escapes the '?' that 66 real basenames carry; without it the
+      // decoder would read the rest of the basename as the filter query.
+      return `/g/${enc(sel.graphId)}/n/${enc(sel.drvBase)}`
   }
 }
 
@@ -114,6 +132,23 @@ function decodeSel(path: string): Selection | null {
   // Rejoining then decoding converges both forms — seg() turns %2F and a raw
   // '/' into the same id — instead of truncating to a non-existent `a`.
   const rest = () => seg(parts.slice(1).join("/"))
+  if (tag === "g" && a) {
+    // Find the 'n' marker from the RIGHT. A graph id contains '/' (which the
+    // encoder escapes, but a hand-typed link may not) and one of its own
+    // segments could legitimately be "n" — scanning from the right cannot
+    // mistake that for the marker, where scanning from the left would.
+    const m = parts.lastIndexOf("n")
+    if (m > 0 && m < parts.length - 1)
+      return {
+        kind: "graphNode",
+        graphId: seg(parts.slice(1, m).join("/")),
+        drvBase: seg(parts.slice(m + 1).join("/")),
+      }
+    // An 'n' with nothing after it is a truncated link, not a broken node
+    // route: fall back to the graph itself rather than inventing a node.
+    const idParts = m > 0 ? parts.slice(1, m) : parts.slice(1)
+    return { kind: "graph", graphId: seg(idParts.join("/")) }
+  }
   if (tag === "diff" && a && tag2) return { kind: "diff", a: seg(a), b: seg(tag2) }
   if (tag === "o" && a) return { kind: "output", path: a.split(".").map(seg).filter(Boolean) }
   if (tag === "c" && a && tag2 === "m" && b)

@@ -4,6 +4,7 @@ import type { Direction } from "../lib/graph-rows"
 import { buildGraphRows } from "../lib/graph-rows"
 import type { GraphIndexes } from "../lib/indexes"
 import type { GraphData } from "../lib/schema"
+import { app } from "../lib/state.svelte"
 
 /**
  * One node in the system graph is depended on by 10,384 others — 55% of the
@@ -22,8 +23,10 @@ interface Props {
   dir: Direction
   /** Row cap. Overridable so a test can reach the truncation path cheaply. */
   budget?: number
+  /** Graph id, when rows should navigate. Omitted, names render as plain text. */
+  graphId?: string
 }
-const { data, indexes, anchor, dir, budget = ROW_BUDGET }: Props = $props()
+const { data, indexes, anchor, dir, budget = ROW_BUDGET, graphId }: Props = $props()
 
 /**
  * Expansion state is node indices and nothing else — never a copy of graph
@@ -42,6 +45,12 @@ const noun = $derived(dir === "deps" ? "dependencies" : "dependents")
 function toggle(node: number) {
   if (open.has(node)) open.delete(node)
   else open.add(node)
+}
+
+/** Route on the drv BASENAME — the key measured unique on real data. */
+function selectNode(drvPath: string) {
+  if (!graphId) return
+  app.select({ kind: "graphNode", graphId, drvBase: drvPath.slice(drvPath.lastIndexOf("/") + 1) })
 }
 
 /**
@@ -74,10 +83,20 @@ function focusFirst(key: string | undefined) {
         {:else}
           <span class="pad" aria-hidden="true"></span>
         {/if}
-        <!-- tabindex="-1": programmatically focusable so "shown above" has
-             somewhere to land, and deliberately NOT in the tab order — the
-             row's own expander is what a keyboard reaches. -->
-        <span class="name mono" data-key={row.key} tabindex="-1">{n.name}</span>
+        {#if graphId}
+          <!-- A real control, so it is reachable and announceable — the row
+               name is the entry point to the path view. -->
+          <button
+            class="name link mono"
+            data-key={row.key}
+            onclick={() => selectNode(n.drvPath)}>{n.name}</button
+          >
+        {:else}
+          <!-- tabindex="-1": programmatically focusable so "shown above" has
+               somewhere to land, and deliberately NOT in the tab order — the
+               row's own expander is what a keyboard reaches. -->
+          <span class="name mono" data-key={row.key} tabindex="-1">{n.name}</span>
+        {/if}
         <!-- Output NAMES only. A third of all output entries on a system graph
              carry no path at all, and paths are P4's annotation job — naming
              them is what keeps a pathless output from rendering as a blank. -->
@@ -146,6 +165,11 @@ function focusFirst(key: string | undefined) {
   .name:focus-visible {
     outline: 1px solid var(--link);
     outline-offset: 2px;
+  }
+  /* A navigable name is still a name: .link's smaller size is for the inline
+     affordances ("shown above", "show all"), not for the row's own label. */
+  .name.link {
+    font-size: var(--text-xs);
   }
   .outs,
   .count,
