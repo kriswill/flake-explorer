@@ -163,16 +163,48 @@ pub fn reset_peak_nix_in_flight() {
 }
 
 pub async fn run(args: &[&str], timeout: Duration) -> Result<String, NixError> {
-    let _slot = enter_nix_gate().await;
     let mut cmd = Command::new("nix");
     cmd.args(COMMON_OPTS).arg(COMMON_FEATURES).args(args);
+    Ok(run_gated("nix", args, cmd, timeout).await?.0)
+}
+
+/// `nix build --dry-run <installable>` — evaluates and reports the exact
+/// build/fetch partition WITHOUT realising anything (--dry-run stops before
+/// the store mutates). The answer is prose on STDERR, which is why this
+/// returns stderr; the caller parses it defensively (graph.rs).
+pub async fn build_dry_run(installable: &str, timeout: Duration) -> Result<String, NixError> {
+    let args = ["build", "--dry-run", "--impure", installable];
+    let mut cmd = Command::new("nix");
+    cmd.args(COMMON_OPTS).arg(COMMON_FEATURES).args(args);
+    Ok(run_gated("nix", &args, cmd, timeout).await?.1)
+}
+
+/// The classic `nix-store` CLI — a different binary from `nix` (no flake
+/// options, no experimental features), used for batched store queries. Same
+/// gate: it counts against the one process ceiling like every other
+/// invocation.
+async fn run_nix_store(args: &[&str], timeout: Duration) -> Result<String, NixError> {
+    let mut cmd = Command::new("nix-store");
+    cmd.args(args);
+    Ok(run_gated("nix-store", args, cmd, timeout).await?.0)
+}
+
+/// Returns (stdout, stderr) on success — almost every caller wants stdout
+/// only, but `nix build --dry-run` answers on stderr.
+async fn run_gated(
+    program: &str,
+    args: &[&str],
+    mut cmd: Command,
+    timeout: Duration,
+) -> Result<(String, String), NixError> {
+    let _slot = enter_nix_gate().await;
     cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null());
     cmd.kill_on_drop(true);
     let mut child = cmd
         .spawn()
-        .map_err(|e| NixError::plain(format!("failed to spawn nix: {e}")))?;
+        .map_err(|e| NixError::plain(format!("failed to spawn {program}: {e}")))?;
 
     let mut stdout_pipe = child.stdout.take().unwrap();
     let mut stderr_pipe = child.stderr.take().unwrap();
@@ -194,7 +226,7 @@ pub async fn run(args: &[&str], timeout: Duration) -> Result<String, NixError> {
         Err(_) => {
             return Err(NixError {
                 message: format!(
-                    "nix {} timed out after {}s",
+                    "{program} {} timed out after {}s",
                     args.first().unwrap_or(&""),
                     timeout.as_secs()
                 ),
@@ -209,7 +241,7 @@ pub async fn run(args: &[&str], timeout: Duration) -> Result<String, NixError> {
         let tail = tail[tail.len().saturating_sub(15)..].join("\n");
         return Err(NixError {
             message: format!(
-                "nix {} failed (exit {}):\n{}",
+                "{program} {} failed (exit {}):\n{}",
                 args.iter().take(3).cloned().collect::<Vec<_>>().join(" "),
                 exit_code
                     .map(|c| c.to_string())
@@ -220,7 +252,7 @@ pub async fn run(args: &[&str], timeout: Duration) -> Result<String, NixError> {
             exit_code,
         });
     }
-    Ok(stdout)
+    Ok((stdout, stderr))
 }
 
 pub async fn run_json<T: serde::de::DeserializeOwned>(
@@ -335,6 +367,50 @@ pub async fn derivation_show(
     run_json(&["derivation", "show", "--impure", &installable], timeout).await
 }
 
+/// `nix derivation show -r <installable>` — instantiates the FULL dependency
+/// closure, never builds. Returns the raw JSON string: at system-graph scale
+/// this is tens of MB, and the caller (graph.rs) projects it through typed
+/// structs — parsing it to a Value here would cost ~6× the input in RSS.
+pub async fn derivation_show_recursive(
+    installable: &str,
+    timeout: Duration,
+) -> Result<String, NixError> {
+    run(
+        &["derivation", "show", "-r", "--impure", installable],
+        timeout,
+    )
+    .await
+}
+
+/// Batch size for `nix-store` invocations: paths travel on the argv, so the
+/// arg-list limit is real. 2000 measured fine (0.3 s over 16,881 paths).
+const CHECK_VALIDITY_BATCH: usize = 2000;
+
+/// The subset of `paths` NOT valid in the local store right now, via
+/// `nix-store --check-validity --print-invalid` (prints each invalid path on
+/// stdout instead of failing). Pure store query: no eval, no network, and
+/// never a build. Paths MUST be full /nix/store/... strings — a bare
+/// basename is silently reported valid-shaped nonsense by nix-store, which
+/// is exactly the trap the graph projection's prefix guard exists for.
+pub async fn check_validity_invalid(
+    paths: &[String],
+    timeout: Duration,
+) -> Result<std::collections::HashSet<String>, NixError> {
+    let mut invalid = std::collections::HashSet::new();
+    for chunk in paths.chunks(CHECK_VALIDITY_BATCH) {
+        let mut args = vec!["--check-validity", "--print-invalid"];
+        args.extend(chunk.iter().map(|s| s.as_str()));
+        let out = run_nix_store(&args, timeout).await?;
+        invalid.extend(
+            out.lines()
+                .map(str::trim)
+                .filter(|l| l.starts_with("/nix/store/"))
+                .map(String::from),
+        );
+    }
+    Ok(invalid)
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PathInfoRaw {
@@ -360,6 +436,30 @@ pub async fn path_info(out_path: &str, timeout: Duration) -> Result<Option<PathI
     )
     .await?;
     Ok(result.get(out_path).cloned().flatten())
+}
+
+/// Batched `nix path-info` over many already-instantiated paths — query
+/// only, same null-means-invalid contract as `path_info`. Chunked like
+/// check_validity (argv limits); measured ~0.4 s for ~3k paths.
+pub async fn path_info_batch(
+    paths: &[String],
+    timeout: Duration,
+) -> Result<std::collections::HashMap<String, Option<PathInfoRaw>>, NixError> {
+    let mut all = std::collections::HashMap::new();
+    for chunk in paths.chunks(CHECK_VALIDITY_BATCH) {
+        let mut args = vec![
+            "path-info",
+            "--json",
+            "--json-format",
+            "1",
+            "--closure-size",
+        ];
+        args.extend(chunk.iter().map(|s| s.as_str()));
+        let result: std::collections::HashMap<String, Option<PathInfoRaw>> =
+            run_json(&args, timeout).await?;
+        all.extend(result);
+    }
+    Ok(all)
 }
 
 /// Read a file out of a flake input directly through Nix, bypassing the

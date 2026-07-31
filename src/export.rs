@@ -21,6 +21,9 @@ pub struct ExportOptions {
     pub timeout: Duration,
     pub wanted: Vec<String>,
     pub wanted_packages: Vec<String>,
+    /// Explicit --graphs selection only — never implied by --all (a system
+    /// graph is ~1.4 MB gzipped in the file, a cost the user names).
+    pub wanted_graphs: Vec<String>,
 }
 
 pub async fn export_html(
@@ -68,6 +71,26 @@ pub async fn export_html(
             }
             Err(e) => warnings.push(format!(
                 "package not exported: {id} ({})",
+                e.to_string().lines().next().unwrap_or("")
+            )),
+        }
+    }
+
+    let mut graph_data: IndexMap<String, GraphData> = IndexMap::new();
+    for id in &opts.wanted_graphs {
+        let Some(r#ref) = manifest.graphs.iter().find(|g| &g.id == id) else {
+            continue;
+        };
+        if r#ref.status != RefStatus::Ok {
+            continue;
+        }
+        match read_json::<GraphData>(&opts.out_dir, &r#ref.data_file) {
+            Ok((data, raw)) => {
+                embeds.push((r#ref.data_file.clone(), raw));
+                graph_data.insert(id.clone(), data);
+            }
+            Err(e) => warnings.push(format!(
+                "graph not exported: {id} ({})",
                 e.to_string().lines().next().unwrap_or("")
             )),
         }
@@ -142,6 +165,14 @@ pub async fn export_html(
             p.duration_ms = None;
         }
     }
+    for g in &mut embedded.graphs {
+        if !graph_data.contains_key(&g.id) && g.status == RefStatus::Ok {
+            g.status = RefStatus::Pending;
+            g.error = None;
+            g.extracted_at = None;
+            g.duration_ms = None;
+        }
+    }
     embedded.package_reverse_deps = Some(build_package_reverse_deps(&package_data));
     embedded.warnings.extend(warnings.iter().cloned());
     embeds.push((
@@ -167,11 +198,12 @@ pub async fn export_html(
     std::fs::write(&opts.html_path, html)?;
 
     println!(
-        "wrote {} ({:.1} MB, {} configurations, {} packages, {} source files)",
+        "wrote {} ({:.1} MB, {} configurations, {} packages, {} graphs, {} source files)",
         opts.html_path,
         html_bytes as f64 / 1024.0 / 1024.0,
         config_data.len(),
         package_data.len(),
+        graph_data.len(),
         file_ids.len()
     );
     for w in &warnings {

@@ -126,6 +126,7 @@ async fn unresolvable_transitive_input_degrades_with_warning_and_scans_still_run
         &ManifestOptions {
             all_systems: false,
             timeout: Duration::from_secs(20),
+            config_graphs: false,
         },
     )
     .await

@@ -19,6 +19,10 @@ use std::time::Duration;
 pub struct ManifestOptions {
     pub all_systems: bool,
     pub timeout: Duration,
+    /// Opt-in: list configuration graphs (instantiating a configuration's
+    /// system.build.toplevel costs a ~10 s eval on a real system, so the refs
+    /// exist only when the user asked for the capability by name).
+    pub config_graphs: bool,
 }
 
 pub const FINGERPRINT: &str = env!("FLAKE_EXPLORER_FINGERPRINT");
@@ -102,6 +106,25 @@ pub async fn build_manifest(flake_ref: &str, opts: &ManifestOptions) -> anyhow::
         },
     };
     let packages = package_refs(&outputs);
+    let configurations: Vec<ConfigRef> = ev
+        .configurations
+        .iter()
+        .map(|c| ConfigRef {
+            id: format!("{}/{}", c.kind.as_str(), c.n),
+            kind: c.kind,
+            name: c.n.clone(),
+            data_file: format!("config/{}.{}.json", c.kind.as_str(), safe_name(&c.n)),
+            status: RefStatus::Pending,
+            error: None,
+            extracted_at: None,
+            option_count: None,
+            duration_ms: None,
+        })
+        .collect();
+    let mut graphs = graph_refs(&packages);
+    if opts.config_graphs {
+        graphs.extend(config_graph_refs(&configurations));
+    }
 
     Ok(Manifest {
         version: SCHEMA_VERSION,
@@ -121,22 +144,9 @@ pub async fn build_manifest(flake_ref: &str, opts: &ManifestOptions) -> anyhow::
         input_refs,
         overlay_defs: Some(overlay_defs),
         input_follows,
-        configurations: ev
-            .configurations
-            .iter()
-            .map(|c| ConfigRef {
-                id: format!("{}/{}", c.kind.as_str(), c.n),
-                kind: c.kind,
-                name: c.n.clone(),
-                data_file: format!("config/{}.{}.json", c.kind.as_str(), safe_name(&c.n)),
-                status: RefStatus::Pending,
-                error: None,
-                extracted_at: None,
-                option_count: None,
-                duration_ms: None,
-            })
-            .collect(),
+        configurations,
         packages,
+        graphs,
         package_reverse_deps: None,
         grafts: ev.grafts.clone(),
         output_names: ev.output_names.clone(),
@@ -229,6 +239,60 @@ pub fn package_refs(outputs: &OutputNode) -> Vec<PackageRef> {
         }
     }
     refs
+}
+
+/// One graph ref per derivation-typed output, same id space as the package
+/// refs they mirror. data_file follows the package convention with the graph/
+/// prefix: safe_name'd path segments joined by ".".
+pub fn graph_refs(packages: &[PackageRef]) -> Vec<GraphRef> {
+    packages
+        .iter()
+        .map(|p| GraphRef {
+            id: p.id.clone(),
+            path: p.path.clone(),
+            data_file: format!(
+                "graph/{}.json",
+                p.path
+                    .iter()
+                    .map(|s| safe_name(s))
+                    .collect::<Vec<_>>()
+                    .join(".")
+            ),
+            status: RefStatus::Pending,
+            error: None,
+            extracted_at: None,
+            duration_ms: None,
+        })
+        .collect()
+}
+
+/// Graph refs for configurations — OPT-IN only (see ManifestOptions).
+/// The graph is rooted at the configuration's system.build.toplevel, which is
+/// exactly the closure `nixos-rebuild` would realise; the attr path IS the
+/// installable, so extraction needs no special casing downstream.
+pub fn config_graph_refs(configurations: &[ConfigRef]) -> Vec<GraphRef> {
+    configurations
+        .iter()
+        .map(|c| GraphRef {
+            id: c.id.clone(),
+            path: vec![
+                match c.kind {
+                    ConfigKind::Nixos => "nixosConfigurations".to_string(),
+                    ConfigKind::Darwin => "darwinConfigurations".to_string(),
+                },
+                c.name.clone(),
+                "config".to_string(),
+                "system".to_string(),
+                "build".to_string(),
+                "toplevel".to_string(),
+            ],
+            data_file: format!("graph/{}.{}.json", c.kind.as_str(), safe_name(&c.name)),
+            status: RefStatus::Pending,
+            error: None,
+            extracted_at: None,
+            duration_ms: None,
+        })
+        .collect()
 }
 
 fn make_package_ref(path: Vec<String>) -> PackageRef {
@@ -661,6 +725,65 @@ fn classic_node(node: &Value) -> OutputNode {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn graph_refs_mirror_package_refs() {
+        let refs = vec![
+            make_package_ref(vec!["packages".into(), "x86_64-linux".into(), "rtk".into()]),
+            make_package_ref(vec![
+                "devShells".into(),
+                "x86_64-linux".into(),
+                "a b".into(),
+            ]),
+        ];
+        let graphs = graph_refs(&refs);
+        assert_eq!(graphs.len(), 2);
+        assert_eq!(graphs[0].id, "packages/x86_64-linux/rtk");
+        assert_eq!(graphs[0].path, refs[0].path);
+        assert_eq!(graphs[0].data_file, "graph/packages.x86_64-linux.rtk.json");
+        assert_eq!(graphs[0].status, RefStatus::Pending);
+        // Hostile names go through the same safe_name slugging as packages.
+        assert!(!graphs[1].data_file.contains(' '));
+        assert!(
+            graphs[1]
+                .data_file
+                .starts_with("graph/devShells.x86_64-linux.a_b-")
+        );
+    }
+
+    #[test]
+    fn config_graph_refs_root_at_toplevel() {
+        let config = |kind: ConfigKind, name: &str| ConfigRef {
+            id: format!("{}/{name}", kind.as_str()),
+            kind,
+            name: name.into(),
+            data_file: format!("config/{}.{name}.json", kind.as_str()),
+            status: RefStatus::Pending,
+            error: None,
+            extracted_at: None,
+            option_count: None,
+            duration_ms: None,
+        };
+        let refs = config_graph_refs(&[
+            config(ConfigKind::Nixos, "nebula"),
+            config(ConfigKind::Darwin, "mac"),
+        ]);
+        assert_eq!(refs[0].id, "nixos/nebula");
+        assert_eq!(
+            refs[0].path,
+            [
+                "nixosConfigurations",
+                "nebula",
+                "config",
+                "system",
+                "build",
+                "toplevel"
+            ]
+        );
+        assert_eq!(refs[0].data_file, "graph/nixos.nebula.json");
+        assert_eq!(refs[1].path[0], "darwinConfigurations");
+        assert_eq!(refs[1].data_file, "graph/darwin.mac.json");
+    }
 
     #[test]
     fn safe_name_passthrough_and_slug() {

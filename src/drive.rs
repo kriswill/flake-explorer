@@ -3,12 +3,12 @@
 // fingerprint-keyed cache.
 
 use crate::cache::{
-    apply_extracted, apply_extracted_package, cache_key_of, extract_and_persist,
-    extract_and_persist_package, reconcile,
+    apply_extracted, apply_extracted_graph, apply_extracted_package, cache_key_of,
+    extract_and_persist, extract_and_persist_graph, extract_and_persist_package, reconcile,
 };
 use crate::manifest::{ManifestOptions, build_manifest};
 use crate::run_nix::check_nix;
-use crate::schema::{ConfigRef, Manifest, PackageRef, RefStatus};
+use crate::schema::{ConfigRef, GraphRef, Manifest, PackageRef, RefStatus};
 use crate::timing::Timings;
 use std::io::Write;
 use std::path::Path;
@@ -20,6 +20,13 @@ pub struct DriveFlags {
     /// None = none requested; Some(None) = --all; Some(Some(ids)) = explicit.
     pub configs: Selection,
     pub packages: Selection,
+    /// Dependency graphs — never implied by --all (see main.rs).
+    pub graphs: Selection,
+    /// Opt-in: expose configuration graphs (a ~10 s toplevel eval each).
+    pub config_graphs: bool,
+    /// Opt-in: the T3 dry-run tier — a second full eval per graph, and its
+    /// stderr is prose, so it degrades rather than fails.
+    pub graph_dry_run: bool,
     pub all_systems: bool,
     pub timeout: Duration,
 }
@@ -36,6 +43,7 @@ pub struct DriveResult {
     pub manifest: Manifest,
     pub wanted: Vec<String>,
     pub wanted_packages: Vec<String>,
+    pub wanted_graphs: Vec<String>,
 }
 
 pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Result<DriveResult> {
@@ -47,6 +55,7 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
     let nix_version = check_nix().await?;
     std::fs::create_dir_all(Path::new(&flags.out).join("config"))?;
     std::fs::create_dir_all(Path::new(&flags.out).join("package"))?;
+    std::fs::create_dir_all(Path::new(&flags.out).join("graph"))?;
 
     println!("extracting manifest of {flake_ref} ...");
     let t_manifest = timings.mark();
@@ -55,6 +64,7 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
         &ManifestOptions {
             all_systems: flags.all_systems,
             timeout: flags.timeout,
+            config_graphs: flags.config_graphs,
         },
     )
     .await?;
@@ -102,6 +112,18 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
         }
         Selection::None => Vec::new(),
     };
+    let wanted_graphs: Vec<String> = match &flags.graphs {
+        Selection::All => manifest.graphs.iter().map(|g| g.id.clone()).collect(),
+        Selection::Ids(ids) => {
+            for g in ids {
+                if !g.contains('/') {
+                    anyhow::bail!("--graphs takes path/segment ids, got: {g}");
+                }
+            }
+            ids.clone()
+        }
+        Selection::None => Vec::new(),
+    };
 
     // Resolve and reconcile everything before extracting any of it. Two things
     // hang on that ordering: an unknown id stays the up-front error it was
@@ -142,7 +164,37 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
         pending_packages.push(r#ref);
     }
 
-    let console = Arc::new(Console::new(&pending_configs, &pending_packages));
+    let mut pending_graphs: Vec<GraphRef> = Vec::new();
+    for id in &wanted_graphs {
+        let t_graph = timings.mark();
+        let r#ref = manifest
+            .graphs
+            .iter()
+            .find(|g| &g.id == id)
+            .cloned()
+            .ok_or_else(|| {
+                if manifest.configurations.iter().any(|c| &c.id == id) {
+                    anyhow::anyhow!(
+                        "graph of configuration {id} needs --config-graphs \
+                         (instantiates system.build.toplevel, ~10s of eval per configuration)"
+                    )
+                } else {
+                    anyhow::anyhow!("no such graph target: {id}")
+                }
+            })?;
+        if r#ref.status == RefStatus::Ok {
+            println!("graph of {id} cached (flake + extractor + nix unchanged), skipping");
+            timings.item("graph", id, t_graph);
+            continue;
+        }
+        pending_graphs.push(r#ref);
+    }
+
+    let console = Arc::new(Console::new(
+        &pending_configs,
+        &pending_packages,
+        &pending_graphs,
+    ));
 
     // Configurations and packages as ONE set of futures rather than two passes.
     // Against a real flake nearly all the wall clock is the option walk of the
@@ -218,9 +270,41 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
             (t_package, timings.mark(), done)
         }
     });
-    let (extracted_configs, extracted_packages) = futures::future::join(
+    let graph_futs = pending_graphs.iter().map(|r#ref| {
+        let console = console.clone();
+        async move {
+            let t_graph = timings.mark();
+            let done = extract_and_persist_graph(
+                &flags.out,
+                flake_ref,
+                cache_key,
+                r#ref,
+                flags.graph_dry_run,
+                flags.timeout,
+            )
+            .await;
+            match &done {
+                Ok(r) => console.finished(
+                    &r#ref.id,
+                    format!(
+                        "  graph of {}: {} nodes, {} edges in {:.1}s",
+                        r#ref.id,
+                        r.result.data.stats.node_count,
+                        r.result.data.stats.edge_count,
+                        r.result.duration_ms as f64 / 1000.0
+                    ),
+                    &r.result.warnings,
+                ),
+                Err(e) => console.failed(&r#ref.id, e),
+            }
+            timings.item("graph", &r#ref.id, t_graph);
+            (t_graph, timings.mark(), done)
+        }
+    });
+    let (extracted_configs, extracted_packages, extracted_graphs) = futures::future::join3(
         futures::future::join_all(config_futs),
         futures::future::join_all(package_futs),
+        futures::future::join_all(graph_futs),
     )
     .await;
     console.close();
@@ -247,9 +331,14 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
         .into_iter()
         .map(|(a, b, done)| ((a, b), done))
         .unzip();
+    let (graph_spans, extracted_graphs): (Vec<_>, Vec<_>) = extracted_graphs
+        .into_iter()
+        .map(|(a, b, done)| ((a, b), done))
+        .unzip();
     window("options", &config_spans);
     window("packages", &package_spans);
-    if !pending_configs.is_empty() || !pending_packages.is_empty() {
+    window("graphs", &graph_spans);
+    if !pending_configs.is_empty() || !pending_packages.is_empty() || !pending_graphs.is_empty() {
         timings.phase("units", t_units);
     }
 
@@ -292,6 +381,22 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
         }
     }
 
+    for (r#ref, done) in pending_graphs.iter().zip(extracted_graphs) {
+        let Some(cur) = manifest.graphs.iter_mut().find(|g| g.id == r#ref.id) else {
+            continue;
+        };
+        match done {
+            Ok(r) => {
+                apply_extracted_graph(cur, &r);
+                manifest.warnings.extend(r.result.warnings.clone());
+            }
+            Err(e) => {
+                cur.status = RefStatus::Error;
+                cur.error = Some(first_line(&e));
+            }
+        }
+    }
+
     let manifest_path = Path::new(&flags.out).join("manifest.json");
     std::fs::write(&manifest_path, serde_json::to_string(&manifest)?)?;
     println!("wrote {}", manifest_path.display());
@@ -301,6 +406,7 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
         manifest,
         wanted,
         wanted_packages,
+        wanted_graphs,
     })
 }
 
@@ -338,17 +444,19 @@ struct ConsoleState {
 }
 
 impl Console {
-    fn new(configs: &[ConfigRef], packages: &[PackageRef]) -> Console {
-        let total = configs.len() + packages.len();
-        match (configs, packages) {
-            ([], []) => {}
-            ([one], []) => println!("extracting options of {} ...", one.id),
-            ([], [one]) => println!("extracting package {} ...", one.id),
+    fn new(configs: &[ConfigRef], packages: &[PackageRef], graphs: &[GraphRef]) -> Console {
+        let total = configs.len() + packages.len() + graphs.len();
+        match (configs, packages, graphs) {
+            ([], [], []) => {}
+            ([one], [], []) => println!("extracting options of {} ...", one.id),
+            ([], [one], []) => println!("extracting package {} ...", one.id),
+            ([], [], [one]) => println!("extracting graph of {} ...", one.id),
             _ => println!(
                 "extracting {} ...",
                 [
                     (configs.len(), "configuration"),
                     (packages.len(), "package"),
+                    (graphs.len(), "graph"),
                 ]
                 .into_iter()
                 .filter(|(n, _)| *n > 0)

@@ -12,6 +12,9 @@ struct Flags {
     out: String,
     configs: Selection,
     packages: Selection,
+    graphs: Selection,
+    config_graphs: bool,
+    graph_dry_run: bool,
     all_systems: bool,
     timeout: f64,
     html: String,
@@ -36,6 +39,9 @@ fn parse_flags(argv: &[String]) -> Flags {
         out: "./flake-explorer-data".to_string(),
         configs: Selection::None,
         packages: Selection::None,
+        graphs: Selection::None,
+        config_graphs: false,
+        graph_dry_run: false,
         all_systems: false,
         timeout: 600.0,
         html: "./flake.html".to_string(),
@@ -88,6 +94,20 @@ fn parse_flags(argv: &[String]) -> Flags {
                         .collect(),
                 );
             }
+            "--graphs" => {
+                i += 1;
+                f.graphs = Selection::Ids(
+                    arg(a, argv.get(i))
+                        .split(',')
+                        .filter(|s| !s.is_empty())
+                        .map(String::from)
+                        .collect(),
+                );
+            }
+            "--config-graphs" => f.config_graphs = true,
+            "--graph-dry-run" => f.graph_dry_run = true,
+            // Deliberately does NOT include graphs: an 18k-node system graph
+            // is a distinct cost the user asks for by name (--graphs).
             "--all" => {
                 f.configs = Selection::All;
                 f.packages = Selection::All;
@@ -145,16 +165,25 @@ fn usage() -> String {
         r#"usage: {prog} <command> [args]
 
 commands:
-  extract <flakeref> [--out DIR] [--configs kind/name,... | --all] [--packages path/segs,... | --all] [--all-systems] [--timeout SECS]
+  extract <flakeref> [--out DIR] [--configs kind/name,... | --all] [--packages path/segs,... | --all] [--graphs path/segs,...] [--all-systems] [--timeout SECS]
       Extract manifest (+ selected configurations/packages) to the data dir.
       --packages takes ids like "packages/x86_64-linux/rtk" (path.join("/") —
       also devShells/checks/formatter). --all means all configurations
-      AND all packages.
-  export <flakeref> [--html FILE] [--out DIR] [--configs kind/name,... | --all] [--packages path/segs,... | --all] [--all-systems] [--sources self|all] [--timeout SECS]
+      AND all packages. --graphs extracts the full derivation dependency
+      graph of the named outputs (same id space as --packages; never
+      implied by --all — a system-scale graph is a cost you opt into).
+      --config-graphs additionally allows configuration ids in --graphs
+      (e.g. nixos/myhost): each one instantiates the configuration's
+      system.build.toplevel, ~10s of extra eval per configuration —
+      never on by default. --graph-dry-run adds the exact build/fetch
+      partition to each graph via `nix build --dry-run` (a second eval
+      per graph; nothing is built).
+  export <flakeref> [--html FILE] [--out DIR] [--configs kind/name,... | --all] [--packages path/segs,... | --all] [--graphs path/segs,...] [--all-systems] [--sources self|all] [--timeout SECS]
       Extract, then write ONE standalone HTML file (default ./flake.html)
       that works without a server — file://, any CDN, GitHub Pages.
       --sources all also embeds every file the exported configurations
-      reference (can be large against nixpkgs).
+      reference (can be large against nixpkgs). --graphs embeds the named
+      dependency graphs (explicit only, never implied by --all).
   serve <flakeref> [--port N] [--host ADDR] [--out DIR] [--dev]
       Extract manifest, then serve the explorer UI with on-demand
       per-configuration extraction. --dev watches web/ and live-reloads
@@ -209,6 +238,9 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
                     out: flags.out.clone(),
                     configs: flags.configs.clone(),
                     packages: flags.packages.clone(),
+                    graphs: flags.graphs.clone(),
+                    config_graphs: flags.config_graphs,
+                    graph_dry_run: flags.graph_dry_run,
                     all_systems: flags.all_systems,
                     timeout,
                 },
@@ -226,6 +258,9 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
                     out: flags.out.clone(),
                     configs: flags.configs.clone(),
                     packages: flags.packages.clone(),
+                    graphs: flags.graphs.clone(),
+                    config_graphs: flags.config_graphs,
+                    graph_dry_run: flags.graph_dry_run,
                     all_systems: flags.all_systems,
                     timeout,
                 },
@@ -241,6 +276,7 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
                     timeout,
                     wanted: r.wanted,
                     wanted_packages: r.wanted_packages,
+                    wanted_graphs: r.wanted_graphs,
                 },
             )
             .await
@@ -254,6 +290,8 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
                 flake_ref,
                 serve::ServeFlags {
                     out: flags.out.clone(),
+                    config_graphs: flags.config_graphs,
+                    graph_dry_run: flags.graph_dry_run,
                     all_systems: flags.all_systems,
                     timeout,
                     port: flags.port.unwrap_or(4321),

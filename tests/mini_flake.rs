@@ -9,12 +9,12 @@ mod common;
 
 use common::{TempDir, fixture, nix_available};
 use flake_explorer::cache::{
-    apply_extracted, apply_extracted_package, cache_key_of, extract_and_persist,
-    extract_and_persist_package, reconcile,
+    apply_extracted, apply_extracted_graph, apply_extracted_package, cache_key_of,
+    extract_and_persist, extract_and_persist_graph, extract_and_persist_package, reconcile,
 };
 use flake_explorer::manifest::{ManifestOptions, build_manifest};
 use flake_explorer::options::{ExtractOptionsOpts, OptionsProgress, extract_options};
-use flake_explorer::run_nix::check_nix;
+use flake_explorer::run_nix::{check_nix, check_validity_invalid, flake_metadata};
 use flake_explorer::schema::*;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -23,6 +23,7 @@ fn opts() -> ManifestOptions {
     ManifestOptions {
         all_systems: false,
         timeout: Duration::from_secs(60),
+        config_graphs: false,
     }
 }
 
@@ -439,6 +440,290 @@ async fn dev_shells_checks_formatter_extract_as_builder_unknown() {
             "{id}"
         );
     }
+}
+
+/// The full graph pipeline against real nix: `derivation show -r`, typed
+/// projection, presence via nix-store — blob + sidecar on disk, reconcile
+/// accepts. Structural assertions only (no hardcoded node counts — closures
+/// drift with nixpkgs).
+#[tokio::test]
+async fn extract_graph_writes_blob_and_sidecar_reconcile_accepts() {
+    if !nix_available() {
+        return;
+    }
+    let flake_ref = fixture_ref();
+    let tmp = TempDir::new("mini-extract-graph");
+    let out_dir = tmp.0.to_string_lossy().into_owned();
+    std::fs::create_dir_all(tmp.0.join("graph")).unwrap();
+
+    let mut m = build_manifest(&flake_ref, &opts()).await.unwrap();
+    let key = cache_key_of(&m, &nix_version().await);
+
+    // Every derivation-typed output has a graph ref mirroring its package ref.
+    assert_eq!(m.graphs.len(), m.packages.len());
+    for id in [
+        "packages/x86_64-linux/mini",
+        "devShells/x86_64-linux/default",
+    ] {
+        let idx = m.graphs.iter().position(|g| g.id == id).unwrap();
+        let r#ref = m.graphs[idx].clone();
+        assert_eq!(r#ref.status, RefStatus::Pending);
+
+        let r = extract_and_persist_graph(
+            &out_dir,
+            &flake_ref,
+            &key,
+            &r#ref,
+            false,
+            Duration::from_secs(60),
+        )
+        .await
+        .unwrap();
+        apply_extracted_graph(&mut m.graphs[idx], &r);
+        assert_eq!(m.graphs[idx].status, RefStatus::Ok);
+
+        let g: GraphData =
+            serde_json::from_str(&std::fs::read_to_string(tmp.0.join(&r#ref.data_file)).unwrap())
+                .unwrap();
+        assert_eq!(g.id, id);
+        // The fixture is builtins-only: the devShell is a raw derivation with
+        // ZERO inputDrvs (a legal single-node graph, and a grammar case worth
+        // having); mini has mini-dep, so its closure is bigger.
+        if id == "packages/x86_64-linux/mini" {
+            assert!(g.stats.node_count > 1, "{id}: mini depends on mini-dep");
+        }
+        assert!(g.stats.node_count >= 1, "{id}");
+        assert_eq!(g.nodes.len(), g.stats.node_count as usize);
+        assert_eq!(g.edges.len(), g.nodes.len());
+
+        // The prefix rule, on REAL nix output.
+        for n in &g.nodes {
+            for p in std::iter::once(n.drv_path.as_str())
+                .chain(n.outputs.iter().filter_map(|o| o.path.as_deref()))
+            {
+                assert_eq!(p.matches("/nix/store/").count(), 1, "{id}: bad path {p}");
+            }
+        }
+
+        // Root reaches everything, and it is the installable itself.
+        let mut seen = vec![false; g.nodes.len()];
+        let mut queue = std::collections::VecDeque::from([g.root]);
+        seen[g.root as usize] = true;
+        while let Some(i) = queue.pop_front() {
+            for &j in &g.edges[i as usize] {
+                if !seen[j as usize] {
+                    seen[j as usize] = true;
+                    queue.push_back(j);
+                }
+            }
+        }
+        assert!(seen.iter().all(|&s| s), "{id}: unreachable nodes");
+
+        // T1 landed: fixture packages are never BUILT, so the root's own
+        // output must be absent — while its store-fetched sources are not all.
+        assert!(g.tiers.presence, "{id}: presence tier must be on");
+        assert!(g.stats.absent_count.is_some());
+        let root_out = &g.nodes[g.root as usize].outputs[0];
+        assert_eq!(root_out.present, Some(false), "{id} is never built");
+    }
+    assert_eq!(
+        m.graphs
+            .iter()
+            .find(|g| g.id == "packages/x86_64-linux/mini")
+            .unwrap()
+            .data_file,
+        "graph/packages.x86_64-linux.mini.json"
+    );
+
+    // The mini graph knows mini-dep: an edge from the root, by name.
+    let g: GraphData = serde_json::from_str(
+        &std::fs::read_to_string(tmp.0.join("graph/packages.x86_64-linux.mini.json")).unwrap(),
+    )
+    .unwrap();
+    let dep_names: Vec<&str> = g.edges[g.root as usize]
+        .iter()
+        .map(|&j| g.nodes[j as usize].name.as_str())
+        .collect();
+    assert!(
+        dep_names.iter().any(|n| n.contains("mini-dep")),
+        "root deps {dep_names:?} should include mini-dep"
+    );
+
+    // A fresh manifest reconciles against the persisted sidecars → no re-eval.
+    let mut m2 = build_manifest(&flake_ref, &opts()).await.unwrap();
+    reconcile(&out_dir, &mut m2, &nix_version().await);
+    for id in [
+        "packages/x86_64-linux/mini",
+        "devShells/x86_64-linux/default",
+    ] {
+        let g2 = m2.graphs.iter().find(|g| g.id == id).unwrap();
+        assert_eq!(g2.status, RefStatus::Ok, "{id} should reconcile");
+    }
+    assert_eq!(
+        m2.graphs
+            .iter()
+            .find(|g| g.id == "checks/x86_64-linux/mini-check")
+            .unwrap()
+            .status,
+        RefStatus::Pending,
+        "never-extracted graphs stay pending"
+    );
+}
+
+/// Configuration graphs are OPT-IN: absent by default, present with the flag,
+/// and the extraction really instantiates the fixture's toplevel derivation.
+#[tokio::test]
+async fn config_graphs_are_opt_in_and_root_at_toplevel() {
+    if !nix_available() {
+        return;
+    }
+    let flake_ref = fixture_ref();
+
+    // Default: no configuration ids in the graph ref list.
+    let m = build_manifest(&flake_ref, &opts()).await.unwrap();
+    assert!(
+        !m.graphs.iter().any(|g| g.id == "nixos/mini"),
+        "config graphs must be off by default"
+    );
+
+    // The flag exposes them, and --graphs on a config id without it errors
+    // with the hint (the drive layer's guard).
+    let err = flake_explorer::drive::extract_to_dir(
+        &flake_ref,
+        &flake_explorer::drive::DriveFlags {
+            out: TempDir::new("mini-cfg-hint")
+                .0
+                .to_string_lossy()
+                .into_owned(),
+            configs: flake_explorer::drive::Selection::None,
+            packages: flake_explorer::drive::Selection::None,
+            graphs: flake_explorer::drive::Selection::Ids(vec!["nixos/mini".into()]),
+            config_graphs: false,
+            graph_dry_run: false,
+            all_systems: false,
+            timeout: Duration::from_secs(60),
+        },
+    )
+    .await;
+    let err = match err {
+        Ok(_) => panic!("--graphs on a config id without --config-graphs must error"),
+        Err(e) => e,
+    };
+    assert!(
+        err.to_string().contains("--config-graphs"),
+        "error should hint at the flag: {err}"
+    );
+
+    let opts_on = ManifestOptions {
+        all_systems: false,
+        timeout: Duration::from_secs(60),
+        config_graphs: true,
+    };
+    let m = build_manifest(&flake_ref, &opts_on).await.unwrap();
+    let r#ref = m.graphs.iter().find(|g| g.id == "nixos/mini").unwrap();
+    assert_eq!(r#ref.data_file, "graph/nixos.mini.json");
+    assert_eq!(
+        r#ref.path,
+        [
+            "nixosConfigurations",
+            "mini",
+            "config",
+            "system",
+            "build",
+            "toplevel"
+        ]
+    );
+
+    let tmp = TempDir::new("mini-cfg-graph");
+    std::fs::create_dir_all(tmp.0.join("graph")).unwrap();
+    let key = cache_key_of(&m, &nix_version().await);
+    let r = extract_and_persist_graph(
+        &tmp.0.to_string_lossy(),
+        &flake_ref,
+        &key,
+        r#ref,
+        false,
+        Duration::from_secs(60),
+    )
+    .await
+    .unwrap();
+    let g = &r.result.data;
+    assert_eq!(g.id, "nixos/mini");
+    assert_eq!(g.nodes[g.root as usize].name, "mini-toplevel");
+    assert!(g.tiers.presence);
+    // Never built: the toplevel's own output is absent from the store.
+    assert_eq!(g.nodes[g.root as usize].outputs[0].present, Some(false));
+}
+
+/// T3 against REAL `nix build --dry-run` stderr: the fixture package is
+/// never built, so the partition names its derivations for building — parsed
+/// from live prose, not a fixture.
+#[tokio::test]
+async fn dry_run_tier_partitions_a_real_unbuilt_package() {
+    if !nix_available() {
+        return;
+    }
+    let flake_ref = fixture_ref();
+    let m = build_manifest(&flake_ref, &opts()).await.unwrap();
+    let key = cache_key_of(&m, &nix_version().await);
+    let r#ref = m
+        .graphs
+        .iter()
+        .find(|g| g.id == "packages/x86_64-linux/mini")
+        .unwrap();
+    let tmp = TempDir::new("mini-dry-run");
+    std::fs::create_dir_all(tmp.0.join("graph")).unwrap();
+    let r = extract_and_persist_graph(
+        &tmp.0.to_string_lossy(),
+        &flake_ref,
+        &key,
+        r#ref,
+        true,
+        Duration::from_secs(60),
+    )
+    .await
+    .unwrap();
+    let g = &r.result.data;
+    assert!(
+        g.tiers.dry_run,
+        "tier must be present; warnings: {:?}",
+        g.warnings
+    );
+    let dr = g.dry_run.as_ref().unwrap();
+    // mini + mini-dep are unbuilt: both derivations are in the partition,
+    // mapped onto graph node indices.
+    assert!(g.stats.to_build_count.unwrap() >= 2);
+    let names: Vec<&str> = dr
+        .to_build_nodes
+        .iter()
+        .map(|&i| g.nodes[i as usize].name.as_str())
+        .collect();
+    assert!(names.iter().any(|n| n.contains("mini-0.1.0")), "{names:?}");
+    assert!(names.iter().any(|n| n.contains("mini-dep")), "{names:?}");
+}
+
+/// Real `nix-store --check-validity --print-invalid`: the fixture flake's own
+/// store copy is valid by construction, an all-zero hash is not. Full paths
+/// in, full paths out — the bare-basename form errors rather than checking
+/// anything, which is why the graph pipeline's prefix guard exists.
+#[tokio::test]
+async fn check_validity_flags_only_absent_paths() {
+    if !nix_available() {
+        return;
+    }
+    let meta = flake_metadata(&fixture_ref(), Duration::from_secs(60))
+        .await
+        .unwrap();
+    let valid = meta.path.expect("fixture flake has a store path");
+    let fake = "/nix/store/00000000000000000000000000000000-fake-1.0".to_string();
+    let invalid = check_validity_invalid(&[valid.clone(), fake.clone()], Duration::from_secs(60))
+        .await
+        .unwrap();
+    assert!(invalid.contains(&fake), "fake path must be invalid");
+    assert!(
+        !invalid.contains(&valid),
+        "store-fetched flake must be valid"
+    );
 }
 
 #[tokio::test]

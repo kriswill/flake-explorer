@@ -24,6 +24,7 @@ use tower::ServiceExt;
 const FLAKE_REF: &str = "github:example/shim-flake"; // NOT path-like: keeps git/localCheckout logic off
 const PKG_ID: &str = "packages/x86_64-linux/demo";
 const PKG_DATA_FILE: &str = "package/packages.x86_64-linux.demo.json";
+const GRAPH_DATA_FILE: &str = "graph/packages.x86_64-linux.demo.json";
 
 // Scripted fake nix. Fixture JSON lives in $NIX_SHIM_DIR; every handled call
 // appends its mode to $NIX_SHIM_LOG so the test can count invocations. The
@@ -47,6 +48,11 @@ case "$*" in
     if [ -e "$NIX_SHIM_DIR/fail-package" ]; then echo "error: shim package refused" >&2; exit 1; fi
     sleep 0.3
     cat "$NIX_SHIM_DIR/package-eval.json" ;;
+  *"derivation show -r"*)
+    log derivationShowRecursive
+    if [ -e "$NIX_SHIM_DIR/fail-graph" ]; then echo "error: shim graph refused" >&2; exit 1; fi
+    sleep 0.3
+    cat "$NIX_SHIM_DIR/graph-show.json" ;;
   *"derivation show"*) log derivationShow; echo '{}' ;;
   *"path-info"*) log pathInfo; echo "error: shim path-info: not valid" >&2; exit 1 ;;
   *"builtins.readFile"*)
@@ -220,9 +226,42 @@ fn write_fixtures(shim_dir: &Path, self_dir: &Path) {
     w("options-eval.json", &options_eval);
     w("package-eval.json", &package_eval);
 
+    // The graph closure: demo-1.0 (v4 shape) with one dep. Basenames, not
+    // full paths — exactly what real `derivation show -r` emits.
+    let graph_show = serde_json::json!({
+        "version": 4,
+        "derivations": {
+            "cccccccccccccccccccccccccccccccc-demo-1.0.drv": {
+                "name": "demo-1.0", "system": "x86_64-linux",
+                "outputs": { "out": { "path": "dddddddddddddddddddddddddddddddd-demo-1.0" } },
+                "inputs": { "drvs": {
+                    "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-dep-0.1.drv": { "dynamicOutputs": {}, "outputs": ["out"] }
+                }, "srcs": [] },
+                "env": {}
+            },
+            "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee-dep-0.1.drv": {
+                "name": "dep-0.1", "system": "x86_64-linux",
+                "outputs": { "out": { "path": "ffffffffffffffffffffffffffffffff-dep-0.1" } },
+                "inputs": { "drvs": {}, "srcs": [] },
+                "env": {}
+            }
+        }
+    });
+    w("graph-show.json", &graph_show);
+
     let nix = shim_dir.join("nix");
     std::fs::write(&nix, SHIM).unwrap();
     std::fs::set_permissions(&nix, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    // nix-store shim: the presence pass. Reports demo's own output as the one
+    // invalid path (it is "never built"), everything else valid.
+    let nix_store = shim_dir.join("nix-store");
+    std::fs::write(
+        &nix_store,
+        "#!/bin/sh\nprintf '%s\\n' checkValidity >> \"$NIX_SHIM_LOG\"\necho \"/nix/store/dddddddddddddddddddddddddddddddd-demo-1.0\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&nix_store, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 /// Minimal fake app-dist: the serve tests exercise routes, not the bundle.
@@ -245,6 +284,8 @@ fn write_fake_app_dist(dist: &Path) {
 fn flags(data_dir: &Path, dev: bool) -> ServeFlags {
     ServeFlags {
         out: data_dir.to_string_lossy().into_owned(),
+        config_graphs: false,
+        graph_dry_run: false,
         all_systems: false,
         timeout: Duration::from_secs(60),
         port: 0,
@@ -442,6 +483,85 @@ async fn serve_routing_and_on_demand_extraction() {
     let (status, _) = get(&ctx, &format!("/data/{PKG_DATA_FILE}")).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(get_manifest(&ctx).await.packages[0].status, RefStatus::Ok);
+
+    // ---- graph blob: on-demand `derivation show -r` + presence, held open
+    let manifest = get_manifest(&ctx).await;
+    assert_eq!(
+        manifest
+            .graphs
+            .iter()
+            .map(|g| g.id.as_str())
+            .collect::<Vec<_>>(),
+        [PKG_ID],
+        "one graph ref mirrors the one package ref"
+    );
+    assert_eq!(manifest.graphs[0].data_file, GRAPH_DATA_FILE);
+    assert_eq!(manifest.graphs[0].status, RefStatus::Pending);
+
+    reset_shim_log(&ctx);
+    let t0 = Instant::now();
+    let (status, body) = get(&ctx, &format!("/data/{GRAPH_DATA_FILE}")).await;
+    assert_eq!(status, StatusCode::OK, "graph body: {body}");
+    assert!(t0.elapsed() > Duration::from_millis(250));
+    let g: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(g["id"], PKG_ID);
+    assert_eq!(g["stats"]["nodeCount"], 2);
+    assert_eq!(g["stats"]["edgeCount"], 1);
+    assert_eq!(g["tiers"]["presence"], true);
+    // The nix-store shim declared demo's own output invalid; dep's is valid.
+    assert_eq!(g["stats"]["absentCount"], 1);
+    let root = g["root"].as_u64().unwrap() as usize;
+    assert_eq!(g["nodes"][root]["name"], "demo-1.0");
+    assert_eq!(g["nodes"][root]["outputs"][0]["present"], false);
+    let counts = shim_counts(&ctx);
+    assert_eq!(counts["derivationShowRecursive"], 1);
+    assert_eq!(counts["checkValidity"], 1);
+    assert_eq!(get_manifest(&ctx).await.graphs[0].status, RefStatus::Ok);
+
+    // ---- an already-extracted graph re-serves without re-evaluating
+    reset_shim_log(&ctx);
+    let (status, _) = get(&ctx, &format!("/data/{GRAPH_DATA_FILE}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(shim_counts(&ctx), HashMap::new());
+
+    // ---- a failing graph extraction marks the ref error and 500s, and the
+    // graph:{id} keyspace kept it apart from the package under the SAME id
+    // (the package stays ok while the graph errors).
+    let graph_blob = ctx.data_dir.join(GRAPH_DATA_FILE);
+    std::fs::remove_file(&graph_blob).unwrap();
+    std::fs::remove_file(
+        ctx.data_dir
+            .join(GRAPH_DATA_FILE.replace(".json", ".meta.json")),
+    )
+    .unwrap();
+    request(&ctx, "POST", "/api/refresh").await;
+    assert_eq!(
+        get_manifest(&ctx).await.graphs[0].status,
+        RefStatus::Pending
+    );
+    std::fs::write(ctx.shim_dir.join("fail-graph"), "").unwrap();
+    let (status, _) = get(&ctx, &format!("/data/{GRAPH_DATA_FILE}")).await;
+    std::fs::remove_file(ctx.shim_dir.join("fail-graph")).unwrap();
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    let manifest = get_manifest(&ctx).await;
+    assert_eq!(manifest.graphs[0].status, RefStatus::Error);
+    assert!(
+        manifest.graphs[0]
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("shim graph refused")
+    );
+    assert_eq!(
+        manifest.packages[0].status,
+        RefStatus::Ok,
+        "package untouched"
+    );
+
+    // ---- the next request retries an errored graph and recovers
+    let (status, _) = get(&ctx, &format!("/data/{GRAPH_DATA_FILE}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(get_manifest(&ctx).await.graphs[0].status, RefStatus::Ok);
 
     // ---- route guards: unknown /data paths 404
     assert_eq!(
