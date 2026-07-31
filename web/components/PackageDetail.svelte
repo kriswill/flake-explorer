@@ -1,5 +1,6 @@
 <script lang="ts">
 import { colorFor } from "../lib/color"
+import { hasEmbedded, isStatic } from "../lib/data"
 import { humanBytes } from "../lib/graph-annotations"
 import { parsePosition, resolveFile } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
@@ -337,9 +338,15 @@ const isGraphRoot = $derived(graph !== null && myNode === graph.data.root)
     {/if}
     {#if graphRef}
       {#if !graphSlot}
-        <button class="loadall" onclick={() => app.loadGraph(refId)}>
-          load the full dependency graph (may extract)
-        </button>
+        {#if isStatic() && !hasEmbedded(graphRef.dataFile)}
+          <!-- Static export without this graph embedded: loading can never
+               succeed, so say that instead of offering a dead button. -->
+          <p class="muted">graph not included in this export</p>
+        {:else}
+          <button class="loadall" onclick={() => app.loadGraph(refId)}>
+            load the full dependency graph{isStatic() ? "" : " (may extract)"}
+          </button>
+        {/if}
       {:else}
         <AsyncSlot
           value={graphSlot}
