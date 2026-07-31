@@ -515,4 +515,39 @@ describe("graph-backed dependency expansion", () => {
       expect(host.querySelector(".graph-rows")).toBe(null)
     })
   })
+
+  const drvSummary = (host: HTMLElement) =>
+    [...host.querySelectorAll("summary")].find((s) => s.textContent?.includes("drv-level inputs"))
+
+  test("a loaded, joined graph supersedes the plain drv-level list", () => {
+    // The graph's depth-1 is the same drvPath set rendered richer (dots,
+    // sizes, expanders), so keeping both renders the same six rows twice.
+    withGraphRefs()
+    const data = fixtureGraph()
+    app.graphs = { [PKG_ID]: { data, indexes: buildGraphIndexes(data) } }
+    mountLoaded((host) => {
+      expect(host.querySelector(".graph-rows")).not.toBe(null)
+      expect(drvSummary(host)).toBeUndefined()
+    })
+  })
+
+  test("the plain drv-level list stays when the graph join misses", () => {
+    // A graph that cannot show this package's deps supersedes nothing.
+    withGraphRefs()
+    const data = fixtureGraph()
+    app.graphs = { [PKG_ID]: { data, indexes: buildGraphIndexes(data) } }
+    app.packages = { [PKG_ID]: { data: samplePackage() } }
+    withMount(PackageDetail, { refId: PKG_ID }, (host) => {
+      expect(host.textContent).toContain("not present in this graph")
+      expect(drvSummary(host)).toBeDefined()
+    })
+  })
+
+  test("the plain drv-level list stays while the graph is loading or errored", () => {
+    withGraphRefs()
+    app.graphs = { [PKG_ID]: "loading" }
+    mountLoaded((host) => expect(drvSummary(host)).toBeDefined())
+    app.graphs = { [PKG_ID]: { error: "boom: graph failed" } }
+    mountLoaded((host) => expect(drvSummary(host)).toBeDefined())
+  })
 })

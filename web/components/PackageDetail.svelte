@@ -316,7 +316,14 @@ const isGraphRoot = $derived(graph !== null && myNode === graph.data.root)
     {#if depGroups.every((g) => g.items.length === 0)}
       <p class="muted">No declared build inputs.</p>
     {/if}
-    {#if data.drv?.inputDrvs.length}
+    <!-- Rendered only until the graph rows below supersede it: the graph's
+         depth-1 is exactly this drvPath set (measured on real data), rendered
+         richer — so once a loaded graph joins, this list would repeat every
+         row. It stays whenever it is the only dependency information: no
+         graph, a loading/errored slot, or a join miss. What the richer rows do
+         not carry is which OUTPUT of each input this derivation consumes —
+         that detail lives here and in the drv itself. -->
+    {#if data.drv?.inputDrvs.length && !(graph && myNode !== undefined)}
       <details>
         <summary>{data.drv.inputDrvs.length} drv-level inputs</summary>
         <ul class="drvs">
@@ -328,9 +335,6 @@ const isGraphRoot = $derived(graph !== null && myNode === graph.data.root)
         </ul>
       </details>
     {/if}
-    <!-- The graph makes the list above walkable to any depth. It does not
-         replace it: measured on real data the graph's depth-1 is exactly the
-         same drvPath set, so the two agree by construction. -->
     {#if graphRef}
       {#if !graphSlot}
         <button class="loadall" onclick={() => app.loadGraph(refId)}>
