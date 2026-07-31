@@ -86,6 +86,32 @@ describe("rows and expansion", () => {
     })
   })
 
+  test("the child count leads the row, in its own column left of the expander", () => {
+    mountExpand(diamond(), (host) => {
+      const line = host.querySelector(".row .rowline")
+      const cell = line?.firstElementChild
+      expect(cell?.classList.contains("count")).toBe(true)
+      expect(cell?.textContent).toBe("1")
+      // The expander comes after the count, never before it.
+      const children = [...(line?.children ?? [])]
+      expect(children.findIndex((c) => c.classList.contains("count"))).toBeLessThan(
+        children.findIndex((c) => c.classList.contains("expand")),
+      )
+    })
+  })
+
+  test("rows without a count keep an empty leading cell so the column aligns", () => {
+    mountExpand(diamond(), (host) => {
+      ;(expanders(host)[1] as HTMLButtonElement).click()
+      flushSync()
+      const rows = [...host.querySelectorAll(".row")]
+      const zlib = rows.find((r) => r.querySelector(".name")?.textContent?.trim() === "zlib")
+      const line = zlib?.querySelector(".rowline")
+      expect(line?.firstElementChild?.classList.contains("count")).toBe(true)
+      expect(line?.firstElementChild?.textContent).toBe("")
+    })
+  })
+
   test("a childless node gets no expander at all", () => {
     // zlib is a leaf, so expanding stdenv reveals a row with nothing to open.
     mountExpand(diamond(), (host) => {
@@ -151,6 +177,30 @@ describe("repeats and cycles are visible, not silent", () => {
     })
   })
 
+  test("output pills render ONLY in the box under an unfurled node", () => {
+    mountExpand(diamond(), (host) => {
+      const bashRow = () =>
+        [...host.querySelectorAll(".row")].find(
+          (r) => r.querySelector(".name")?.textContent?.trim() === "bash",
+        )
+      // Collapsed: no pills anywhere — the row is count, arrow, name.
+      expect(bashRow()?.querySelector(".outs")).toBe(null)
+      expect(bashRow()?.querySelector(".outbox")).toBe(null)
+
+      ;(expanders(host)[0] as HTMLButtonElement).click()
+      flushSync()
+      // Unfurled: the box under the name is the one place pills appear.
+      expect(bashRow()?.querySelector(".outbox .outs")).not.toBe(null)
+      expect(bashRow()?.querySelector(".rowline .outs")).toBe(null)
+      // A collapsed leaf child shows none either; its detail is one click
+      // away in the path view.
+      const zlib = [...host.querySelectorAll(".row")].find(
+        (r) => r.querySelector(".name")?.textContent?.trim() === "zlib",
+      )
+      expect(zlib?.querySelector(".outs")).toBe(null)
+    })
+  })
+
   test("a node on its own ancestor path says so in words, not in colour", () => {
     //  root -> a -> b -> a
     const data = graph([node("root"), node("a"), node("b")], [[1], [2], [1]])
@@ -166,7 +216,7 @@ describe("repeats and cycles are visible, not silent", () => {
 })
 
 describe("outputs are named, never rendered blank", () => {
-  test("every output of a multi-output node is named", () => {
+  test("every output of a multi-output node is named in its unfurled box", () => {
     const data = graph(
       [
         node("root"),
@@ -175,11 +225,14 @@ describe("outputs are named, never rendered blank", () => {
           out("dev", "/nix/store/b"),
           out("bin", "/nix/store/c"),
         ]),
+        node("inner"),
       ],
-      [[1], []],
+      [[1], [2], []],
     )
     mountExpand(data, (host) => {
-      const outs = host.querySelector(".row .outs")?.textContent ?? ""
+      ;(expanders(host)[0] as HTMLButtonElement).click()
+      flushSync()
+      const outs = host.querySelector(".row .outbox .outs")?.textContent ?? ""
       expect(outs).toContain("out")
       expect(outs).toContain("dev")
       expect(outs).toContain("bin")
@@ -191,14 +244,14 @@ describe("outputs are named, never rendered blank", () => {
     const data = graph([node("root"), node("source", [out("out")]), node("inner")], [[1], [2], []])
     mountExpand(data, (host) => {
       expect(rowNames(host)).toEqual(["source"])
-      expect(host.querySelector(".row .outs")?.textContent).toContain("out")
-      // Nothing renders as an empty parenthetical or the string "undefined".
-      expect(host.textContent).not.toContain("undefined")
       const expander = expanders(host)[0] as HTMLButtonElement
       expect(expander.tagName).toBe("BUTTON")
       expander.click()
       flushSync()
       expect(rowNames(host)).toEqual(["source", "inner"])
+      expect(host.querySelector(".row .outbox .outs")?.textContent).toContain("out")
+      // Nothing renders as an empty parenthetical or the string "undefined".
+      expect(host.textContent).not.toContain("undefined")
     })
   })
 })
