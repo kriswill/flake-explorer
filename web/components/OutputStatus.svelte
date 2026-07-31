@@ -45,7 +45,7 @@ const NOTE: Record<string, string> = {
       <Dot hollow={marker.hollow} />
     </span>
   {/if}
-  <span class="name mono">{output.name}</span>
+  <span class="out-name mono">{output.name}</span>
   {#if NOTE[state]}<span class="note muted">{NOTE[state]}</span>{/if}
   {#if state === "in-store"}
     {#if !sizes.collected}
@@ -76,7 +76,7 @@ const NOTE: Record<string, string> = {
   .muted {
     color: var(--ink-muted);
   }
-  .name,
+  .out-name,
   .note,
   .size {
     font-size: var(--text-3xs);

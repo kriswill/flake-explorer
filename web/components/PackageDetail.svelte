@@ -9,6 +9,7 @@ import { webUrl } from "../lib/url"
 import AsyncSlot from "./AsyncSlot.svelte"
 import Dot from "./Dot.svelte"
 import GraphExpand from "./GraphExpand.svelte"
+import GraphLegend from "./GraphLegend.svelte"
 import HeaderChip from "./HeaderChip.svelte"
 import SourceView from "./SourceView.svelte"
 
@@ -353,6 +354,7 @@ const isGraphRoot = $derived(graph !== null && myNode === graph.data.root)
                 This derivation is not present in this graph — nothing to expand.
               </p>
             {:else}
+              <GraphLegend data={g.data} />
               <div class="graph-rows">
                 <GraphExpand data={g.data} indexes={g.indexes} anchor={myNode} dir="deps" graphId={refId} />
               </div>

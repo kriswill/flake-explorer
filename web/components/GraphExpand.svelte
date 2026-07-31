@@ -5,6 +5,7 @@ import { buildGraphRows } from "../lib/graph-rows"
 import type { GraphIndexes } from "../lib/indexes"
 import type { GraphData } from "../lib/schema"
 import { app } from "../lib/state.svelte"
+import OutputStatus from "./OutputStatus.svelte"
 
 /**
  * One node in the system graph is depended on by 10,384 others — 55% of the
@@ -97,10 +98,13 @@ function focusFirst(key: string | undefined) {
                row's own expander is what a keyboard reaches. -->
           <span class="name mono" data-key={row.key} tabindex="-1">{n.name}</span>
         {/if}
-        <!-- Output NAMES only. A third of all output entries on a system graph
-             carry no path at all, and paths are P4's annotation job — naming
-             them is what keeps a pathless output from rendering as a blank. -->
-        <span class="outs muted mono">({n.outputs.map((o) => o.name).join(", ")})</span>
+        <!-- Each output carries its own presence state: presence is per-output,
+             and a node-level summary would be an aggregate that can mislead. -->
+        <span class="outs">
+          {#each n.outputs as o (o.name)}
+            <OutputStatus output={o} tiers={data.tiers} />
+          {/each}
+        </span>
         {#if row.kind === "primary" && row.childCount > 0}
           <span class="count">{row.childCount}</span>
         {/if}
@@ -171,7 +175,11 @@ function focusFirst(key: string | undefined) {
   .name.link {
     font-size: var(--text-xs);
   }
-  .outs,
+  .outs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 2px 8px;
+  }
   .count,
   .cycle {
     font-size: var(--text-3xs);
