@@ -271,3 +271,26 @@ describe("a custom store resolves too", () => {
     })
   })
 })
+
+describe("headings carry no floating scope label", () => {
+  test("the boundary is named by the path sentence and the expanders, not by hovering spans", () => {
+    const data = diamond()
+    load(data)
+    mountPath(base(data, 3), (host) => {
+      // No orphaned right-floating label on any section heading.
+      for (const h of host.querySelectorAll("h3")) {
+        expect(h.querySelector(".scope")).toBe(null)
+        expect(h.textContent).not.toContain("within this graph")
+      }
+      // The wording still names the graph as the boundary where it matters:
+      // the path summary sentence...
+      expect(text(host)).toContain("within this graph")
+      // ...and every expander's accessible name.
+      expect(
+        [...host.querySelectorAll("[aria-label]")].some((e) =>
+          e.getAttribute("aria-label")?.includes("within this graph"),
+        ),
+      ).toBe(true)
+    })
+  })
+})

@@ -62,9 +62,10 @@ function resolve(g: NonNullable<ReturnType<typeof loadedGraph>>): number | undef
         {@const p = shortestPathTo(g.indexes, g.data.root, node)}
         <GraphLegend data={g.data} />
         <section>
-          <h3>
-            Why is this here <span class="scope">within this graph</span>
-          </h3>
+          <!-- No floating scope label on any heading here: the path summary
+               sentence says "within this graph" in words, and every expander's
+               accessible name carries the same boundary per count. -->
+          <h3>Why is this here</h3>
           {#if !p.reachable}
             <!-- Distinct from the root case below: an empty path here means
                  the root cannot reach this node at all, not that it is zero
@@ -121,7 +122,6 @@ function resolve(g: NonNullable<ReturnType<typeof loadedGraph>>): number | undef
         <section>
           <h3>
             Depends on <span class="count">{g.indexes.forward[node]?.length ?? 0}</span>
-            <span class="scope">within this graph</span>
           </h3>
           <GraphExpand data={g.data} indexes={g.indexes} anchor={node} dir="deps" {graphId} />
         </section>
@@ -131,7 +131,6 @@ function resolve(g: NonNullable<ReturnType<typeof loadedGraph>>): number | undef
             Depended on by <span class="count"
               >{(g.indexes.revOffsets[node + 1] ?? 0) - (g.indexes.revOffsets[node] ?? 0)}</span
             >
-            <span class="scope">within this graph</span>
           </h3>
           <GraphExpand data={g.data} indexes={g.indexes} anchor={node} dir="dependents" {graphId} />
         </section>
@@ -171,12 +170,6 @@ function resolve(g: NonNullable<ReturnType<typeof loadedGraph>>): number | undef
   .count {
     color: var(--ink-muted);
     font-weight: normal;
-  }
-  .scope {
-    color: var(--ink-muted);
-    font-weight: normal;
-    font-size: var(--text-3xs);
-    margin-left: auto;
   }
   .path {
     list-style: none;
