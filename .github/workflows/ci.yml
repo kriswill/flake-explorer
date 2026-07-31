@@ -43,7 +43,7 @@ jobs:
       # (OCTOCOV_-prefixed vars are octocov's documented env override — the
       # runner would ignore a plain GITHUB_STEP_SUMMARY here.)
       - run: touch coverage-report.md
-      - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
+      - uses: k1LoW/octocov-action@a167dc0dee441b7ffc45e1b862ab55ec0d87f278 # v1.5.2
         env:
           OCTOCOV_GITHUB_STEP_SUMMARY: ${{ github.workspace }}/coverage-report.md
       # always(): octocov writes the report before it fails on `acceptable:`,
@@ -164,7 +164,7 @@ jobs:
       # `test typescript` — see the note there for why GITHUB_STEP_SUMMARY is
       # redirected and then replayed into the real summary.
       - run: touch coverage-report.md
-      - uses: k1LoW/octocov-action@b3b6ee60482a667950f87553abf1df63217235d9 # v1.5.1
+      - uses: k1LoW/octocov-action@a167dc0dee441b7ffc45e1b862ab55ec0d87f278 # v1.5.2
         with:
           config: .octocov.rust.yml
         env:
