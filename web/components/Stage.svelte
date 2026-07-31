@@ -3,6 +3,7 @@ import { app, configError } from "../lib/state.svelte"
 import ConfigSummary from "./ConfigSummary.svelte"
 import DiffView from "./DiffView.svelte"
 import FileDetail from "./FileDetail.svelte"
+import GraphPath from "./GraphPath.svelte"
 import InputDetail from "./InputDetail.svelte"
 import Legend from "./Legend.svelte"
 import ModuleDetail from "./ModuleDetail.svelte"
@@ -54,6 +55,8 @@ const packageRef = $derived.by(() => {
     <InputDetail name={app.selection.name} />
   {:else if app.selection?.kind === "diff"}
     <DiffView a={app.selection.a} b={app.selection.b} />
+  {:else if app.selection?.kind === "graphNode"}
+    <GraphPath graphId={app.selection.graphId} drvBase={app.selection.drvBase} />
   {:else if app.selection?.kind === "output" && packageRef}
     <PackageDetail refId={packageRef.id} />
   {:else if app.selection?.kind === "output" && app.selection.path[0] === "overlays"}

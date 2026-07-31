@@ -1,12 +1,15 @@
 <script lang="ts">
 import { colorFor } from "../lib/color"
+import { humanBytes } from "../lib/graph-annotations"
 import { parsePosition, resolveFile } from "../lib/indexes"
 import { prefs } from "../lib/prefs.svelte"
 import { segmentLines } from "../lib/segments"
-import { app, loadedPackage } from "../lib/state.svelte"
+import { app, loadedGraph, loadedPackage } from "../lib/state.svelte"
 import { webUrl } from "../lib/url"
 import AsyncSlot from "./AsyncSlot.svelte"
 import Dot from "./Dot.svelte"
+import GraphExpand from "./GraphExpand.svelte"
+import GraphLegend from "./GraphLegend.svelte"
 import HeaderChip from "./HeaderChip.svelte"
 import SourceView from "./SourceView.svelte"
 
@@ -42,17 +45,6 @@ const depGroups = $derived(
 )
 
 const spdxUrl = (spdxId: string) => `https://spdx.org/licenses/${spdxId}.html`
-
-function humanBytes(n: number): string {
-  const units = ["B", "KB", "MB", "GB", "TB"]
-  let v = n
-  let i = 0
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i++
-  }
-  return `${i > 0 && v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`
-}
 
 /** meta.position is "file:line" — only a clickable chip when it's under the flake's own path. */
 const positionInfo = $derived.by(() => {
@@ -122,6 +114,45 @@ const pkgLabel = (id: string) => pkgPathById.get(id)?.at(-1) ?? id
 function loadAllPackages() {
   for (const p of app.manifest?.packages ?? []) void app.loadPackage(p.id)
 }
+
+/**
+ * The dependency graph for THIS output, if the export has one. Graph ids reuse
+ * the package id space, but the two refs are looked up independently and their
+ * statuses genuinely differ in real manifests (a devShell whose graph is `ok`
+ * while its package is still `pending`), so neither may be inferred from the
+ * other. `manifest.graphs` is optional — a manifest from an extractor that
+ * predates graphs simply has no such key.
+ */
+const graphRef = $derived(app.manifest?.graphs?.find((g) => g.id === refId) ?? null)
+const graphSlot = $derived(graphRef ? app.graphs[refId] : undefined)
+const graph = $derived(loadedGraph(graphSlot))
+
+/**
+ * This package's own node, joined on drvPath — the only sound key. Names
+ * collide hard (only 10,165 of 18,765 are distinct on a system graph), so a
+ * name or basename match would pick a plausible wrong node. Measured on real
+ * data, a package's `drv.drvPath` IS its graph's root node, and the graph's
+ * depth-1 is exactly the `inputDrvs` list already rendered above — but the
+ * join is done rather than assumed, and `undefined` is a state we say out loud.
+ */
+const myNode = $derived(
+  graph && data?.drv ? graph.indexes.byDrvPath.get(data.drv.drvPath) : undefined,
+)
+
+/**
+ * Dependents WITHIN the loaded graph. For this package's own node this is
+ * always empty and always will be: a GraphData rooted at X is X's dependency
+ * closure, so X is a source — measured 0 on all three real documents. The
+ * empty case therefore gets a sentence naming the reason, never a bare 0 next
+ * to the flake-scoped count, which a reader would take as "nothing depends on
+ * this package" — a much stronger and false claim.
+ */
+const graphDependents = $derived(
+  graph && myNode !== undefined
+    ? graph.indexes.revOffsets[myNode + 1]! - graph.indexes.revOffsets[myNode]!
+    : 0,
+)
+const isGraphRoot = $derived(graph !== null && myNode === graph.data.root)
 </script>
 
 {#if !ref}
@@ -297,6 +328,41 @@ function loadAllPackages() {
         </ul>
       </details>
     {/if}
+    <!-- The graph makes the list above walkable to any depth. It does not
+         replace it: measured on real data the graph's depth-1 is exactly the
+         same drvPath set, so the two agree by construction. -->
+    {#if graphRef}
+      {#if !graphSlot}
+        <button class="loadall" onclick={() => app.loadGraph(refId)}>
+          load the full dependency graph (may extract)
+        </button>
+      {:else}
+        <AsyncSlot
+          value={graphSlot}
+          loadingText="Extracting dependency graph… (first run takes a while)"
+          retry={() => app.retryGraph(refId)}
+        >
+          {#snippet children(g)}
+            <div class="graph-note">
+              <span class="k">full dependency graph</span>
+              <span class="scope">within this graph</span>
+            </div>
+            {#if myNode === undefined}
+              <!-- Said out loud rather than rendered as an empty tree: an
+                   absent join is a fact about the documents, not "no deps". -->
+              <p class="muted">
+                This derivation is not present in this graph — nothing to expand.
+              </p>
+            {:else}
+              <GraphLegend data={g.data} />
+              <div class="graph-rows">
+                <GraphExpand data={g.data} indexes={g.indexes} anchor={myNode} dir="deps" graphId={refId} />
+              </div>
+            {/if}
+          {/snippet}
+        </AsyncSlot>
+      {/if}
+    {/if}
   </section>
 
   <section>
@@ -328,6 +394,34 @@ function loadAllPackages() {
       <button class="loadall" onclick={loadAllPackages}>
         load {unloadedPackages.length} more package{unloadedPackages.length === 1 ? "" : "s"} to complete (may extract)
       </button>
+    {/if}
+    <!-- A SECOND, separately labelled answer — never merged into the count
+         above. "Within this graph" and "in this flake" are different questions
+         and a reader must be able to tell which one they are reading. -->
+    {#if graph && myNode !== undefined}
+      <div class="graph-revdeps">
+        {#if isGraphRoot}
+          <p class="muted">
+            This derivation is the root of its own dependency graph — nothing in this graph
+            depends on it. A graph rooted here contains what it needs, not what needs it.
+          </p>
+        {:else}
+          <div class="graph-note">
+            <span class="k">graph dependents</span>
+            <span class="count">{graphDependents}</span>
+            <span class="scope">within this graph</span>
+          </div>
+          <div class="graph-rows">
+            <GraphExpand
+              data={graph.data}
+              indexes={graph.indexes}
+              anchor={myNode}
+              dir="dependents"
+              graphId={refId}
+            />
+          </div>
+        {/if}
+      </div>
     {/if}
   </section>
 
@@ -546,5 +640,23 @@ function loadAllPackages() {
   .loadall:hover {
     color: var(--link);
     border-color: var(--link);
+  }
+  /* Graph-backed sections. No colour of their own: the scope label and the
+     count reuse the same tokens the flake-scoped section already uses, so the
+     two answers look like siblings — which is what they are. */
+  .graph-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 10px 0 4px;
+    font-size: var(--text-2xs);
+  }
+  .graph-rows {
+    margin-left: 2px;
+  }
+  .graph-revdeps {
+    margin-top: 10px;
+    border-top: 1px solid var(--grid);
+    padding-top: 6px;
   }
 </style>

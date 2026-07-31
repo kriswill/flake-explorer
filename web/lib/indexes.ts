@@ -8,6 +8,7 @@ import type {
   FileEntry,
   FileOptionRefs,
   FileOrigin,
+  GraphData,
   InputInfo,
   Manifest,
 } from "../lib/schema"
@@ -447,4 +448,122 @@ function buildFileToNodes(root: TreeNode): Map<string, Set<string>> {
   }
   walk(root, [])
   return map
+}
+
+// ---------------------------------------------------------------------- graph
+//
+// A loaded GraphData is big — 18,765 nodes and 133,288 edges for a NixOS
+// system closure — and every question the UI asks of it ("what depends on
+// this", "why is this here") is a traversal. So it is walked exactly once,
+// here, into structures held outside runes state alongside the raw blob.
+
+export interface GraphIndexes {
+  /**
+   * Forward adjacency ("what this node depends on"): the document's OWN
+   * `edges` array, held by reference and never copied. Every index in it has
+   * been validated in range by buildGraphIndexes, so callers may dereference
+   * `nodes[...]` without re-checking. Read it through dependenciesOf().
+   */
+  forward: number[][]
+  /**
+   * Reverse adjacency ("what depends on this node"), compressed: the
+   * dependents of node i are revTargets[revOffsets[i] .. revOffsets[i + 1]].
+   * A number[][] would mean one array object per node — 18,765 allocations
+   * holding boxed numbers — where this is two typed arrays and two passes.
+   * Rows come out ascending because the fill walks i in order.
+   */
+  revOffsets: Uint32Array
+  revTargets: Uint32Array
+  /** Full drvPath -> node index. The sound join key against PackageData.drv. */
+  byDrvPath: Map<string, number>
+  /**
+   * Output store path -> node index. Pathless outputs (about a third of all
+   * entries on a system graph) are absent, and a path claimed by more than
+   * one node keeps the FIRST — nodes are drvPath-sorted, so that is stable
+   * across reloads rather than whichever node happened to come last.
+   */
+  byOutputPath: Map<string, number>
+  /**
+   * The store directory, taken from the ROOT node's own `drvPath`. Measured
+   * constant within a document (one distinct value across all of the real
+   * documents, and the root's dirname equals it), but `nix --store /alt` is
+   * legal, so it is carried rather than assumed: a literal "/nix/store"
+   * anywhere on a resolve path would pass every test written against real
+   * data and fail silently on a custom store.
+   *
+   * `${storeDir}/${basename}` reproduces any node's drvPath byte-for-byte,
+   * which is what lets a route carry the basename alone and resolve it
+   * through `byDrvPath` without a second name-keyed index to drift.
+   */
+  storeDir: string
+}
+
+/** The nodes `i` depends on. The document's own row — do not mutate it. */
+export function dependenciesOf(gx: GraphIndexes, i: number): number[] {
+  return gx.forward[i] ?? []
+}
+
+/** The nodes that depend on `i`, as a zero-copy ascending view. */
+export function dependentsOf(gx: GraphIndexes, i: number): Uint32Array {
+  return gx.revTargets.subarray(gx.revOffsets[i] ?? 0, gx.revOffsets[i + 1] ?? 0)
+}
+
+const inRange = (v: number, n: number) => Number.isInteger(v) && v >= 0 && v < n
+
+/**
+ * Single O(nodes + edges) pass per loaded graph, built once at load time and
+ * never in a derivation. Strictly loop-based — nothing here recurses, so
+ * neither depth nor a cycle can overflow the stack.
+ *
+ * Throws on a structurally impossible document rather than limping along:
+ * the load path turns that into an error slot with a legible message, where
+ * an out-of-range index left in place would surface much later as a bare
+ * TypeError inside whichever renderer dereferenced it first.
+ */
+export function buildGraphIndexes(data: GraphData): GraphIndexes {
+  const n = data.nodes.length
+  const bad = (msg: string) => new Error(`graph ${data.id}: ${msg}`)
+
+  if (data.edges.length !== n)
+    throw bad(`edges length ${data.edges.length} does not match nodes length ${n}`)
+  if (!inRange(data.root, n)) throw bad(`root index ${data.root} is out of range (${n} nodes)`)
+
+  // Pass 1 — validate every target and count each node's in-degree.
+  const counts = new Uint32Array(n)
+  let edgeCount = 0
+  for (let i = 0; i < n; i++) {
+    const row = data.edges[i]!
+    for (let k = 0; k < row.length; k++) {
+      const t = row[k]!
+      if (!inRange(t, n)) throw bad(`edge target ${t} from node ${i} is out of range (${n} nodes)`)
+      counts[t]!++
+      edgeCount++
+    }
+  }
+
+  // Prefix sums give each node its slice; `cursor` then consumes them.
+  const revOffsets = new Uint32Array(n + 1)
+  for (let i = 0; i < n; i++) revOffsets[i + 1] = revOffsets[i]! + counts[i]!
+  const revTargets = new Uint32Array(edgeCount)
+  const cursor = revOffsets.slice(0, n)
+  for (let i = 0; i < n; i++) {
+    const row = data.edges[i]!
+    for (let k = 0; k < row.length; k++) revTargets[cursor[row[k]!]!++] = i
+  }
+
+  const byDrvPath = new Map<string, number>()
+  const byOutputPath = new Map<string, number>()
+  for (let i = 0; i < n; i++) {
+    const node = data.nodes[i]!
+    byDrvPath.set(node.drvPath, i)
+    for (const out of node.outputs) {
+      if (out.path !== undefined && !byOutputPath.has(out.path)) byOutputPath.set(out.path, i)
+    }
+  }
+
+  // The root is validated in range above, so this dereference is safe.
+  const rootPath = data.nodes[data.root]!.drvPath
+  const storeDir = rootPath.slice(0, rootPath.lastIndexOf("/"))
+
+  return { forward: data.edges, revOffsets, revTargets, byDrvPath, byOutputPath, storeDir }
 }

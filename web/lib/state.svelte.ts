@@ -5,18 +5,34 @@
 
 import { SvelteSet } from "svelte/reactivity"
 import type { AboutData } from "../../scripts/licenses"
-import type { ConfigData, FileSource, Manifest, OptionEntry, PackageData } from "../lib/schema"
-import { isConfigData, isManifest, isPackageData, parseFileId, SCHEMA_VERSION } from "../lib/schema"
+import type {
+  ConfigData,
+  FileSource,
+  GraphData,
+  Manifest,
+  OptionEntry,
+  PackageData,
+} from "../lib/schema"
+import {
+  isConfigData,
+  isGraphData,
+  isManifest,
+  isPackageData,
+  parseFileId,
+  SCHEMA_VERSION,
+} from "../lib/schema"
 import { registerSlotKeys } from "./color"
 import { hasEmbedded, isStatic, loadJson } from "./data"
 import { decodeHash, encodeHash, type Filters, type Selection, sameSelection } from "./hash"
 import {
   buildConfigIndexes,
   buildFlakeIndexes,
+  buildGraphIndexes,
   type ConfigIndexes,
   type FileMeta,
   type FlakeIndexes,
   fileTreeAncestorIds,
+  type GraphIndexes,
   groupKeyOf,
   resolveFile,
 } from "./indexes"
@@ -37,6 +53,20 @@ export function loadedConfig(
 /** Error slot of a failed ConfigSlot; null otherwise. */
 export function configError(slot: ConfigSlot | undefined): SlotError | null {
   return slot && typeof slot === "object" && "error" in slot ? slot : null
+}
+
+/**
+ * Shaped like ConfigSlot rather than PackageSlot: a graph is useless without
+ * its adjacency, so the indexes are built once here at load and travel with
+ * the document instead of being rebuilt by whoever reads the slot.
+ */
+export type GraphSlot = "loading" | SlotError | { data: GraphData; indexes: GraphIndexes }
+
+/** Narrow a GraphSlot to its loaded shape; null while loading/errored/absent. */
+export function loadedGraph(
+  slot: GraphSlot | undefined,
+): Extract<GraphSlot, { data: GraphData }> | null {
+  return slot && typeof slot === "object" && "data" in slot ? slot : null
 }
 
 export type PackageSlot = "loading" | SlotError | { data: PackageData }
@@ -65,6 +95,8 @@ class AppState {
   flakeIndexes = $state.raw<FlakeIndexes | null>(null)
   configs = $state.raw<Record<string, ConfigSlot>>({})
   packages = $state.raw<Record<string, PackageSlot>>({})
+  /** Dependency graphs — the biggest documents the SPA holds (5 MB / 18,765 nodes). */
+  graphs = $state.raw<Record<string, GraphSlot>>({})
   fileContents = $state.raw<Record<string, FileContentSlot>>({})
 
   expanded = new SvelteSet<string>()
@@ -210,6 +242,48 @@ class AppState {
     const { [packageId]: _, ...rest } = this.packages
     this.packages = rest
     void this.loadPackage(packageId)
+  }
+
+  /**
+   * Same lifecycle again, for a derivation's full dependency graph. Graph ids
+   * reuse the package/configuration id space, but the ref's own dataFile is
+   * what gets fetched — "packages/x/y" lives at graph/packages.x.y.json, not
+   * at the package blob's path, and the two documents load independently.
+   *
+   * `manifest.graphs` is optional: a manifest from an extractor that predates
+   * dependency graphs has no such key, and every id then simply resolves to
+   * nothing.
+   */
+  async loadGraph(graphId: string) {
+    if (!this.manifest || this.graphs[graphId]) return
+    const ref = (this.manifest.graphs ?? []).find((g) => g.id === graphId)
+    if (!ref) return
+    if (isStatic() && !hasEmbedded(ref.dataFile)) {
+      const error =
+        ref.status === "error" && ref.error
+          ? `extraction failed during export: ${ref.error}`
+          : "graph not included in this export"
+      this.graphs = { ...this.graphs, [graphId]: { error, permanent: true } }
+      return
+    }
+    this.graphs = { ...this.graphs, [graphId]: "loading" }
+    try {
+      const data = await loadJson<unknown>(ref.dataFile)
+      if (!isGraphData(data))
+        throw new Error(incompatibleData(ref.dataFile, (data as { version?: unknown })?.version))
+      // Throws on a structurally impossible document (see buildGraphIndexes);
+      // that lands in the error slot below rather than in a later renderer.
+      const indexes = buildGraphIndexes(data)
+      this.graphs = { ...this.graphs, [graphId]: { data, indexes } }
+    } catch (e) {
+      this.graphs = { ...this.graphs, [graphId]: { error: String(e) } }
+    }
+  }
+
+  retryGraph(graphId: string) {
+    const { [graphId]: _, ...rest } = this.graphs
+    this.graphs = rest
+    void this.loadGraph(graphId)
   }
 
   /**

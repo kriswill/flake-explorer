@@ -28,6 +28,13 @@ export interface Manifest {
   /** Derivation-typed outputs: packages, devShells, checks, formatter (see PackageRef). */
   packages: PackageRef[]
   /**
+   * Dependency-graph documents, one per derivation-typed output (see GraphRef).
+   * ADDITIVE and therefore optional: the extractor's field is `#[serde(default)]`,
+   * so a manifest written before dependency graphs existed carries the same
+   * SCHEMA_VERSION with no `graphs` key at all. Always read it as `?? []`.
+   */
+  graphs?: GraphRef[]
+  /**
    * "What in this flake depends on X": depended-on package refId -> dependent
    * refIds. Present only in a static export (built from the embedded package
    * blobs — see extract/reverse-deps.ts); authoritative over the EXPORTED set,
@@ -260,6 +267,143 @@ export interface PackageRef {
   error?: string
   extractedAt?: string
   durationMs?: number
+}
+
+// ---------------------------------------------------------------------------
+// Dependency graphs: the third document kind (data/graph/<safe-path>.json),
+// the full `nix derivation show -r` closure of one installable, projected.
+// Extracted on demand like packages and configurations — and never built:
+// every annotation below comes from evaluation or a local store query.
+//
+// Graph ids REUSE the package/configuration ref id space (the extractor's
+// categories are disjoint, so "packages/x/y" and "nixos/z" cannot collide),
+// which is what lets a package page find its own graph by refId. The converse
+// does NOT hold: a graph ref exists only for outputs the extractor enumerated,
+// and configuration graphs join the list only under --config-graphs.
+
+export interface GraphRef {
+  /** Same id as the PackageRef (or ConfigRef) this graph is rooted at. */
+  id: string
+  /** Output-tree path segments, e.g. ["packages", "x86_64-linux", "rtk"]. */
+  path: string[]
+  /**
+   * Data file relative to the data dir, e.g.
+   * "graph/packages.x86_64-linux.rtk.json". Dot-separated where `id` is
+   * slash-separated — not a transform to re-derive, always use this field.
+   */
+  dataFile: string
+  status: "pending" | "ok" | "error"
+  error?: string
+  extractedAt?: string
+  durationMs?: number
+}
+
+/**
+ * One projected `graph/<id>.json`. Sizes are real: 5.5 MB / 18,765 nodes /
+ * 133,288 edges for a NixOS system closure, so this document is held in
+ * $state.raw and indexed exactly once (see GraphIndexes in indexes.ts).
+ */
+export interface GraphData {
+  /** SCHEMA_VERSION at extraction time — the SPA rejects mismatched blobs. */
+  version: typeof SCHEMA_VERSION
+  id: string
+  /**
+   * Index into `nodes`. NEVER assume 0: nodes are sorted by drvPath, so the
+   * root lands wherever its hash puts it (909 / 845 / 10887 on real graphs).
+   */
+  root: number
+  /**
+   * When the snapshot was taken. Every `present` flag below is relative to
+   * this instant — a GC since then invalidates them, which is why the UI
+   * shows this alongside the status legend rather than hiding it.
+   */
+  extractedAt: string
+  /** Sorted by drvPath, so indices are deterministic for a given dump. */
+  nodes: GraphNode[]
+  /**
+   * Adjacency aligned with `nodes`: `edges[i]` holds the ascending, unique
+   * node indices that node i depends on (its inputDrvs). Same length as
+   * `nodes`; buildGraphIndexes rejects a document where that does not hold.
+   */
+  edges: number[][]
+  tiers: GraphTiers
+  stats: GraphStats
+  /** T3 only — absent means the tier was off or its parse failed. */
+  dryRun?: GraphDryRun
+  warnings: string[]
+}
+
+export interface GraphNode {
+  /** Full "/nix/store/<hash>-<name>.drv" — never a bare basename. */
+  drvPath: string
+  /** NOT unique: only 10,165 of 18,765 names are distinct on a system graph. */
+  name: string
+  /** Note: "builtin" occurs, for fixed-output fetchers. */
+  system?: string
+  outputs: GraphNodeOutput[]
+}
+
+export interface GraphNodeOutput {
+  name: string
+  /**
+   * Full store path. ABSENT for outputs with no static path: `derivation
+   * show` emits fixed-output fetcher outputs as {hash, method} with no path
+   * at all — about a third of all output entries on a system graph. Those
+   * outputs are structurally outside the presence and size tiers below.
+   */
+  path?: string
+  /**
+   * T1: valid in the local store at `extractedAt`. A snapshot of the store,
+   * NOT a claim about what a build would do — an absent output path is not
+   * the same as a path a build actually wants. Absent when the tier is off
+   * or the output has no path.
+   */
+  present?: boolean
+  /** T2, present paths only — absent is "not collected", never zero. */
+  narSize?: number
+  closureSize?: number
+}
+
+/**
+ * Which enrichment tiers this document actually carries. All four are
+ * required booleans: a tier that was not collected is `false`, never
+ * `undefined`, and the UI must render it as "not collected" rather than as a
+ * zero that reads like a measurement. `substituters` (T4) is always false.
+ */
+export interface GraphTiers {
+  presence: boolean
+  sizes: boolean
+  dryRun: boolean
+  substituters: boolean
+}
+
+export interface GraphStats {
+  nodeCount: number
+  edgeCount: number
+  /** Output entries that CARRY a path — not all do (see GraphNodeOutput.path). */
+  outputPathCount: number
+  /** Distinct paths among the path-bearing entries; duplicates exist but are rare. */
+  uniqueOutputPathCount: number
+  /**
+   * T1: UNIQUE output paths not valid locally at extractedAt — counted over
+   * uniqueOutputPathCount, so it does not equal the number of output entries
+   * with `present === false` (1096 vs 1103 on a real packages graph). The two
+   * are both legitimate and must never be labelled as the same quantity.
+   */
+  absentCount?: number
+  /** T3 aggregates. Present-with-zero means a satisfied closure; absent means not collected. */
+  toBuildCount?: number
+  toFetchCount?: number
+  downloadBytes?: number
+  unpackedBytes?: number
+}
+
+/** T3 detail: the exact partition `nix build --dry-run` reported. Either list may be empty. */
+export interface GraphDryRun {
+  /** Indices into GraphData.nodes. */
+  toBuildNodes: number[]
+  /** Full store paths — MAY name paths outside every node's outputs. */
+  toFetchPaths: string[]
 }
 
 export type BuilderKind =
@@ -516,4 +660,23 @@ export function isConfigData(v: unknown): v is ConfigData {
 
 export function isPackageData(v: unknown): v is PackageData {
   return isObj(v) && v.version === SCHEMA_VERSION && Array.isArray(v.outputs) && isObj(v.deps)
+}
+
+/**
+ * O(1) checks only — the structural invariants of a graph (edges aligned with
+ * nodes, every index in range) cost O(nodes + edges) and are enforced by
+ * buildGraphIndexes, which is already paying that pass. `tiers` and `stats`
+ * are required on the extractor side and dereferenced unconditionally by the
+ * annotation UI, so their absence is rejected here rather than later.
+ */
+export function isGraphData(v: unknown): v is GraphData {
+  return (
+    isObj(v) &&
+    v.version === SCHEMA_VERSION &&
+    typeof v.root === "number" &&
+    Array.isArray(v.nodes) &&
+    Array.isArray(v.edges) &&
+    isObj(v.tiers) &&
+    isObj(v.stats)
+  )
 }

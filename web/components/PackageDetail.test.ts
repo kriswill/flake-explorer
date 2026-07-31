@@ -4,10 +4,16 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { flushSync, mount, unmount } from "svelte"
-import { buildFlakeIndexes } from "../lib/indexes"
+import { buildFlakeIndexes, buildGraphIndexes } from "../lib/indexes"
 import type { PackageData } from "../lib/schema"
 import { app } from "../lib/state.svelte"
-import { fixtureManifest, fixturePackageRefs, SELF } from "../testing/fixtures"
+import {
+  fixtureGraph,
+  fixtureGraphRefs,
+  fixtureManifest,
+  fixturePackageRefs,
+  SELF,
+} from "../testing/fixtures"
 import { buttonsWithText, withMount } from "../testing/helpers"
 import PackageDetail from "./PackageDetail.svelte"
 
@@ -19,6 +25,10 @@ function seed() {
   app.flakeIndexes = buildFlakeIndexes(manifest)
   app.packages = {}
   app.configs = {}
+  // Reset here, not in a graph-only hook: bun's file order is directory
+  // enumeration and reshuffles when the file set changes, so a graph left in
+  // the singleton must not be able to reach a later file.
+  app.graphs = {}
   app.selection = null
 }
 
@@ -187,8 +197,13 @@ describe("PackageDetail", () => {
       expect(phaseSummary).not.toBeUndefined()
 
       expect(host.textContent).toContain("in store")
-      expect(host.textContent).toMatch(/narSize .*KB/)
-      expect(host.textContent).toMatch(/closureSize .*MB/)
+      // EXACT strings, not /narSize .*KB/: humanBytes moved out of this
+      // component into web/lib/graph-annotations, and a loose regex would have
+      // passed a formatter that rounded differently. 123_456 and 5_000_000 are
+      // the fixture's sizes; these are what the pre-move implementation
+      // rendered for them.
+      expect(host.textContent).toContain("narSize 121 KB")
+      expect(host.textContent).toContain("closureSize 4.8 MB")
     })
   })
 
@@ -364,6 +379,139 @@ describe("PackageDetail", () => {
       )
       expect(summary?.textContent).toContain("1 extraction warnings")
       expect(host.textContent).toContain("meta unavailable for hello")
+    })
+  })
+})
+
+/**
+ * Graph-backed expansion. The polarity decisions here are the ones the mission
+ * fixed after measuring real data: a graph rooted at X is X's dependency
+ * closure, so X is a SOURCE — root in-degree is 0 on all three real documents,
+ * and no real graph contains another graph's root. "Nothing in this graph
+ * depends on it" is therefore the honest sentence; a bare 0 sitting beside the
+ * flake-scoped count would read as "nothing depends on this package", which is
+ * a far stronger and false claim.
+ */
+describe("graph-backed dependency expansion", () => {
+  /** samplePackage() joined to fixtureGraph() the only sound way: by drvPath. */
+  const joinedPackage = (): PackageData => {
+    const g = fixtureGraph()
+    const p = samplePackage()
+    return { ...p, drv: { ...p.drv!, drvPath: g.nodes[g.root]!.drvPath } }
+  }
+
+  const withGraphRefs = () => {
+    app.manifest = { ...fixtureManifest(), graphs: fixtureGraphRefs() }
+  }
+
+  const mountLoaded = (fn: (host: HTMLElement) => void) => {
+    app.packages = { [PKG_ID]: { data: joinedPackage() } }
+    withMount(PackageDetail, { refId: PKG_ID }, fn)
+  }
+
+  test("G3: with no graphs in the manifest at all, nothing graph-shaped renders", () => {
+    // fixtureManifest() deliberately has no `graphs` key — the pre-graph shape.
+    mountLoaded((host) => {
+      expect(host.querySelector(".graph-rows")).toBe(null)
+      expect(buttonsWithText(host, "dependency graph").length).toBe(0)
+      expect(host.textContent).not.toContain("within this graph")
+    })
+  })
+
+  test("G5: the flake-scoped scope note is untouched when no graph is loaded", () => {
+    mountLoaded((host) => {
+      const section = [...host.querySelectorAll("section")].find((s) =>
+        s.textContent?.includes("Depended on by"),
+      )
+      expect(section?.querySelector(".scope")?.textContent).toBe("among loaded packages")
+    })
+  })
+
+  test("an unloaded graph offers an explicit opt-in that says it may extract", () => {
+    withGraphRefs()
+    mountLoaded((host) => {
+      const btn = buttonsWithText(host, "dependency graph")[0]
+      expect(btn?.tagName).toBe("BUTTON")
+      // 6 of 9 graph refs in a real manifest are `pending`: fetching one runs
+      // an extraction. That cost is never paid on the reader's behalf.
+      expect(btn?.textContent).toContain("may extract")
+      expect(host.querySelector(".graph-rows")).toBe(null)
+    })
+  })
+
+  test("G4: a loading slot says so, and an errored one offers retry", () => {
+    withGraphRefs()
+    app.graphs = { [PKG_ID]: "loading" }
+    mountLoaded((host) => {
+      expect(host.textContent).toContain("Extracting dependency graph")
+    })
+    app.graphs = { [PKG_ID]: { error: "boom: graph failed" } }
+    mountLoaded((host) => {
+      expect(host.textContent).toContain("boom: graph failed")
+      expect(buttonsWithText(host, "retry").length).toBe(1)
+      // A graph that failed to load is never presented as "0 dependents".
+      expect(host.textContent).not.toContain("0 within this graph")
+    })
+  })
+
+  test("G4: a permanent error (static export miss) offers no retry", () => {
+    withGraphRefs()
+    app.graphs = { [PKG_ID]: { error: "graph not included in this export", permanent: true } }
+    mountLoaded((host) => {
+      expect(host.textContent).toContain("not included in this export")
+      expect(buttonsWithText(host, "retry").length).toBe(0)
+    })
+  })
+
+  test("a loaded graph makes the drv-level inputs expandable, joined by drvPath", () => {
+    withGraphRefs()
+    const data = fixtureGraph()
+    app.graphs = { [PKG_ID]: { data, indexes: buildGraphIndexes(data) } }
+    mountLoaded((host) => {
+      const rows = [...host.querySelectorAll(".graph-rows .row .name")].map((e) =>
+        e.textContent?.trim(),
+      )
+      // fixtureGraph: hello(root 2) -> stdenv(1), fetch(3)
+      expect(rows).toEqual(["stdenv", "source"])
+    })
+  })
+
+  test("G1/G2: the graph-backed answer is separately labelled, never merged", () => {
+    withGraphRefs()
+    const data = fixtureGraph()
+    app.graphs = { [PKG_ID]: { data, indexes: buildGraphIndexes(data) } }
+    mountLoaded((host) => {
+      // The flake-scoped section keeps its own wording...
+      const section = [...host.querySelectorAll("section")].find((s) =>
+        s.textContent?.includes("Depended on by"),
+      )
+      expect(section?.querySelector(".scope")?.textContent).toBe("among loaded packages")
+      // ...and the graph-backed answer names the graph as its boundary.
+      expect(host.textContent).toContain("within this graph")
+    })
+  })
+
+  test("the root renders the honest root sentence, never a bare 0", () => {
+    withGraphRefs()
+    const data = fixtureGraph()
+    app.graphs = { [PKG_ID]: { data, indexes: buildGraphIndexes(data) } }
+    mountLoaded((host) => {
+      const note = (host.querySelector(".graph-revdeps")?.textContent ?? "").replace(/\s+/g, " ")
+      expect(note).toContain("root")
+      expect(note).toContain("nothing in this graph depends on it")
+      expect(note).not.toContain("0 within this graph")
+    })
+  })
+
+  test("a package whose drvPath is absent from the graph says so rather than guessing", () => {
+    withGraphRefs()
+    const data = fixtureGraph()
+    app.graphs = { [PKG_ID]: { data, indexes: buildGraphIndexes(data) } }
+    // The unjoined sample package: its drvPath is not a node in this graph.
+    app.packages = { [PKG_ID]: { data: samplePackage() } }
+    withMount(PackageDetail, { refId: PKG_ID }, (host) => {
+      expect(host.textContent).toContain("not present in this graph")
+      expect(host.querySelector(".graph-rows")).toBe(null)
     })
   })
 })

@@ -3,11 +3,17 @@
 // (script tags injected into happy-dom), so no network is involved.
 
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { fixtureConfig, fixtureManifest, fixturePackageRefs } from "../testing/fixtures"
+import {
+  fixtureConfig,
+  fixtureGraph,
+  fixtureGraphRefs,
+  fixtureManifest,
+  fixturePackageRefs,
+} from "../testing/fixtures"
 import { resetSlotKeys } from "./color"
-import { buildFlakeIndexes } from "./indexes"
+import { buildFlakeIndexes, dependentsOf } from "./indexes"
 import { SCHEMA_VERSION } from "./schema"
-import { app, loadedConfig, loadedPackage } from "./state.svelte"
+import { app, loadedConfig, loadedGraph, loadedPackage } from "./state.svelte"
 
 const injected = new Map<string, HTMLElement>()
 
@@ -26,6 +32,7 @@ beforeEach(() => {
   app.flakeIndexes = null
   app.configs = {}
   app.packages = {}
+  app.graphs = {}
   app.fileContents = {}
   app.selection = null
   app.q = ""
@@ -185,6 +192,113 @@ describe("loadPackage", () => {
     expect(app.selection).toEqual({ kind: "output", path: ["packages", "x86_64-linux", "hello"] })
     expect(app.expanded.has("out:packages")).toBe(true)
     expect(app.expanded.has("out:packages.x86_64-linux")).toBe(true)
+  })
+})
+
+describe("loadGraph", () => {
+  const GRAPH_ID = "packages/x86_64-linux/hello"
+  const dataFile = () => fixtureGraphRefs()[0]!.dataFile
+
+  function seedManifest(graphs = fixtureGraphRefs()) {
+    const m = fixtureManifest()
+    m.graphs = graphs
+    app.manifest = m
+    app.flakeIndexes = buildFlakeIndexes(m)
+    return m
+  }
+
+  test("a manifest with no graphs list at all is inert, not an error", () => {
+    // manifest.graphs is serde(default): a manifest from before dependency
+    // graphs existed has no key. Nothing may throw, and nothing may load.
+    const m = fixtureManifest()
+    expect("graphs" in m).toBe(false)
+    app.manifest = m
+    app.flakeIndexes = buildFlakeIndexes(m)
+    return app.loadGraph(GRAPH_ID).then(() => {
+      expect(app.graphs[GRAPH_ID]).toBeUndefined()
+    })
+  })
+
+  test("unknown graph ids are ignored", async () => {
+    seedManifest()
+    await app.loadGraph("packages/x86_64-linux/nope")
+    expect(app.graphs["packages/x86_64-linux/nope"]).toBeUndefined()
+  })
+
+  test("a loaded graph carries both the raw document and its indexes", async () => {
+    seedManifest()
+    injectData(dataFile(), fixtureGraph())
+    await app.loadGraph(GRAPH_ID)
+
+    const loaded = loadedGraph(app.graphs[GRAPH_ID])
+    expect(loaded?.data.id).toBe(GRAPH_ID)
+    // Built once, at load — not recomputed by whoever reads the slot.
+    expect(loaded?.indexes.byDrvPath.size).toBe(4)
+    expect(loaded?.data.root).toBe(2)
+    expect([...dependentsOf(loaded!.indexes, 0)]).toEqual([1])
+    // The pathless fetcher output is absent from the path index.
+    expect(loaded?.indexes.byOutputPath.size).toBe(3)
+  })
+
+  test("a bad blob lands in an error slot; retryGraph recovers", async () => {
+    seedManifest()
+    injectData(dataFile(), { ...fixtureGraph(), version: 999 })
+    await app.loadGraph(GRAPH_ID)
+    const slot = app.graphs[GRAPH_ID]
+    expect(slot && typeof slot === "object" && "error" in slot ? slot.error : "").toContain(
+      "incompatible extractor",
+    )
+
+    injected.get(dataFile())!.textContent = JSON.stringify(fixtureGraph())
+    app.retryGraph(GRAPH_ID)
+    await Bun.sleep(0)
+    expect(loadedGraph(app.graphs[GRAPH_ID])?.data.nodes.length).toBe(4)
+  })
+
+  test("a structurally impossible document fails with a message naming the graph", async () => {
+    // The version gate cannot catch this — only buildGraphIndexes' pass can,
+    // and the failure has to read like a data problem, not a crash.
+    seedManifest()
+    const broken = fixtureGraph()
+    broken.edges = [[], [0], [1, 99], []]
+    injectData(dataFile(), broken)
+    await app.loadGraph(GRAPH_ID)
+    const slot = app.graphs[GRAPH_ID]
+    const error = slot && typeof slot === "object" && "error" in slot ? slot.error : ""
+    expect(error).toContain("edge target 99 from node 2 is out of range")
+    expect(error).toContain(GRAPH_ID)
+  })
+
+  test("an already-populated slot is not reloaded", async () => {
+    seedManifest()
+    app.graphs = { [GRAPH_ID]: "loading" }
+    await app.loadGraph(GRAPH_ID)
+    expect(app.graphs[GRAPH_ID]).toBe("loading")
+  })
+
+  test("a second load of a resident graph does not rebuild its indexes", async () => {
+    seedManifest()
+    injectData(dataFile(), fixtureGraph())
+    await app.loadGraph(GRAPH_ID)
+    const first = loadedGraph(app.graphs[GRAPH_ID])!.indexes
+    await app.loadGraph(GRAPH_ID)
+    expect(loadedGraph(app.graphs[GRAPH_ID])!.indexes).toBe(first)
+  })
+
+  test("graph ids share the package id space without sharing a data file", async () => {
+    // Real manifests carry the same id set in both lists; only dataFile
+    // differs, which is why the ref's dataFile is used rather than re-derived.
+    const m = seedManifest()
+    const graphRef = m.graphs!.find((g) => g.id === GRAPH_ID)!
+    const pkgRef = m.packages.find((p) => p.id === GRAPH_ID)!
+    expect(graphRef.dataFile).not.toBe(pkgRef.dataFile)
+    expect(graphRef.dataFile).toBe("graph/packages.x86_64-linux.hello.json")
+
+    injectData(graphRef.dataFile, fixtureGraph())
+    await app.loadGraph(GRAPH_ID)
+    expect(loadedGraph(app.graphs[GRAPH_ID])).not.toBe(null)
+    // Loading the graph must not populate the package slot, or vice versa.
+    expect(app.packages[GRAPH_ID]).toBeUndefined()
   })
 })
 
@@ -359,6 +473,45 @@ describe("static export mode", () => {
       error: "package not included in this export",
       permanent: true,
     })
+    expect(fetchCalls).toBe(0)
+  })
+
+  test("a graph without an embedded blob is permanently not-included", async () => {
+    // export.rs downgrades a non-embedded graph ref back to "pending" and
+    // clears its extractedAt, so the ref alone cannot tell you it was ever
+    // extracted — only hasEmbedded() can, and there is no server to ask.
+    const m = fixtureManifest()
+    m.graphs = fixtureGraphRefs()
+    app.manifest = m
+    await app.loadGraph("packages/x86_64-linux/hello")
+    expect(app.graphs["packages/x86_64-linux/hello"]).toEqual({
+      error: "graph not included in this export",
+      permanent: true,
+    })
+    expect(fetchCalls).toBe(0)
+  })
+
+  test("a graph that failed during export surfaces its extraction error", async () => {
+    const m = fixtureManifest()
+    m.graphs = fixtureGraphRefs()
+    m.graphs[0]!.status = "error"
+    m.graphs[0]!.error = "instantiation failed"
+    app.manifest = m
+    await app.loadGraph("packages/x86_64-linux/hello")
+    expect(app.graphs["packages/x86_64-linux/hello"]).toEqual({
+      error: "extraction failed during export: instantiation failed",
+      permanent: true,
+    })
+    expect(fetchCalls).toBe(0)
+  })
+
+  test("an embedded graph still loads normally", async () => {
+    const m = fixtureManifest()
+    m.graphs = fixtureGraphRefs()
+    app.manifest = m
+    injectData(m.graphs[0]!.dataFile, fixtureGraph())
+    await app.loadGraph("packages/x86_64-linux/hello")
+    expect(loadedGraph(app.graphs["packages/x86_64-linux/hello"])?.data.nodes.length).toBe(4)
     expect(fetchCalls).toBe(0)
   })
 
