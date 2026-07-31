@@ -41,7 +41,7 @@ jobs:
       - run: rustup target add ${{ matrix.rust-target }}
       - run: pip install cargo-zigbuild
       - run: cargo zigbuild --release --locked --target ${{ matrix.rust-target }}
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v4.6.1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.1
         with:
           name: binary-${{ matrix.npm-target }}
           path: target/${{ matrix.rust-target }}/release/flake-explorer
@@ -62,7 +62,7 @@ jobs:
           key: ${{ matrix.rust-target }}
       - run: rustup target add ${{ matrix.rust-target }}
       - run: cargo build --release --locked --target ${{ matrix.rust-target }}
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v4.6.1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.1
         with:
           name: binary-${{ matrix.npm-target }}
           path: target/${{ matrix.rust-target }}/release/flake-explorer
