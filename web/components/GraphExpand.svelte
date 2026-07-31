@@ -76,6 +76,13 @@ function focusFirst(key: string | undefined) {
     {@const n = data.nodes[row.node]}
     {#if n}
       <li class="row" style="--depth:{row.depth}">
+        <!-- Leading count column, flush left of the arrows and outside the
+             indentation, so every row's count lines up in one gutter. The
+             number is aria-hidden: the expander's accessible name already
+             carries it, and reading it again before the name is noise. -->
+        <span class="count" aria-hidden="true"
+          >{row.kind === "primary" && row.childCount > 0 ? row.childCount : ""}</span
+        >
         {#if row.kind === "primary" && row.childCount > 0}
           <button
             class="expand"
@@ -107,9 +114,6 @@ function focusFirst(key: string | undefined) {
             <OutputStatus output={o} tiers={data.tiers} />
           {/each}
         </span>
-        {#if row.kind === "primary" && row.childCount > 0}
-          <span class="count">{row.childCount}</span>
-        {/if}
         <!-- Repeat and cycle are distinguished by WORDS. Neither meaning is
              carried by colour or by a glyph alone. -->
         {#if row.kind === "repeat"}
@@ -143,13 +147,14 @@ function focusFirst(key: string | undefined) {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding-left: calc(var(--depth) * 14px);
   }
+  /* Depth indents the arrow, not the row: the count gutter stays flush left. */
   .expand,
   .pad {
     width: 1em;
     flex: none;
     text-align: center;
+    margin-left: calc(var(--depth) * 14px);
   }
   .expand {
     background: none;
@@ -187,7 +192,12 @@ function focusFirst(key: string | undefined) {
     font-size: var(--text-3xs);
   }
   .count {
-    margin-left: auto;
+    flex: none;
+    min-width: 4ch;
+    text-align: right;
+    font-family: ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-muted);
   }
   .link {
     background: none;

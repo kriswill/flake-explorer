@@ -86,6 +86,31 @@ describe("rows and expansion", () => {
     })
   })
 
+  test("the child count leads the row, in its own column left of the expander", () => {
+    mountExpand(diamond(), (host) => {
+      const first = host.querySelector(".row")
+      const cell = first?.firstElementChild
+      expect(cell?.classList.contains("count")).toBe(true)
+      expect(cell?.textContent).toBe("1")
+      // The expander comes after the count, never before it.
+      const children = [...(first?.children ?? [])]
+      expect(children.findIndex((c) => c.classList.contains("count"))).toBeLessThan(
+        children.findIndex((c) => c.classList.contains("expand")),
+      )
+    })
+  })
+
+  test("rows without a count keep an empty leading cell so the column aligns", () => {
+    mountExpand(diamond(), (host) => {
+      ;(expanders(host)[1] as HTMLButtonElement).click()
+      flushSync()
+      const rows = [...host.querySelectorAll(".row")]
+      const zlib = rows.find((r) => r.querySelector(".name")?.textContent?.trim() === "zlib")
+      expect(zlib?.firstElementChild?.classList.contains("count")).toBe(true)
+      expect(zlib?.firstElementChild?.textContent).toBe("")
+    })
+  })
+
   test("a childless node gets no expander at all", () => {
     // zlib is a leaf, so expanding stdenv reveals a row with nothing to open.
     mountExpand(diamond(), (host) => {
