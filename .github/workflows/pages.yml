@@ -39,9 +39,15 @@ jobs:
       - run: bun install --frozen-lockfile
       # This flake has no nixos/darwin configurations, so --all/--sources all
       # cost nothing today; they keep the demo complete if that changes.
+      # --graphs embeds the main package's dependency graph (~1,500 nodes,
+      # ~0.5 MB) so the demo shows the graph views; graphs are explicit-only,
+      # never implied by --all. Presence in the embedded graph is a snapshot
+      # of the CI runner's store — the legend dates it, honestly.
       - run: |
           mkdir -p dist/site
-          nix run .# -- export . --all --sources all --html dist/site/flake.html
+          nix run .# -- export . --all --sources all \
+            --graphs packages/x86_64-linux/default \
+            --html dist/site/flake.html
           cp dist/site/flake.html dist/site/index.html
       # Docs: curated pages + TypeDoc API reference (markdown), both rendered
       # through the shared theme template into dist/site/docs/.
