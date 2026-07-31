@@ -487,8 +487,15 @@ describe("graph-backed dependency expansion", () => {
         s.textContent?.includes("Depended on by"),
       )
       expect(section?.querySelector(".scope")?.textContent).toBe("among loaded packages")
-      // ...and the graph-backed answer names the graph as its boundary.
-      expect(host.textContent).toContain("within this graph")
+      // ...and the graph-backed answer names the graph as its boundary — the
+      // section header carries the wording; each expander's accessible name
+      // carries the per-count scope ("N dependencies of x within this graph").
+      expect(host.textContent).toContain("full dependency graph")
+      expect(
+        [...host.querySelectorAll(".graph-rows [aria-label]")].some((e) =>
+          e.getAttribute("aria-label")?.includes("within this graph"),
+        ),
+      ).toBe(true)
     })
   })
 

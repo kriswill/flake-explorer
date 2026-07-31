@@ -347,9 +347,12 @@ const isGraphRoot = $derived(graph !== null && myNode === graph.data.root)
           retry={() => app.retryGraph(refId)}
         >
           {#snippet children(g)}
+            <!-- "full dependency graph" already names the boundary; the rows'
+                 counts carry their scope in each expander's accessible name.
+                 A separate right-floating scope label was the counts' column
+                 heading before they moved into the leading gutter. -->
             <div class="graph-note">
               <span class="k">full dependency graph</span>
-              <span class="scope">within this graph</span>
             </div>
             {#if myNode === undefined}
               <!-- Said out loud rather than rendered as an empty tree: an
