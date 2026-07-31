@@ -119,6 +119,27 @@ describe("repeats and cycles are visible, not silent", () => {
     })
   })
 
+  test("following 'shown above' moves focus to the occurrence rendered in full", () => {
+    // The marker has to DO something — a link that goes nowhere is exactly the
+    // dead end this phase exists to retire.
+    mountExpand(diamond(), (host) => {
+      for (const e of expanders(host)) (e as HTMLButtonElement).click()
+      flushSync()
+      const repeat = host.querySelector(".row .repeat") as HTMLButtonElement
+      const rows = [...host.querySelectorAll(".row")]
+      const primaryName = rows
+        .map((r) => r.querySelector(".name") as HTMLElement)
+        .find((n) => n?.textContent?.trim() === "zlib")
+      if (!primaryName) throw new Error("zlib should be rendered in full somewhere")
+
+      repeat.click()
+      flushSync()
+      expect(document.activeElement).toBe(primaryName)
+      // ...and it is the FIRST zlib, not the repeat's own row.
+      expect(primaryName.getAttribute("data-key")).toBe("1:3")
+    })
+  })
+
   test("a repeat is not expandable however it is reached", () => {
     mountExpand(diamond(), (host) => {
       for (const e of expanders(host)) (e as HTMLButtonElement).click()
