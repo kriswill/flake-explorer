@@ -313,3 +313,82 @@ describe("buildGraphRows — direction is a parameter, not a copy of the code", 
     }
   })
 })
+
+describe("buildGraphRows — sibling order is name order, not store-hash order", () => {
+  // Node indices follow drvPath, i.e. the 32-char store hash — deterministic
+  // but semantically random. Siblings therefore render sorted by NAME, with a
+  // numeric-aware compare so "gzip-1.2.4" precedes "gzip-1.14". Names collide
+  // on real graphs (10,165 distinct of 18,765), so ties fall back to index.
+  /** A graph whose node names are chosen per test; drvPaths stay unique. */
+  function named(edges: number[][], names: Record<number, string>) {
+    const data: GraphData = {
+      version: SCHEMA_VERSION,
+      id: "packages/x86_64-linux/default",
+      root: 0,
+      extractedAt: "2026-07-29T06:52:37.030Z",
+      nodes: edges.map((_, i) => ({
+        drvPath: `/nix/store/h${i}-${names[i] ?? `n${i}`}.drv`,
+        name: names[i] ?? `n${i}`,
+        system: "x86_64-linux",
+        outputs: [],
+      })),
+      edges,
+      tiers: { presence: false, sizes: false, dryRun: false, substituters: false },
+      stats: {
+        nodeCount: edges.length,
+        edgeCount: edges.reduce((a, r) => a + r.length, 0),
+        outputPathCount: 0,
+        uniqueOutputPathCount: 0,
+      },
+      warnings: [],
+    }
+    return { gx: buildGraphIndexes(data), nameOf: (i: number) => data.nodes[i]?.name ?? "" }
+  }
+
+  test("siblings render in numeric-aware name order", () => {
+    // Index order [1,2,3], lexical order gzip-1.14 < gzip-1.2.4 — both wrong;
+    // numeric-aware order is acl-2.3, gzip-1.2.4, gzip-1.14.
+    const { gx, nameOf } = named([[1, 2, 3], [], [], []], {
+      1: "gzip-1.14",
+      2: "acl-2.3",
+      3: "gzip-1.2.4",
+    })
+    const { rows } = buildGraphRows(gx, 0, open(), "deps", NO_BUDGET, nameOf)
+    expect(ids(rows)).toEqual([2, 3, 1])
+    expect(rows.map((r) => r.lastSibling)).toEqual([false, false, true])
+  })
+
+  test("identical names fall back to index order, so collisions stay deterministic", () => {
+    const { gx, nameOf } = named([[1, 2, 3], [], [], []], { 1: "dup", 2: "dup", 3: "aaa" })
+    const { rows } = buildGraphRows(gx, 0, open(), "deps", NO_BUDGET, nameOf)
+    expect(ids(rows)).toEqual([3, 1, 2])
+  })
+
+  test("the primary occurrence is the first in SORTED document order", () => {
+    // Both parents of the diamond's shared leaf are open. The name order walks
+    // "aaa" (index 2) before "zzz" (index 1), so the leaf's primary hangs
+    // under 2 and the occurrence under 1 is the repeat — index order would
+    // have said the opposite.
+    const { gx, nameOf } = named([[1, 2], [3], [3], []], { 1: "zzz", 2: "aaa", 3: "leaf" })
+    const { rows } = buildGraphRows(gx, 0, open(1, 2), "deps", NO_BUDGET, nameOf)
+    const primary = rows.find((r) => r.node === 3 && r.kind === "primary")
+    const repeat = rows.find((r) => r.node === 3 && r.kind === "repeat")
+    expect(primary?.key).toBe("2:3")
+    expect(repeat?.firstKey).toBe("2:3")
+    expect(keys(rows)).toEqual(["0:2", "2:3", "0:1", "1:3"])
+  })
+
+  test("the sort never mutates the document's adjacency rows", () => {
+    const edges = [[1, 2, 3], [], [], []]
+    const row0 = edges[0]
+    const { gx, nameOf } = named(edges, { 1: "ccc", 2: "aaa", 3: "bbb" })
+    buildGraphRows(gx, 0, open(), "deps", NO_BUDGET, nameOf)
+    expect(row0).toEqual([1, 2, 3])
+  })
+
+  test("omitting nameOf keeps index order — what every n<i> fixture above pins", () => {
+    const { gx } = named([[1, 2, 3], [], [], []], { 1: "zzz", 2: "yyy", 3: "xxx" })
+    const { rows } = buildGraphRows(gx, 0, open(), "deps", NO_BUDGET)
+    expect(ids(rows)).toEqual([1, 2, 3])
+  })
+})
