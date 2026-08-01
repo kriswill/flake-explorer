@@ -207,4 +207,17 @@ mod tests {
         assert!(!body.contains("</script><b>"));
         assert!(tag.contains("\\u003c/script"));
     }
+
+    #[test]
+    fn replace_ascii_ci_folds_case_and_replaces_every_hit() {
+        assert_eq!(
+            replace_ascii_ci("a</SCRipt>b</script>c", "</script", "<\\/script"),
+            "a<\\/script>b<\\/script>c"
+        );
+        // No hit: the input passes through byte-identical.
+        assert_eq!(
+            replace_ascii_ci("plain text", "</script", "X"),
+            "plain text"
+        );
+    }
 }

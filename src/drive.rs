@@ -601,3 +601,19 @@ impl ConsoleState {
         self.drawn = line.chars().count();
     }
 }
+
+#[cfg(test)]
+mod console_tests {
+    use super::*;
+
+    #[test]
+    fn first_line_takes_only_the_first_line() {
+        assert_eq!(first_line(&anyhow::anyhow!("boom\nsecond")), "boom");
+    }
+
+    #[test]
+    fn console_failed_retires_the_unit_without_panicking() {
+        let c = Console::new(&[], &[], &[]);
+        c.failed("cfg:x", &anyhow::anyhow!("boom\ndetail"));
+    }
+}

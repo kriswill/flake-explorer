@@ -301,3 +301,59 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
         _ => anyhow::bail!("unknown command: {cmd}\n\n{}", usage()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_flags_selections_numbers_and_port() {
+        let argv: Vec<String> = [
+            "--configs",
+            "a,b,",
+            "--packages",
+            "p",
+            "--graphs",
+            "g",
+            "--timeout",
+            "2.5",
+            "--port",
+            "70000",
+            "x",
+        ]
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+        let f = parse_flags(&argv).unwrap();
+        assert_eq!(f.configs, Selection::Ids(vec!["a".into(), "b".into()]));
+        assert_eq!(f.packages, Selection::Ids(vec!["p".into()]));
+        assert_eq!(f.graphs, Selection::Ids(vec!["g".into()]));
+        assert!((f.timeout - 2.5).abs() < f64::EPSILON);
+        // --port keeps its historical saturating-truncating cast.
+        assert_eq!(f.port, Some(u16::MAX));
+        assert_eq!(f.positional, vec!["x".to_string()]);
+    }
+
+    #[test]
+    fn num_rejects_nonpositive_nonfinite_and_gibberish() {
+        for bad in ["0", "-3", "inf", "NaN", "zero"] {
+            assert!(num("--t", Some(&bad.to_string())).is_err(), "{bad}");
+        }
+        assert!((num("--t", Some(&"2.5".to_string())).unwrap() - 2.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn port_from_truncates_and_saturates() {
+        assert_eq!(port_from(8080.4), 8080);
+        assert_eq!(port_from(70000.0), u16::MAX);
+    }
+
+    #[test]
+    fn canonical_ref_resolves_paths_and_keeps_the_query() {
+        let got = canonical_ref(".?dir=sub");
+        assert!(got.starts_with('/'), "{got}");
+        assert!(got.ends_with("?dir=sub"), "{got}");
+        // Non-path refs pass through untouched.
+        assert_eq!(canonical_ref("github:o/r"), "github:o/r");
+    }
+}

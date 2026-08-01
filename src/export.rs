@@ -417,3 +417,95 @@ fn strip_store_hash(root: &str) -> &str {
         _ => root,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::{FileEntry, FlakeInfo, InputInfo, OutputNode};
+
+    const HASH_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const HASH_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    fn mini_manifest() -> Manifest {
+        let mut inputs = IndexMap::new();
+        inputs.insert(
+            "nixpkgs".to_string(),
+            InputInfo {
+                name: "nixpkgs".to_string(),
+                node_key: "nixpkgs".to_string(),
+                transitive: None,
+                aliases: None,
+                r#type: "github".to_string(),
+                url: None,
+                r#ref: None,
+                rev: None,
+                nar_hash: None,
+                last_modified: None,
+                store_path: Some(format!("/nix/store/{HASH_A}-source")),
+                follows: None,
+            },
+        );
+        Manifest {
+            version: 1,
+            generated_at: String::new(),
+            extractor: String::new(),
+            flake: FlakeInfo {
+                r#ref: ".".to_string(),
+                path: "/nix/store/x-self".to_string(),
+                description: None,
+                rev: None,
+                nar_hash: None,
+            },
+            outputs: OutputNode::Omitted,
+            inputs,
+            files: Vec::<FileEntry>::new(),
+            import_edges: Vec::new(),
+            input_refs: Vec::new(),
+            overlay_defs: None,
+            input_follows: Vec::new(),
+            configurations: Vec::new(),
+            packages: Vec::new(),
+            graphs: Vec::new(),
+            package_reverse_deps: None,
+            grafts: Vec::new(),
+            output_names: IndexMap::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn strip_store_hash_strips_only_wellformed_prefixes() {
+        assert_eq!(strip_store_hash(&format!("{HASH_A}-source")), "source");
+        // 32 hash chars with no trailing dash: not a hash prefix at all.
+        assert_eq!(strip_store_hash(HASH_A), HASH_A);
+        // Too short, or non-hash chars in the first 32 bytes: untouched.
+        assert_eq!(strip_store_hash("short-name"), "short-name");
+        let upper = format!("{}-x", "A".repeat(32));
+        assert_eq!(strip_store_hash(&upper), upper.as_str());
+    }
+
+    #[test]
+    fn resolve_file_attributes_patched_input_copies() {
+        let manifest = mini_manifest();
+        let fx = FlakeIndexes::build(&manifest);
+        // A patched copy is "<new hash>-<original store basename>".
+        let path = format!("/nix/store/{HASH_B}-{HASH_A}-source/pkgs/x.nix");
+        let r = resolve_file(&path, &manifest, &fx);
+        assert_eq!(r.id, "input:nixpkgs:pkgs/x.nix");
+        assert_eq!(r.store_path, path);
+    }
+
+    #[test]
+    fn resolve_file_labels_unmatched_paths_unknown() {
+        let manifest = mini_manifest();
+        let fx = FlakeIndexes::build(&manifest);
+        let r = resolve_file(
+            &format!("/nix/store/{HASH_B}-mystery/x.nix"),
+            &manifest,
+            &fx,
+        );
+        assert_eq!(r.id, format!("unknown:{HASH_B}-mystery:x.nix"));
+        let r = resolve_file("not-a-store-path", &manifest, &fx);
+        assert_eq!(r.id, "unknown:not-a-store-path");
+    }
+}
