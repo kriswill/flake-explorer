@@ -139,7 +139,7 @@ static PEAK_IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
 
 /// Holds one slot in the gate; releases it on drop, including on the error and
 /// timeout paths.
-pub struct NixSlot(#[allow(dead_code)] Option<tokio::sync::SemaphorePermit<'static>>);
+pub struct NixSlot(#[allow(dead_code)] tokio::sync::SemaphorePermit<'static>);
 
 impl Drop for NixSlot {
     fn drop(&mut self) {
@@ -149,19 +149,23 @@ impl Drop for NixSlot {
 
 /// Wait for a slot in the gate. Public so the bound can be tested on the
 /// mechanism rather than inferred from a caller's timings.
-pub async fn enter_nix_gate() -> NixSlot {
+///
+/// # Errors
+///
+/// Fails only if the gate's semaphore has been closed, which no code path
+/// does today. Failing the call is deliberate: running it ungated instead
+/// would silently void the one-process ceiling — the fork-bomb guarantee —
+/// which must break loudly or not at all.
+pub async fn enter_nix_gate() -> Result<NixSlot, NixError> {
     static GATE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
-    // The gate is a static nothing ever closes, so acquire can only fail if
-    // that invariant breaks — and running one call ungated beats aborting an
-    // extraction mid-flight.
     let permit = GATE
         .get_or_init(|| tokio::sync::Semaphore::new(nix_jobs()))
         .acquire()
         .await
-        .ok();
+        .map_err(|_| NixError::plain("the nix gate is closed; refusing to run ungated"))?;
     let now = IN_FLIGHT.fetch_add(1, Ordering::SeqCst).saturating_add(1);
     PEAK_IN_FLIGHT.fetch_max(now, Ordering::SeqCst);
-    NixSlot(permit)
+    Ok(NixSlot(permit))
 }
 
 /// Most `nix` processes alive at once since the last reset.
@@ -225,7 +229,7 @@ async fn run_gated(
     mut cmd: Command,
     timeout: Duration,
 ) -> Result<(String, String), NixError> {
-    let _slot = enter_nix_gate().await;
+    let _slot = enter_nix_gate().await?;
     cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null());
@@ -906,7 +910,7 @@ mod tests {
         let mut handles = Vec::new();
         for _ in 0..limit * 4 {
             handles.push(tokio::spawn(async {
-                let _slot = enter_nix_gate().await;
+                let _slot = enter_nix_gate().await.unwrap();
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }));
         }
