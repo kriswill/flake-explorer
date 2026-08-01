@@ -5,6 +5,14 @@
 // crane check sandbox); CI sets FLAKE_EXPLORER_REQUIRE_NIX so a silent skip
 // there is impossible.
 
+// clippy.toml's unwrap-in-tests exemption reaches `#[test]` fns but not the
+// helpers around them, and this whole file is test code.
+#![expect(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    reason = "test code: panics are the failure mechanism"
+)]
+
 mod common;
 
 use common::{TempDir, fixture, nix_available};
@@ -19,10 +27,10 @@ use flake_explorer::schema::*;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-fn opts() -> ManifestOptions {
+const fn opts() -> ManifestOptions {
     ManifestOptions {
         all_systems: false,
-        timeout: Duration::from_secs(60),
+        timeout: Duration::from_mins(1),
         config_graphs: false,
     }
 }
@@ -61,7 +69,7 @@ async fn manifest_flake_input_files_imports_configurations() {
     assert!(vendor.store_path.is_some());
 
     let mut rel_paths: Vec<&str> = m.files.iter().map(|f| f.rel_path.as_str()).collect();
-    rel_paths.sort();
+    rel_paths.sort_unstable();
     assert_eq!(
         rel_paths,
         [
@@ -160,7 +168,7 @@ async fn options_declares_vs_defines_span_the_fixture_modules() {
         ConfigKind::Nixos,
         "mini",
         ExtractOptionsOpts {
-            timeout: Duration::from_secs(60),
+            timeout: Duration::from_mins(1),
             ..Default::default()
         },
     )
@@ -280,6 +288,10 @@ async fn vendor_input_is_listed() {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::significant_drop_tightening,
+    reason = "the scoped block already bounds the guard, and `last` borrows it, so the suggested early drop cannot move up"
+)]
 async fn extract_and_persist_writes_blob_and_sidecar_reconcile_accepts() {
     if !nix_available() {
         return;
@@ -300,7 +312,7 @@ async fn extract_and_persist_writes_blob_and_sidecar_reconcile_accepts() {
         &flake_ref,
         &key,
         &r#ref,
-        Duration::from_secs(60),
+        Duration::from_mins(1),
         Some(Arc::new(move |p: OptionsProgress| {
             sink.lock().unwrap().push(p);
         })),
@@ -366,10 +378,9 @@ async fn extract_package_writes_blob_and_sidecar_reconcile_accepts() {
         .unwrap();
     let r#ref = m.packages[idx].clone();
 
-    let r =
-        extract_and_persist_package(&out_dir, &flake_ref, &key, &r#ref, Duration::from_secs(60))
-            .await
-            .unwrap();
+    let r = extract_and_persist_package(&out_dir, &flake_ref, &key, &r#ref, Duration::from_mins(1))
+        .await
+        .unwrap();
     apply_extracted_package(&mut m.packages[idx], &r);
     assert_eq!(m.packages[idx].status, RefStatus::Ok);
 
@@ -420,15 +431,10 @@ async fn dev_shells_checks_formatter_extract_as_builder_unknown() {
         "formatter/x86_64-linux",
     ] {
         let r#ref = m.packages.iter().find(|p| p.id == id).unwrap().clone();
-        let r = extract_and_persist_package(
-            &out_dir,
-            &flake_ref,
-            &key,
-            &r#ref,
-            Duration::from_secs(60),
-        )
-        .await
-        .unwrap();
+        let r =
+            extract_and_persist_package(&out_dir, &flake_ref, &key, &r#ref, Duration::from_mins(1))
+                .await
+                .unwrap();
         // Raw derivations, no phases → classify as unknown.
         assert_eq!(r.result.data.builder, BuilderKind::Unknown, "{id}");
         assert!(
@@ -447,6 +453,10 @@ async fn dev_shells_checks_formatter_extract_as_builder_unknown() {
 /// accepts. Structural assertions only (no hardcoded node counts — closures
 /// drift with nixpkgs).
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "two graph shapes walked through one pipeline; splitting would duplicate the setup"
+)]
 async fn extract_graph_writes_blob_and_sidecar_reconcile_accepts() {
     if !nix_available() {
         return;
@@ -475,7 +485,7 @@ async fn extract_graph_writes_blob_and_sidecar_reconcile_accepts() {
             &key,
             &r#ref,
             false,
-            Duration::from_secs(60),
+            Duration::from_mins(1),
         )
         .await
         .unwrap();
@@ -493,7 +503,7 @@ async fn extract_graph_writes_blob_and_sidecar_reconcile_accepts() {
             assert!(g.stats.node_count > 1, "{id}: mini depends on mini-dep");
         }
         assert!(g.stats.node_count >= 1, "{id}");
-        assert_eq!(g.nodes.len(), g.stats.node_count as usize);
+        assert_eq!(g.nodes.len(), usize::try_from(g.stats.node_count).unwrap());
         assert_eq!(g.edges.len(), g.nodes.len());
 
         // The prefix rule, on REAL nix output.
@@ -506,13 +516,15 @@ async fn extract_graph_writes_blob_and_sidecar_reconcile_accepts() {
         }
 
         // Root reaches everything, and it is the installable itself.
+        let root = usize::try_from(g.root).unwrap();
         let mut seen = vec![false; g.nodes.len()];
-        let mut queue = std::collections::VecDeque::from([g.root]);
-        seen[g.root as usize] = true;
+        let mut queue = std::collections::VecDeque::from([root]);
+        seen[root] = true;
         while let Some(i) = queue.pop_front() {
-            for &j in &g.edges[i as usize] {
-                if !seen[j as usize] {
-                    seen[j as usize] = true;
+            for &j in &g.edges[i] {
+                let j = usize::try_from(j).unwrap();
+                if !seen[j] {
+                    seen[j] = true;
                     queue.push_back(j);
                 }
             }
@@ -523,7 +535,7 @@ async fn extract_graph_writes_blob_and_sidecar_reconcile_accepts() {
         // output must be absent — while its store-fetched sources are not all.
         assert!(g.tiers.presence, "{id}: presence tier must be on");
         assert!(g.stats.absent_count.is_some());
-        let root_out = &g.nodes[g.root as usize].outputs[0];
+        let root_out = &g.nodes[root].outputs[0];
         assert_eq!(root_out.present, Some(false), "{id} is never built");
     }
     assert_eq!(
@@ -540,9 +552,9 @@ async fn extract_graph_writes_blob_and_sidecar_reconcile_accepts() {
         &std::fs::read_to_string(tmp.0.join("graph/packages.x86_64-linux.mini.json")).unwrap(),
     )
     .unwrap();
-    let dep_names: Vec<&str> = g.edges[g.root as usize]
+    let dep_names: Vec<&str> = g.edges[usize::try_from(g.root).unwrap()]
         .iter()
-        .map(|&j| g.nodes[j as usize].name.as_str())
+        .map(|&j| g.nodes[usize::try_from(j).unwrap()].name.as_str())
         .collect();
     assert!(
         dep_names.iter().any(|n| n.contains("mini-dep")),
@@ -601,13 +613,12 @@ async fn config_graphs_are_opt_in_and_root_at_toplevel() {
             config_graphs: false,
             graph_dry_run: false,
             all_systems: false,
-            timeout: Duration::from_secs(60),
+            timeout: Duration::from_mins(1),
         },
     )
     .await;
-    let err = match err {
-        Ok(_) => panic!("--graphs on a config id without --config-graphs must error"),
-        Err(e) => e,
+    let Err(err) = err else {
+        panic!("--graphs on a config id without --config-graphs must error")
     };
     assert!(
         err.to_string().contains("--config-graphs"),
@@ -616,7 +627,7 @@ async fn config_graphs_are_opt_in_and_root_at_toplevel() {
 
     let opts_on = ManifestOptions {
         all_systems: false,
-        timeout: Duration::from_secs(60),
+        timeout: Duration::from_mins(1),
         config_graphs: true,
     };
     let m = build_manifest(&flake_ref, &opts_on).await.unwrap();
@@ -643,16 +654,17 @@ async fn config_graphs_are_opt_in_and_root_at_toplevel() {
         &key,
         r#ref,
         false,
-        Duration::from_secs(60),
+        Duration::from_mins(1),
     )
     .await
     .unwrap();
     let g = &r.result.data;
+    let root = usize::try_from(g.root).unwrap();
     assert_eq!(g.id, "nixos/mini");
-    assert_eq!(g.nodes[g.root as usize].name, "mini-toplevel");
+    assert_eq!(g.nodes[root].name, "mini-toplevel");
     assert!(g.tiers.presence);
     // Never built: the toplevel's own output is absent from the store.
-    assert_eq!(g.nodes[g.root as usize].outputs[0].present, Some(false));
+    assert_eq!(g.nodes[root].outputs[0].present, Some(false));
 }
 
 /// T3 against REAL `nix build --dry-run` stderr: the fixture package is
@@ -679,7 +691,7 @@ async fn dry_run_tier_partitions_a_real_unbuilt_package() {
         &key,
         r#ref,
         true,
-        Duration::from_secs(60),
+        Duration::from_mins(1),
     )
     .await
     .unwrap();
@@ -696,7 +708,7 @@ async fn dry_run_tier_partitions_a_real_unbuilt_package() {
     let names: Vec<&str> = dr
         .to_build_nodes
         .iter()
-        .map(|&i| g.nodes[i as usize].name.as_str())
+        .map(|&i| g.nodes[usize::try_from(i).unwrap()].name.as_str())
         .collect();
     assert!(names.iter().any(|n| n.contains("mini-0.1.0")), "{names:?}");
     assert!(names.iter().any(|n| n.contains("mini-dep")), "{names:?}");
@@ -711,12 +723,12 @@ async fn check_validity_flags_only_absent_paths() {
     if !nix_available() {
         return;
     }
-    let meta = flake_metadata(&fixture_ref(), Duration::from_secs(60))
+    let meta = flake_metadata(&fixture_ref(), Duration::from_mins(1))
         .await
         .unwrap();
     let valid = meta.path.expect("fixture flake has a store path");
     let fake = "/nix/store/00000000000000000000000000000000-fake-1.0".to_string();
-    let invalid = check_validity_invalid(&[valid.clone(), fake.clone()], Duration::from_secs(60))
+    let invalid = check_validity_invalid(&[valid.clone(), fake.clone()], Duration::from_mins(1))
         .await
         .unwrap();
     assert!(invalid.contains(&fake), "fake path must be invalid");
@@ -744,10 +756,9 @@ async fn broken_meta_degrades_to_a_warning_not_a_failure() {
         .position(|p| p.id == "packages/x86_64-linux/mini-broken-meta")
         .unwrap();
     let r#ref = m.packages[idx].clone();
-    let r =
-        extract_and_persist_package(&out_dir, &flake_ref, &key, &r#ref, Duration::from_secs(60))
-            .await
-            .unwrap();
+    let r = extract_and_persist_package(&out_dir, &flake_ref, &key, &r#ref, Duration::from_mins(1))
+        .await
+        .unwrap();
     apply_extracted_package(&mut m.packages[idx], &r);
     assert_eq!(m.packages[idx].status, RefStatus::Ok); // a meta failure is a warning
     assert_eq!(r.result.data.pname.as_deref(), Some("mini-broken-meta"));

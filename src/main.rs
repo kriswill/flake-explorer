@@ -5,9 +5,13 @@
 
 use flake_explorer::drive::{self, DriveFlags, Selection};
 use flake_explorer::{export, manifest, serve};
-use std::process::exit;
+use std::process::ExitCode;
 use std::time::Duration;
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool mirrors an independent CLI switch; collapsing them into enums would obscure the flag surface"
+)]
 struct Flags {
     out: String,
     configs: Selection,
@@ -29,12 +33,45 @@ fn prog() -> String {
     std::env::var("FLAKE_EXPLORER_PROG").unwrap_or_else(|_| "flake-explorer".to_string())
 }
 
-fn die(msg: &str) -> ! {
-    eprintln!("{}: {msg}", prog());
-    exit(1)
+/// A missing value (end of argv, or the next flag consumed as the value)
+/// must be an error, not a silent default.
+fn arg(flag: &str, raw: Option<&String>) -> Result<String, String> {
+    match raw {
+        Some(v) if !v.starts_with("--") => Ok(v.clone()),
+        _ => Err(format!("{flag} expects a value")),
+    }
 }
 
-fn parse_flags(argv: &[String]) -> Flags {
+fn num(flag: &str, raw: Option<&String>) -> Result<f64, String> {
+    let v = arg(flag, raw)?;
+    match v.parse::<f64>() {
+        Ok(n) if n.is_finite() && n > 0.0 => Ok(n),
+        _ => Err(format!("{flag} expects a positive number, got: {v}")),
+    }
+}
+
+fn ids(v: &str) -> Selection {
+    Selection::Ids(
+        v.split(',')
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect(),
+    )
+}
+
+/// `--port` keeps the historical cast semantics: fractional values truncate
+/// and out-of-range values saturate to the `u16` bounds.
+#[expect(
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "std has no lossless f64->u16 conversion; the saturating-truncating cast is the preexisting --port behavior"
+)]
+const fn port_from(n: f64) -> u16 {
+    n as u16
+}
+
+fn parse_flags(argv: &[String]) -> Result<Flags, String> {
     let mut f = Flags {
         out: "./flake-explorer-data".to_string(),
         configs: Selection::None,
@@ -51,59 +88,14 @@ fn parse_flags(argv: &[String]) -> Flags {
         dev: false,
         positional: Vec::new(),
     };
-    // A missing value (end of argv, or the next flag consumed as the value)
-    // must be an error, not a silent default.
-    let arg = |flag: &str, raw: Option<&String>| -> String {
-        match raw {
-            Some(v) if !v.starts_with("--") => v.clone(),
-            _ => die(&format!("{flag} expects a value")),
-        }
-    };
-    let num = |flag: &str, raw: Option<&String>| -> f64 {
-        let v = arg(flag, raw);
-        match v.parse::<f64>() {
-            Ok(n) if n.is_finite() && n > 0.0 => n,
-            _ => die(&format!("{flag} expects a positive number, got: {v}")),
-        }
-    };
-    let mut i = 0;
-    while i < argv.len() {
-        let a = argv[i].as_str();
+    let mut rest = argv.iter();
+    while let Some(a) = rest.next() {
+        let a = a.as_str();
         match a {
-            "--out" => {
-                i += 1;
-                f.out = arg(a, argv.get(i));
-            }
-            "--configs" => {
-                i += 1;
-                f.configs = Selection::Ids(
-                    arg(a, argv.get(i))
-                        .split(',')
-                        .filter(|s| !s.is_empty())
-                        .map(String::from)
-                        .collect(),
-                );
-            }
-            "--packages" => {
-                i += 1;
-                f.packages = Selection::Ids(
-                    arg(a, argv.get(i))
-                        .split(',')
-                        .filter(|s| !s.is_empty())
-                        .map(String::from)
-                        .collect(),
-                );
-            }
-            "--graphs" => {
-                i += 1;
-                f.graphs = Selection::Ids(
-                    arg(a, argv.get(i))
-                        .split(',')
-                        .filter(|s| !s.is_empty())
-                        .map(String::from)
-                        .collect(),
-                );
-            }
+            "--out" => f.out = arg(a, rest.next())?,
+            "--configs" => f.configs = ids(&arg(a, rest.next())?),
+            "--packages" => f.packages = ids(&arg(a, rest.next())?),
+            "--graphs" => f.graphs = ids(&arg(a, rest.next())?),
             "--config-graphs" => f.config_graphs = true,
             "--graph-dry-run" => f.graph_dry_run = true,
             // Deliberately does NOT include graphs: an 18k-node system graph
@@ -113,37 +105,21 @@ fn parse_flags(argv: &[String]) -> Flags {
                 f.packages = Selection::All;
             }
             "--all-systems" => f.all_systems = true,
-            "--timeout" => {
-                i += 1;
-                f.timeout = num(a, argv.get(i));
-            }
-            "--html" => {
-                i += 1;
-                f.html = arg(a, argv.get(i));
-            }
-            "--sources" => {
-                i += 1;
-                match arg(a, argv.get(i)).as_str() {
-                    "self" => f.sources_all = false,
-                    "all" => f.sources_all = true,
-                    v => die(&format!("--sources expects self or all, got: {v}")),
-                }
-            }
-            "--port" => {
-                i += 1;
-                f.port = Some(num(a, argv.get(i)) as u16);
-            }
-            "--host" => {
-                i += 1;
-                f.host = Some(arg(a, argv.get(i)));
-            }
+            "--timeout" => f.timeout = num(a, rest.next())?,
+            "--html" => f.html = arg(a, rest.next())?,
+            "--sources" => match arg(a, rest.next())?.as_str() {
+                "self" => f.sources_all = false,
+                "all" => f.sources_all = true,
+                v => return Err(format!("--sources expects self or all, got: {v}")),
+            },
+            "--port" => f.port = Some(port_from(num(a, rest.next())?)),
+            "--host" => f.host = Some(arg(a, rest.next())?),
             "--dev" => f.dev = true,
-            _ if a.starts_with("--") => die(&format!("unknown flag: {a}")),
+            _ if a.starts_with("--") => return Err(format!("unknown flag: {a}")),
             _ => f.positional.push(a.to_string()),
         }
-        i += 1;
     }
-    f
+    Ok(f)
 }
 
 /// Canonicalize path-like flakerefs: nix with lazy-trees disabled refuses a
@@ -153,11 +129,12 @@ fn canonical_ref(r#ref: &str) -> String {
         return r#ref.to_string();
     };
     // Keep any ?query (e.g. ?dir=sub) — it's flake selection, not filesystem.
-    let query = r#ref.find('?').map(|i| &r#ref[i..]).unwrap_or("");
-    match std::fs::canonicalize(&dir) {
-        Ok(p) => format!("{}{query}", p.to_string_lossy()),
-        Err(_) => r#ref.to_string(),
-    }
+    // find() returns a char-boundary index, so get() always succeeds here.
+    let query = r#ref.find('?').and_then(|i| r#ref.get(i..)).unwrap_or("");
+    std::fs::canonicalize(&dir).map_or_else(
+        |_| r#ref.to_string(),
+        |p| format!("{}{query}", p.to_string_lossy()),
+    )
 }
 
 fn usage() -> String {
@@ -197,14 +174,11 @@ docs: https://kris.net/flake-explorer/docs/ (or docs/ in the repo)"#,
     )
 }
 
-fn main() {
+fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, rest) = match args.split_first() {
-        Some((c, r)) => (c.clone(), r.to_vec()),
-        None => {
-            println!("{}", usage());
-            exit(0);
-        }
+    let Some((cmd, rest)) = args.split_first() else {
+        println!("{}", usage());
+        return ExitCode::SUCCESS;
     };
 
     // Help is handled before parse_flags so `serve --help` works without
@@ -213,15 +187,29 @@ fn main() {
         || rest.iter().any(|a| a == "--help" || a == "-h")
     {
         println!("{}", usage());
-        exit(0);
+        return ExitCode::SUCCESS;
     }
 
-    let flags = parse_flags(&rest);
-    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
-    let result = rt.block_on(run_command(&cmd, flags));
-    if let Err(e) = result {
-        eprintln!("{}: {e}", prog());
-        exit(1);
+    let flags = match parse_flags(rest) {
+        Ok(flags) => flags,
+        Err(msg) => {
+            eprintln!("{}: {msg}", prog());
+            return ExitCode::FAILURE;
+        }
+    };
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("{}: failed to start tokio runtime: {e}", prog());
+            return ExitCode::FAILURE;
+        }
+    };
+    match rt.block_on(run_command(cmd, flags)) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{}: {e}", prog());
+            ExitCode::FAILURE
+        }
     }
 }
 
@@ -229,9 +217,12 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
     let timeout = Duration::from_secs_f64(flags.timeout);
     match cmd {
         "extract" => {
-            let flake_ref = canonical_ref(flags.positional.first().unwrap_or_else(|| {
-                die("usage: extract <flakeref> [--out DIR] [--configs a,b | --all] [--packages a,b | --all]")
-            }));
+            let Some(first) = flags.positional.first() else {
+                anyhow::bail!(
+                    "usage: extract <flakeref> [--out DIR] [--configs a,b | --all] [--packages a,b | --all]"
+                );
+            };
+            let flake_ref = canonical_ref(first);
             drive::extract_to_dir(
                 &flake_ref,
                 &DriveFlags {
@@ -249,9 +240,12 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
             Ok(())
         }
         "export" => {
-            let flake_ref = canonical_ref(flags.positional.first().unwrap_or_else(|| {
-                die("usage: export <flakeref> [--html FILE] [--configs a,b | --all] [--packages a,b | --all] [--sources self|all]")
-            }));
+            let Some(first) = flags.positional.first() else {
+                anyhow::bail!(
+                    "usage: export <flakeref> [--html FILE] [--configs a,b | --all] [--packages a,b | --all] [--sources self|all]"
+                );
+            };
+            let flake_ref = canonical_ref(first);
             let r = drive::extract_to_dir(
                 &flake_ref,
                 &DriveFlags {
@@ -282,10 +276,10 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
             .await
         }
         "serve" => {
-            let flake_ref =
-                canonical_ref(flags.positional.first().unwrap_or_else(|| {
-                    die("usage: serve <flakeref> [--port N] [--out DIR] [--dev]")
-                }));
+            let Some(first) = flags.positional.first() else {
+                anyhow::bail!("usage: serve <flakeref> [--port N] [--out DIR] [--dev]");
+            };
+            let flake_ref = canonical_ref(first);
             serve::serve(
                 flake_ref,
                 serve::ServeFlags {
@@ -304,9 +298,62 @@ async fn run_command(cmd: &str, flags: Flags) -> anyhow::Result<()> {
             )
             .await
         }
-        _ => {
-            eprintln!("{}: unknown command: {cmd}\n\n{}", prog(), usage());
-            exit(1);
+        _ => anyhow::bail!("unknown command: {cmd}\n\n{}", usage()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_flags_selections_numbers_and_port() {
+        let argv: Vec<String> = [
+            "--configs",
+            "a,b,",
+            "--packages",
+            "p",
+            "--graphs",
+            "g",
+            "--timeout",
+            "2.5",
+            "--port",
+            "70000",
+            "x",
+        ]
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+        let f = parse_flags(&argv).unwrap();
+        assert_eq!(f.configs, Selection::Ids(vec!["a".into(), "b".into()]));
+        assert_eq!(f.packages, Selection::Ids(vec!["p".into()]));
+        assert_eq!(f.graphs, Selection::Ids(vec!["g".into()]));
+        assert!((f.timeout - 2.5).abs() < f64::EPSILON);
+        // --port keeps its historical saturating-truncating cast.
+        assert_eq!(f.port, Some(u16::MAX));
+        assert_eq!(f.positional, vec!["x".to_string()]);
+    }
+
+    #[test]
+    fn num_rejects_nonpositive_nonfinite_and_gibberish() {
+        for bad in ["0", "-3", "inf", "NaN", "zero"] {
+            assert!(num("--t", Some(&bad.to_string())).is_err(), "{bad}");
         }
+        assert!((num("--t", Some(&"2.5".to_string())).unwrap() - 2.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn port_from_truncates_and_saturates() {
+        assert_eq!(port_from(8080.4), 8080);
+        assert_eq!(port_from(70000.0), u16::MAX);
+    }
+
+    #[test]
+    fn canonical_ref_resolves_paths_and_keeps_the_query() {
+        let got = canonical_ref(".?dir=sub");
+        assert!(got.starts_with('/'), "{got}");
+        assert!(got.ends_with("?dir=sub"), "{got}");
+        // Non-path refs pass through untouched.
+        assert_eq!(canonical_ref("github:o/r"), "github:o/r");
     }
 }

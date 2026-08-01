@@ -20,11 +20,17 @@ use percent_encoding::percent_decode_str;
 use regex::Regex;
 use serde_json::json;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, RwLock, broadcast, watch};
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "a 1:1 image of independent CLI switches, each set once at startup; \
+              an enum-per-flag would obscure that mapping"
+)]
 pub struct ServeFlags {
     pub out: String,
     /// Opt-in: expose configuration graphs (a ~10 s toplevel eval each).
@@ -38,7 +44,7 @@ pub struct ServeFlags {
     pub dev: bool,
 }
 
-/// Shared server state. Public so the integration tests (tests/serve_http.rs)
+/// Shared server state. Public so the integration tests (`tests/serve_http.rs`)
 /// can hold one and drive `router()` in-process; fields stay module-private.
 pub struct AppState {
     flake_ref: String,
@@ -49,7 +55,7 @@ pub struct AppState {
     page: RwLock<String>,
     inflight: Mutex<HashMap<String, watch::Receiver<bool>>>,
     /// `nix --version` for this process, captured once at init. Part of the
-    /// cache key (cache.rs::CacheKey), so it has to be the same string for the
+    /// cache key (`cache.rs::CacheKey`), so it has to be the same string for the
     /// whole run rather than re-read per extraction.
     nix_version: String,
     reload_tx: broadcast::Sender<()>,
@@ -58,6 +64,12 @@ pub struct AppState {
 /// Everything serve does before binding a socket: nix check, data dirs, UI
 /// bundle, initial manifest + reconcile. Split from `serve` so tests can
 /// build the state and call `router()` without networking.
+///
+/// # Errors
+///
+/// Fails when `nix` is missing or unusable, the data directories cannot be
+/// created, the UI bundle cannot be located or loaded, or the initial
+/// manifest extraction fails.
 pub async fn init(flake_ref: String, flags: ServeFlags) -> anyhow::Result<Arc<AppState>> {
     let nix_version = check_nix().await?;
     std::fs::create_dir_all(Path::new(&flags.out).join("config"))?;
@@ -108,6 +120,12 @@ pub fn router(state: Arc<AppState>) -> axum::Router {
     axum::Router::new().fallback(move |req: Request<Body>| handle(state.clone(), req))
 }
 
+/// Bring the server up (`init`) and serve until the process ends.
+///
+/// # Errors
+///
+/// Fails on anything [`init`] can fail on, on binding `host:port`, or when
+/// the accept loop itself errors out.
 pub async fn serve(flake_ref: String, flags: ServeFlags) -> anyhow::Result<()> {
     let state = init(flake_ref, flags).await?;
 
@@ -125,6 +143,13 @@ pub async fn serve(flake_ref: String, flags: ServeFlags) -> anyhow::Result<()> {
     axum::serve(listener, router(state)).await?;
     Ok(())
 }
+
+// /data/(config|package|graph)/<name>.json — deliberately narrow charset.
+// `None` (an unparsable pattern, impossible short of a typo) degrades the
+// blob route to a plain 404 instead of panicking the handler.
+static BLOB_RE: std::sync::LazyLock<Option<Regex>> = std::sync::LazyLock::new(|| {
+    Regex::new(r"^/data/((?:config|package|graph)/[\w@%.+-]+\.json)$").ok()
+});
 
 async fn handle(state: Arc<AppState>, req: Request<Body>) -> Response {
     let path = req.uri().path().to_string();
@@ -145,7 +170,13 @@ async fn handle(state: Arc<AppState>, req: Request<Body>) -> Response {
             .header(header::CONTENT_TYPE, "text/event-stream")
             .header(header::CACHE_CONTROL, "no-cache")
             .body(Body::from_stream(stream))
-            .unwrap();
+            .unwrap_or_else(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "event stream unavailable",
+                )
+                    .into_response()
+            });
     }
 
     if path == "/data/manifest.json" {
@@ -153,13 +184,14 @@ async fn handle(state: Arc<AppState>, req: Request<Body>) -> Response {
         return axum::Json(&*manifest).into_response();
     }
 
-    // /data/(config|package|graph)/<name>.json — deliberately narrow charset.
-    static BLOB_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let blob_re = BLOB_RE.get_or_init(|| {
-        Regex::new(r"^/data/((?:config|package|graph)/[\w@%.+-]+\.json)$").unwrap()
-    });
-    if let Some(m) = blob_re.captures(&path) {
-        let rel = percent_decode_str(&m[1]).decode_utf8_lossy().into_owned();
+    if let Some(rel) = BLOB_RE
+        .as_ref()
+        .and_then(|re| re.captures(&path))
+        .and_then(|m| m.get(1))
+    {
+        let rel = percent_decode_str(rel.as_str())
+            .decode_utf8_lossy()
+            .into_owned();
         return serve_blob(&state, &rel).await;
     }
 
@@ -201,13 +233,13 @@ enum BlobKind {
 }
 
 impl BlobKind {
-    fn of_rel(rel: &str) -> BlobKind {
+    fn of_rel(rel: &str) -> Self {
         if rel.starts_with("package/") {
-            BlobKind::Package
+            Self::Package
         } else if rel.starts_with("graph/") {
-            BlobKind::Graph
+            Self::Graph
         } else {
-            BlobKind::Config
+            Self::Config
         }
     }
 }
@@ -242,6 +274,7 @@ async fn serve_blob(state: &Arc<AppState>, rel: &str) -> Response {
                 .find(|c| c.data_file == rel)
                 .map(|c| (c.id.clone(), c.status)),
         };
+        drop(m);
         match found {
             Some(x) => x,
             None => return (StatusCode::NOT_FOUND, "not found").into_response(),
@@ -270,6 +303,7 @@ async fn serve_blob(state: &Arc<AppState>, rel: &str) -> Response {
                 .find(|c| c.data_file == rel)
                 .map(|c| (c.status, c.error.clone())),
         };
+        drop(m);
         match cur {
             Some((RefStatus::Ok, _)) => {}
             Some((_, err)) => {
@@ -283,10 +317,10 @@ async fn serve_blob(state: &Arc<AppState>, rel: &str) -> Response {
         }
     }
 
-    match std::fs::read(Path::new(&state.flags.out).join(rel)) {
-        Ok(bytes) => ([(header::CONTENT_TYPE, "application/json")], bytes).into_response(),
-        Err(_) => (StatusCode::NOT_FOUND, "not found").into_response(),
-    }
+    std::fs::read(Path::new(&state.flags.out).join(rel)).map_or_else(
+        |_| (StatusCode::NOT_FOUND, "not found").into_response(),
+        |bytes| ([(header::CONTENT_TYPE, "application/json")], bytes).into_response(),
+    )
 }
 
 async fn on_demand(state: &Arc<AppState>, kind: BlobKind, id: &str) {
@@ -301,32 +335,48 @@ async fn on_demand(state: &Arc<AppState>, kind: BlobKind, id: &str) {
     };
     let mut rx = {
         let mut inflight = state.inflight.lock().await;
-        if let Some(rx) = inflight.get(&key) {
-            rx.clone()
-        } else {
-            let (tx, rx) = watch::channel(false);
-            inflight.insert(key.clone(), rx.clone());
-            let state = state.clone();
-            let id = id.to_string();
-            tokio::spawn(async move {
-                let cache_key = cache_key_of(&*state.manifest.read().await, &state.nix_version);
-                run_extraction(&state, kind, &id, &cache_key).await;
-                // Drop the entry BEFORE signalling, so an entry always means
-                // live work: `wait_for` returns immediately on an already-true
-                // value, so a request that cloned the receiver in between would
-                // "wait" on finished work and re-serve the stale status — an
-                // errored ref would 500 again instead of retrying. No wakeup is
-                // lost, waiters already hold their own receiver clones.
-                state.inflight.lock().await.remove(&key);
-                let _ = tx.send(true);
-            });
-            rx
+        match inflight.entry(key) {
+            Entry::Occupied(entry) => entry.get().clone(),
+            Entry::Vacant(entry) => {
+                let key = entry.key().clone();
+                let (tx, rx) = watch::channel(false);
+                entry.insert(rx.clone());
+                let state = state.clone();
+                let id = id.to_string();
+                tokio::spawn(async move {
+                    let cache_key = cache_key_of(&*state.manifest.read().await, &state.nix_version);
+                    run_extraction(&state, kind, &id, &cache_key).await;
+                    // Drop the entry BEFORE signalling, so an entry always means
+                    // live work: `wait_for` returns immediately on an already-true
+                    // value, so a request that cloned the receiver in between would
+                    // "wait" on finished work and re-serve the stale status — an
+                    // errored ref would 500 again instead of retrying. No wakeup is
+                    // lost, waiters already hold their own receiver clones.
+                    state.inflight.lock().await.remove(&key);
+                    let _ = tx.send(true);
+                });
+                rx
+            }
         }
     };
     // A dropped sender also means the task finished.
     let _ = rx.wait_for(|done| *done).await;
 }
 
+/// Milliseconds as seconds, for the progress lines.
+#[expect(
+    clippy::as_conversions,
+    clippy::cast_precision_loss,
+    reason = "display-only math; u64→f64 has no From impl and real durations sit far below 2^52 ms"
+)]
+fn secs(ms: u64) -> f64 {
+    ms as f64 / 1000.0
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "three parallel per-kind arms that read as one table; splitting them would hide the symmetry"
+)]
 async fn run_extraction(state: &Arc<AppState>, kind: BlobKind, id: &str, cache_key: &CacheKey) {
     match kind {
         BlobKind::Package => {
@@ -354,10 +404,11 @@ async fn run_extraction(state: &Arc<AppState>, kind: BlobKind, id: &str, cache_k
                         apply_extracted_package(cur, &r);
                     }
                     m.warnings.extend(r.result.warnings.clone());
+                    drop(m);
                     println!(
                         "  {id}: builder={} in {:.1}s",
                         r.result.data.builder.as_str(),
-                        r.result.duration_ms as f64 / 1000.0
+                        secs(r.result.duration_ms)
                     );
                 }
                 Err(e) => stamp_error(state, kind, id, &e).await,
@@ -389,11 +440,12 @@ async fn run_extraction(state: &Arc<AppState>, kind: BlobKind, id: &str, cache_k
                         apply_extracted_graph(cur, &r);
                     }
                     m.warnings.extend(r.result.warnings.clone());
+                    drop(m);
                     println!(
                         "  {id}: {} nodes, {} edges in {:.1}s",
                         r.result.data.stats.node_count,
                         r.result.data.stats.edge_count,
-                        r.result.duration_ms as f64 / 1000.0
+                        secs(r.result.duration_ms)
                     );
                 }
                 Err(e) => stamp_error(state, kind, id, &e).await,
@@ -425,10 +477,11 @@ async fn run_extraction(state: &Arc<AppState>, kind: BlobKind, id: &str, cache_k
                         apply_extracted(cur, &r);
                     }
                     m.warnings.extend(r.result.warnings.clone());
+                    drop(m);
                     println!(
                         "  {id}: {} options in {:.1}s",
                         r.result.data.options.len(),
-                        r.result.duration_ms as f64 / 1000.0
+                        secs(r.result.duration_ms)
                     );
                 }
                 Err(e) => stamp_error(state, kind, id, &e).await,
@@ -484,27 +537,25 @@ async fn serve_file(state: &Arc<AppState>, enc_id: &str, query: &str) -> Respons
         )
             .into_response();
     }
-    let text = match std::fs::read_to_string(&store_path) {
-        Ok(t) => t,
-        Err(_) => {
-            // A cached blob's storePath can be stale (GC'd, or lazy-trees
-            // synthetic) — for input-origin files, re-fetch straight from the
-            // flake input instead of 404ing.
-            let id = percent_decode_str(enc_id).decode_utf8_lossy().into_owned();
-            match parse_file_id(&id) {
-                Some(ParsedFileId::InputFile { input, rel_path }) => {
-                    match read_input_file(&state.flake_ref, &input, &rel_path, state.flags.timeout)
-                        .await
-                    {
-                        Ok(t) => t,
-                        Err(e) => {
-                            return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
-                                .into_response();
-                        }
+    let text = if let Ok(t) = std::fs::read_to_string(&store_path) {
+        t
+    } else {
+        // A cached blob's storePath can be stale (GC'd, or lazy-trees
+        // synthetic) — for input-origin files, re-fetch straight from the
+        // flake input instead of 404ing.
+        let id = percent_decode_str(enc_id).decode_utf8_lossy().into_owned();
+        match parse_file_id(&id) {
+            Some(ParsedFileId::InputFile { input, rel_path }) => {
+                match read_input_file(&state.flake_ref, &input, &rel_path, state.flags.timeout)
+                    .await
+                {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
                     }
                 }
-                _ => return (StatusCode::NOT_FOUND, "not found").into_response(),
             }
+            _ => return (StatusCode::NOT_FOUND, "not found").into_response(),
         }
     };
     let tokens = tokenize_nix(&text);
@@ -512,8 +563,11 @@ async fn serve_file(state: &Arc<AppState>, enc_id: &str, query: &str) -> Respons
 }
 
 /// Roots the /data/file/ route may read from: the Nix store and the flake's
-/// own tree. Compared after normalization so `..` cannot walk out, and with a
+/// own tree.
+///
+/// Compared after normalization so `..` cannot walk out, and with a
 /// trailing separator so `/nix/store-evil` can't pass as `/nix/store`.
+#[must_use]
 pub fn under_readable_root(candidate: &str, flake_path: &str) -> bool {
     let path = normalize_path(candidate);
     if path.starts_with("/nix/store/") {
@@ -539,7 +593,7 @@ fn normalize_path(p: &str) -> String {
     let mut out: Vec<&str> = Vec::new();
     for seg in p.split('/') {
         match seg {
-            "" | "." => continue,
+            "" | "." => {}
             ".." => {
                 if out.pop().is_none() && !absolute {
                     out.push("..");
@@ -564,8 +618,8 @@ fn async_stream_events(
     use tokio_stream::StreamExt;
     use tokio_stream::wrappers::BroadcastStream;
     let hello = tokio_stream::once(Ok(": connected\n\n".to_string()));
-    let reloads =
-        BroadcastStream::new(rx).filter_map(|r| r.ok().map(|_| Ok("data: reload\n\n".to_string())));
+    let reloads = BroadcastStream::new(rx)
+        .filter_map(|r| r.ok().map(|()| Ok("data: reload\n\n".to_string())));
     hello.chain(reloads)
 }
 
@@ -604,7 +658,7 @@ fn spawn_dev_watcher(state: Arc<AppState>, dist: std::path::PathBuf, title: Stri
         println!("dev: watching web/ for UI changes");
         // Keep the watcher alive for the process lifetime.
         loop {
-            std::thread::sleep(std::time::Duration::from_secs(3600));
+            std::thread::sleep(std::time::Duration::from_hours(1));
         }
     });
 
@@ -614,9 +668,10 @@ fn spawn_dev_watcher(state: Arc<AppState>, dist: std::path::PathBuf, title: Stri
                 return;
             }
             // Debounce: absorb the burst of events a save produces.
-            while let Ok(Some(())) =
-                tokio::time::timeout(Duration::from_millis(150), rx.recv()).await
-            {}
+            while matches!(
+                tokio::time::timeout(Duration::from_millis(150), rx.recv()).await,
+                Ok(Some(()))
+            ) {}
             let t0 = std::time::Instant::now();
             let repo = Path::new(env!("CARGO_MANIFEST_DIR"));
             let status = tokio::process::Command::new("bun")

@@ -8,7 +8,10 @@ use crate::highlight::tokenize_nix;
 use crate::page::{PageOpts, find_app_dist, load_bundle, page_html};
 use crate::reverse_deps::build_package_reverse_deps;
 use crate::run_nix::read_input_file;
-use crate::schema::*;
+use crate::schema::{
+    ConfigData, FileSource, GraphData, Manifest, PackageData, ParsedFileId, RefStatus,
+    make_file_id_input, make_file_id_self, parse_file_id,
+};
 use indexmap::IndexMap;
 use serde_json::Value;
 use std::path::Path;
@@ -26,6 +29,20 @@ pub struct ExportOptions {
     pub wanted_graphs: Vec<String>,
 }
 
+/// Compose the SPA and every requested data document into one standalone
+/// HTML file at `opts.html_path`.
+///
+/// # Errors
+///
+/// Fails when the SPA bundle cannot be located or loaded, when an embed
+/// fails to serialize, or when the output file cannot be written. Per-item
+/// problems (a config/package/graph blob that won't parse, a source file
+/// that can't be read) are downgraded to warnings embedded in the manifest,
+/// not errors.
+#[expect(
+    clippy::too_many_lines,
+    reason = "linear embed-assembly pipeline; splitting it would scatter the ordering invariants (manifest must embed last)"
+)]
 pub async fn export_html(
     flake_ref: &str,
     manifest: &Manifest,
@@ -197,10 +214,16 @@ pub async fn export_html(
     let html_bytes = html.len();
     std::fs::write(&opts.html_path, html)?;
 
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_precision_loss,
+        reason = "byte count to MB for display only; f64::from does not exist for usize"
+    )]
+    let html_mb = html_bytes as f64 / 1024.0 / 1024.0;
     println!(
         "wrote {} ({:.1} MB, {} configurations, {} packages, {} graphs, {} source files)",
         opts.html_path,
-        html_bytes as f64 / 1024.0 / 1024.0,
+        html_mb,
         config_data.len(),
         package_data.len(),
         graph_data.len(),
@@ -292,42 +315,32 @@ struct ResolvedFile {
 }
 
 impl FlakeIndexes {
-    fn build(manifest: &Manifest) -> FlakeIndexes {
+    fn build(manifest: &Manifest) -> Self {
         let self_by_store_path = manifest
             .files
             .iter()
             .map(|f| (f.store_path.clone(), (f.id.clone(), f.rel_path.clone())))
             .collect();
-        let with_paths: Vec<&InputInfo> = manifest
+        let with_paths: Vec<(&str, &str)> = manifest
             .inputs
             .values()
-            .filter(|i| i.store_path.is_some())
+            .filter_map(|i| i.store_path.as_deref().map(|p| (p, i.name.as_str())))
             .collect();
         let mut input_prefixes: Vec<(String, String)> = with_paths
             .iter()
-            .map(|i| {
-                (
-                    format!("{}/", i.store_path.as_ref().unwrap()),
-                    i.name.clone(),
-                )
-            })
+            .map(|&(path, name)| (format!("{path}/"), name.to_string()))
             .collect();
         input_prefixes.sort_by_key(|(p, _)| std::cmp::Reverse(p.len()));
         let mut input_by_store_name = std::collections::HashMap::new();
-        for i in &with_paths {
-            let base = i
-                .store_path
-                .as_ref()
-                .unwrap()
-                .rsplit('/')
-                .next()
-                .unwrap()
-                .to_string();
+        for &(path, name) in &with_paths {
+            // rsplit always yields at least one piece, so the fallback is
+            // unreachable; the whole path is the honest degenerate base.
+            let base = path.rsplit('/').next().unwrap_or(path).to_string();
             input_by_store_name
                 .entry(base)
-                .or_insert_with(|| i.name.clone());
+                .or_insert_with(|| name.to_string());
         }
-        FlakeIndexes {
+        Self {
             self_by_store_path,
             input_prefixes,
             input_by_store_name,
@@ -365,15 +378,14 @@ fn resolve_file(store_path: &str, manifest: &Manifest, fx: &FlakeIndexes) -> Res
     }
     // Patched copy of an input: "<hash>-<original store basename>" trees —
     // recover the input from the middle.
-    let re = regex::Regex::new(r"^/nix/store/([^/]+)/(.*)$").unwrap();
-    if let Some(m) = re.captures(store_path) {
-        let root = &m[1];
-        let rel = &m[2];
-        let hash_re = regex::Regex::new(r"^[a-z0-9]{32}-").unwrap();
-        let original_name = hash_re.replace(root, "").into_owned();
-        if let Some(input) = fx.input_by_store_name.get(&original_name) {
+    if let Some((root, rel)) = store_path
+        .strip_prefix("/nix/store/")
+        .and_then(|rest| rest.split_once('/'))
+        .filter(|(root, _)| !root.is_empty())
+    {
+        let original_name = strip_store_hash(root);
+        if let Some(input) = fx.input_by_store_name.get(original_name) {
             // The patched-flag id shape matches makeFileId (kind: input).
-            let _ = input;
             return ResolvedFile {
                 id: make_file_id_input(input, rel),
                 store_path: store_path.into(),
@@ -387,5 +399,113 @@ fn resolve_file(store_path: &str, manifest: &Manifest, fx: &FlakeIndexes) -> Res
     ResolvedFile {
         id: format!("unknown:{store_path}"),
         store_path: store_path.into(),
+    }
+}
+
+/// Strip a leading `<32-char nix hash>-` from a store basename, if present.
+fn strip_store_hash(root: &str) -> &str {
+    match root.split_at_checked(32) {
+        Some((hash, rest))
+            if hash
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()) =>
+        {
+            // A well-formed hash prefix without the trailing dash is not a
+            // hash prefix at all — keep the whole name.
+            rest.strip_prefix('-').unwrap_or(root)
+        }
+        _ => root,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::{FileEntry, FlakeInfo, InputInfo, OutputNode};
+
+    const HASH_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const HASH_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    fn mini_manifest() -> Manifest {
+        let mut inputs = IndexMap::new();
+        inputs.insert(
+            "nixpkgs".to_string(),
+            InputInfo {
+                name: "nixpkgs".to_string(),
+                node_key: "nixpkgs".to_string(),
+                transitive: None,
+                aliases: None,
+                r#type: "github".to_string(),
+                url: None,
+                r#ref: None,
+                rev: None,
+                nar_hash: None,
+                last_modified: None,
+                store_path: Some(format!("/nix/store/{HASH_A}-source")),
+                follows: None,
+            },
+        );
+        Manifest {
+            version: 1,
+            generated_at: String::new(),
+            extractor: String::new(),
+            flake: FlakeInfo {
+                r#ref: ".".to_string(),
+                path: "/nix/store/x-self".to_string(),
+                description: None,
+                rev: None,
+                nar_hash: None,
+            },
+            outputs: OutputNode::Omitted,
+            inputs,
+            files: Vec::<FileEntry>::new(),
+            import_edges: Vec::new(),
+            input_refs: Vec::new(),
+            overlay_defs: None,
+            input_follows: Vec::new(),
+            configurations: Vec::new(),
+            packages: Vec::new(),
+            graphs: Vec::new(),
+            package_reverse_deps: None,
+            grafts: Vec::new(),
+            output_names: IndexMap::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn strip_store_hash_strips_only_wellformed_prefixes() {
+        assert_eq!(strip_store_hash(&format!("{HASH_A}-source")), "source");
+        // 32 hash chars with no trailing dash: not a hash prefix at all.
+        assert_eq!(strip_store_hash(HASH_A), HASH_A);
+        // Too short, or non-hash chars in the first 32 bytes: untouched.
+        assert_eq!(strip_store_hash("short-name"), "short-name");
+        let upper = format!("{}-x", "A".repeat(32));
+        assert_eq!(strip_store_hash(&upper), upper.as_str());
+    }
+
+    #[test]
+    fn resolve_file_attributes_patched_input_copies() {
+        let manifest = mini_manifest();
+        let fx = FlakeIndexes::build(&manifest);
+        // A patched copy is "<new hash>-<original store basename>".
+        let path = format!("/nix/store/{HASH_B}-{HASH_A}-source/pkgs/x.nix");
+        let r = resolve_file(&path, &manifest, &fx);
+        assert_eq!(r.id, "input:nixpkgs:pkgs/x.nix");
+        assert_eq!(r.store_path, path);
+    }
+
+    #[test]
+    fn resolve_file_labels_unmatched_paths_unknown() {
+        let manifest = mini_manifest();
+        let fx = FlakeIndexes::build(&manifest);
+        let r = resolve_file(
+            &format!("/nix/store/{HASH_B}-mystery/x.nix"),
+            &manifest,
+            &fx,
+        );
+        assert_eq!(r.id, format!("unknown:{HASH_B}-mystery:x.nix"));
+        let r = resolve_file("not-a-store-path", &manifest, &fx);
+        assert_eq!(r.id, "unknown:not-a-store-path");
     }
 }

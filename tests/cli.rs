@@ -8,6 +8,12 @@ struct Run {
     code: Option<i32>,
 }
 
+// clippy.toml's unwrap-in-tests exemption reaches `#[test]` fns but not the
+// helpers around them.
+#[expect(
+    clippy::unwrap_used,
+    reason = "test code: panics are the failure mechanism"
+)]
 fn run(args: &[&str]) -> Run {
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_flake-explorer"))
         .args(args)
@@ -87,4 +93,18 @@ fn wrapper_prog_name_is_respected() {
         .unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("fe-wrapped: unknown command"));
+}
+
+#[test]
+fn commands_require_a_flakeref() {
+    for (cmd, frag) in [
+        ("extract", "usage: extract <flakeref>"),
+        ("export", "usage: export <flakeref>"),
+        ("serve", "usage: serve <flakeref>"),
+    ] {
+        let r = run(&[cmd]);
+        assert_eq!(r.code, Some(1), "{cmd}");
+        assert!(r.stderr.contains(frag), "{cmd}: {}", r.stderr);
+        assert_eq!(r.stdout, "", "{cmd}");
+    }
 }

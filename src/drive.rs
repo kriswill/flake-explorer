@@ -31,7 +31,7 @@ pub struct DriveFlags {
     pub timeout: Duration,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Selection {
     #[default]
     None,
@@ -46,6 +46,23 @@ pub struct DriveResult {
     pub wanted_graphs: Vec<String>,
 }
 
+/// Extract the manifest and every selected configuration, package, and graph
+/// into `flags.out`, reusing cache entries whose fingerprint still matches.
+///
+/// # Errors
+///
+/// Fails when `nix` is missing or too old, when the output directories cannot
+/// be created, when manifest extraction itself fails, when an explicitly
+/// selected id is malformed or names nothing in the manifest, or when the
+/// final `manifest.json` cannot be serialized or written. A unit that fails to
+/// extract does not fail the run — the failure is recorded on its manifest
+/// entry instead.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sequential story: resolve, extract concurrently, fold back \
+              in request order — splitting it would scatter the ordering \
+              invariants the comments below defend"
+)]
 pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Result<DriveResult> {
     // Silent unless FLAKE_EXPLORER_TIMINGS asks otherwise, and stderr-only
     // when it does, so nothing below changes what the run prints (timing.rs).
@@ -231,11 +248,11 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
                         .count();
                     console.finished(
                         &r#ref.id,
-                        format!(
+                        &format!(
                             "  {}: {} options ({customized} customized) in {:.1}s",
                             r#ref.id,
                             r.result.data.options.len(),
-                            r.result.duration_ms as f64 / 1000.0
+                            Duration::from_millis(r.result.duration_ms).as_secs_f64()
                         ),
                         &r.result.warnings,
                     );
@@ -256,11 +273,11 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
             match &done {
                 Ok(r) => console.finished(
                     &r#ref.id,
-                    format!(
+                    &format!(
                         "  {}: builder={} in {:.1}s",
                         r#ref.id,
                         r.result.data.builder.as_str(),
-                        r.result.duration_ms as f64 / 1000.0
+                        Duration::from_millis(r.result.duration_ms).as_secs_f64()
                     ),
                     &r.result.warnings,
                 ),
@@ -286,12 +303,12 @@ pub async fn extract_to_dir(flake_ref: &str, flags: &DriveFlags) -> anyhow::Resu
             match &done {
                 Ok(r) => console.finished(
                     &r#ref.id,
-                    format!(
+                    &format!(
                         "  graph of {}: {} nodes, {} edges in {:.1}s",
                         r#ref.id,
                         r.result.data.stats.node_count,
                         r.result.data.stats.edge_count,
-                        r.result.duration_ms as f64 / 1000.0
+                        Duration::from_millis(r.result.duration_ms).as_secs_f64()
                     ),
                     &r.result.warnings,
                 ),
@@ -444,8 +461,11 @@ struct ConsoleState {
 }
 
 impl Console {
-    fn new(configs: &[ConfigRef], packages: &[PackageRef], graphs: &[GraphRef]) -> Console {
-        let total = configs.len() + packages.len() + graphs.len();
+    fn new(configs: &[ConfigRef], packages: &[PackageRef], graphs: &[GraphRef]) -> Self {
+        let total = configs
+            .len()
+            .saturating_add(packages.len())
+            .saturating_add(graphs.len());
         match (configs, packages, graphs) {
             ([], [], []) => {}
             ([one], [], []) => println!("extracting options of {} ...", one.id),
@@ -465,7 +485,7 @@ impl Console {
                 .join(" and ")
             ),
         }
-        Console {
+        Self {
             state: std::sync::Mutex::new(ConsoleState {
                 units_done: 0,
                 units_total: total,
@@ -482,7 +502,10 @@ impl Console {
         let console = self.clone();
         let id = id.to_string();
         Arc::new(move |p: crate::options::OptionsProgress| {
-            let mut s = console.state.lock().unwrap();
+            let mut s = console
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             s.chunks.insert(id.clone(), (p.done, p.total));
             // With several configurations walking at once, the bare option path
             // does not say whose it is.
@@ -491,13 +514,16 @@ impl Console {
             } else {
                 format!("{id}: {}", p.current).chars().take(40).collect()
             };
-            s.current_owner = id.clone();
+            s.current_owner.clone_from(&id);
             s.draw();
         })
     }
 
-    fn finished(&self, id: &str, line: String, warnings: &[String]) {
-        let mut s = self.state.lock().unwrap();
+    fn finished(&self, id: &str, line: &str, warnings: &[String]) {
+        let mut s = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         s.retire(id);
         s.erase();
         println!("{line}");
@@ -508,7 +534,10 @@ impl Console {
     }
 
     fn failed(&self, id: &str, e: &anyhow::Error) {
-        let mut s = self.state.lock().unwrap();
+        let mut s = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         s.retire(id);
         s.erase();
         eprintln!("  error: {id}: {}", first_line(e));
@@ -516,14 +545,17 @@ impl Console {
     }
 
     fn close(&self) {
-        self.state.lock().unwrap().erase();
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .erase();
     }
 }
 
 impl ConsoleState {
     /// One unit settled — drop whatever it was still reporting.
     fn retire(&mut self, id: &str) {
-        self.units_done += 1;
+        self.units_done = self.units_done.saturating_add(1);
         self.chunks.remove(id);
         if self.current_owner == id {
             self.current.clear();
@@ -546,7 +578,9 @@ impl ConsoleState {
         let (done, total) = self
             .chunks
             .values()
-            .fold((0, 0), |(d, t), (cd, ct)| (d + cd, t + ct));
+            .fold((0_usize, 0_usize), |(d, t), (cd, ct)| {
+                (d.saturating_add(*cd), t.saturating_add(*ct))
+            });
         // A single unit gets the plain counter it had before this was ever
         // concurrent; the units column only earns its width once there is more
         // than one thing to count.
@@ -565,5 +599,21 @@ impl ConsoleState {
         print!("\r{line}");
         std::io::stdout().flush().ok();
         self.drawn = line.chars().count();
+    }
+}
+
+#[cfg(test)]
+mod console_tests {
+    use super::*;
+
+    #[test]
+    fn first_line_takes_only_the_first_line() {
+        assert_eq!(first_line(&anyhow::anyhow!("boom\nsecond")), "boom");
+    }
+
+    #[test]
+    fn console_failed_retires_the_unit_without_panicking() {
+        let c = Console::new(&[], &[], &[]);
+        c.failed("cfg:x", &anyhow::anyhow!("boom\ndetail"));
     }
 }

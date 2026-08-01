@@ -27,22 +27,23 @@ use std::time::{Duration, Instant};
 pub const VAR: &str = "FLAKE_EXPLORER_TIMINGS";
 
 /// True when `raw` (the var's value, `None` when unset) asks for timings.
+///
 /// `0` and the empty string are off so that `FLAKE_EXPLORER_TIMINGS=0` in a
 /// shell profile reads the way it looks, rather than being a subtle on.
+#[must_use]
 pub fn is_enabled(raw: Option<&OsStr>) -> bool {
-    match raw {
-        None => false,
-        Some(v) => !v.is_empty() && v != OsStr::new("0"),
-    }
+    raw.is_some_and(|v| !v.is_empty() && v != OsStr::new("0"))
 }
 
 /// One phase of the run: `timing: options 1234ms`.
+#[must_use]
 pub fn phase_line(label: &str, d: Duration) -> String {
     format!("timing: {label} {}ms", d.as_millis())
 }
 
 /// One item within a phase, indented under it: a phase total says the options
 /// pass was slow, an item line says which configuration made it slow.
+#[must_use]
 pub fn item_line(phase: &str, id: &str, d: Duration) -> String {
     format!("timing:   {phase} {id} {}ms", d.as_millis())
 }
@@ -55,22 +56,26 @@ pub struct Timings {
 }
 
 impl Timings {
-    pub fn from_env() -> Timings {
-        Timings::new(is_enabled(std::env::var_os(VAR).as_deref()))
+    #[must_use]
+    pub fn from_env() -> Self {
+        Self::new(is_enabled(std::env::var_os(VAR).as_deref()))
     }
 
-    pub fn new(enabled: bool) -> Timings {
-        Timings {
+    #[must_use]
+    pub fn new(enabled: bool) -> Self {
+        Self {
             enabled,
             started: Instant::now(),
         }
     }
 
-    pub fn enabled(&self) -> bool {
+    #[must_use]
+    pub const fn enabled(&self) -> bool {
         self.enabled
     }
 
     /// Start of a span, for callers that measure around their own work.
+    #[must_use]
     pub fn mark(&self) -> Instant {
         Instant::now()
     }

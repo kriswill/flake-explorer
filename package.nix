@@ -54,6 +54,9 @@ let
     fileset = lib.fileset.unions [
       ./Cargo.toml
       ./Cargo.lock
+      # clippy.toml carries the allow-*-in-tests exemptions; without it the
+      # sandboxed cargoClippy run denies every unwrap in the unit-test modules.
+      ./clippy.toml
       ./crates
       ./src
       ./tests

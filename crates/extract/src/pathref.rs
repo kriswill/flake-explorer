@@ -6,18 +6,37 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 
 /// Relative path tokens: ./x, ../x/y.nix, ./dir — quoted or bare.
-pub static REL_PATH_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\.{1,2}/[\w@.+-]+(?:/[\w@.+-]+)*").unwrap());
+pub static REL_PATH_RE: RelPathRe = RelPathRe(LazyLock::new(|| {
+    Regex::new(r"\.{1,2}/[\w@.+-]+(?:/[\w@.+-]+)*").ok()
+}));
+
+/// Lazily compiled matcher exposing the two `Regex` methods the scanners use.
+/// The pattern is a literal, so compilation cannot fail in practice; if it
+/// ever did, the matcher degrades to finding nothing.
+pub struct RelPathRe(LazyLock<Option<Regex>>);
+
+impl RelPathRe {
+    pub fn find_iter<'h>(&self, haystack: &'h str) -> impl Iterator<Item = regex::Match<'h>> {
+        self.0
+            .as_ref()
+            .map(|re| re.find_iter(haystack))
+            .into_iter()
+            .flatten()
+    }
+
+    #[must_use]
+    pub fn find<'h>(&self, haystack: &'h str) -> Option<regex::Match<'h>> {
+        self.0.as_ref().and_then(|re| re.find(haystack))
+    }
+}
 
 fn dirname(rel_path: &str) -> &str {
-    match rel_path.rfind('/') {
-        Some(i) => &rel_path[..i],
-        None => "",
-    }
+    rel_path.rsplit_once('/').map_or("", |(dir, _)| dir)
 }
 
 /// Join a dir and a relative token (./x, ../x/y), collapsing . and ..
 /// segments. None if it escapes the root.
+#[must_use]
 pub fn resolve_rel_ref(dir: &str, token: &str) -> Option<String> {
     let parts = if dir.is_empty() {
         token.split('/').collect::<Vec<_>>()
@@ -27,7 +46,7 @@ pub fn resolve_rel_ref(dir: &str, token: &str) -> Option<String> {
     let mut out: Vec<&str> = Vec::new();
     for part in parts {
         match part {
-            "" | "." => continue,
+            "" | "." => {}
             ".." => {
                 out.pop()?;
             }
@@ -40,7 +59,12 @@ pub fn resolve_rel_ref(dir: &str, token: &str) -> Option<String> {
 /// Resolve a relative reference found in `from`'s text against a set of known
 /// relPaths. Falls back to `<target>/default.nix` the way Nix resolves
 /// directory imports.
-pub fn resolve_known_ref(from: &str, token: &str, known: &HashSet<String>) -> Option<String> {
+#[must_use]
+pub fn resolve_known_ref<S: std::hash::BuildHasher>(
+    from: &str,
+    token: &str,
+    known: &HashSet<String, S>,
+) -> Option<String> {
     let target = resolve_rel_ref(dirname(from), token)?;
     if target == from {
         return None;

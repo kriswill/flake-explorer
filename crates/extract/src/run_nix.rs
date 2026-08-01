@@ -36,7 +36,7 @@ impl std::error::Error for NixError {}
 
 impl NixError {
     fn plain(message: impl Into<String>) -> Self {
-        NixError {
+        Self {
             message: message.into(),
             stderr: String::new(),
             exit_code: None,
@@ -47,6 +47,12 @@ impl NixError {
 const MIN_NIX: (u64, u64) = (2, 19);
 
 /// Errors with a clear message when nix is missing or too old.
+///
+/// # Errors
+///
+/// Fails when `nix --version` cannot be executed at all (nix is not on PATH,
+/// or the process itself errors), or when the reported version is older than
+/// 2.19.
 pub async fn check_nix() -> Result<String, NixError> {
     let out = run(&["--version"], Duration::from_secs(10))
         .await
@@ -56,11 +62,15 @@ pub async fn check_nix() -> Result<String, NixError> {
             )
         })?;
     // e.g. "nix (Nix) 2.34.7" or "nix (Determinate Nix 3.21.1) 2.34.7"
-    let re = regex::Regex::new(r"\s(\d+)\.(\d+)\.\d+\s*$").unwrap();
+    // The pattern is a literal; if it somehow failed to compile, skipping the
+    // version gate beats refusing to start.
+    let Ok(re) = regex::Regex::new(r"\s(\d+)\.(\d+)\.\d+\s*$") else {
+        return Ok(out.trim().to_string());
+    };
     for line in out.lines() {
         if let Some(c) = re.captures(line) {
-            let maj: u64 = c[1].parse().unwrap_or(0);
-            let min: u64 = c[2].parse().unwrap_or(0);
+            let maj: u64 = c.get(1).map_or("", |m| m.as_str()).parse().unwrap_or(0);
+            let min: u64 = c.get(2).map_or("", |m| m.as_str()).parse().unwrap_or(0);
             if maj < MIN_NIX.0 || (maj == MIN_NIX.0 && min < MIN_NIX.1) {
                 return Err(NixError::plain(format!(
                     "flake-explorer needs nix >= {}.{}, found: {}",
@@ -102,8 +112,10 @@ const COMMON_FEATURES: &str = "nix-command flakes";
 // whole arrangement deadlock-free without any ordering discipline at the call
 // sites.
 
-/// Concurrent `nix` processes allowed at once. Two below the core count so an
-/// extraction leaves the machine usable, clamped to 2..=8 because past that the
+/// Concurrent `nix` processes allowed at once.
+///
+/// Two below the core count so an extraction leaves the machine usable,
+/// clamped to 2..=8 because past that the
 /// limit is memory rather than CPU. `FLAKE_EXPLORER_NIX_JOBS` overrides it —
 /// the tests pin it to make the bound machine-independent, and a user on a
 /// memory-tight host can turn it down.
@@ -117,9 +129,7 @@ pub fn nix_jobs() -> usize {
         {
             return n;
         }
-        let cores = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(4);
+        let cores = std::thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
         cores.saturating_sub(2).clamp(2, 8)
     })
 }
@@ -139,19 +149,28 @@ impl Drop for NixSlot {
 
 /// Wait for a slot in the gate. Public so the bound can be tested on the
 /// mechanism rather than inferred from a caller's timings.
-pub async fn enter_nix_gate() -> NixSlot {
+///
+/// # Errors
+///
+/// Fails only if the gate's semaphore has been closed, which no code path
+/// does today. Failing the call is deliberate: running it ungated instead
+/// would silently void the one-process ceiling — the fork-bomb guarantee —
+/// which must break loudly or not at all.
+pub async fn enter_nix_gate() -> Result<NixSlot, NixError> {
     static GATE: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
     let permit = GATE
         .get_or_init(|| tokio::sync::Semaphore::new(nix_jobs()))
         .acquire()
         .await
-        .expect("the nix gate is never closed");
-    let now = IN_FLIGHT.fetch_add(1, Ordering::SeqCst) + 1;
+        .map_err(|_| NixError::plain("the nix gate is closed; refusing to run ungated"))?;
+    let now = IN_FLIGHT.fetch_add(1, Ordering::SeqCst).saturating_add(1);
     PEAK_IN_FLIGHT.fetch_max(now, Ordering::SeqCst);
-    NixSlot(permit)
+    Ok(NixSlot(permit))
 }
 
-/// Most `nix` processes alive at once since the last reset. The observable half
+/// Most `nix` processes alive at once since the last reset.
+///
+/// The observable half
 /// of the gate: a pass that is supposed to overlap its subprocesses can be
 /// checked for actually doing so, without a wall-clock assertion.
 pub fn peak_nix_in_flight() -> usize {
@@ -162,6 +181,12 @@ pub fn reset_peak_nix_in_flight() {
     PEAK_IN_FLIGHT.store(IN_FLIGHT.load(Ordering::SeqCst), Ordering::SeqCst);
 }
 
+/// Run `nix` with the common options and return its stdout.
+///
+/// # Errors
+///
+/// Fails when the process cannot be spawned, exceeds `timeout`, or exits
+/// nonzero — with the stderr tail folded into the message.
 pub async fn run(args: &[&str], timeout: Duration) -> Result<String, NixError> {
     let mut cmd = Command::new("nix");
     cmd.args(COMMON_OPTS).arg(COMMON_FEATURES).args(args);
@@ -170,8 +195,15 @@ pub async fn run(args: &[&str], timeout: Duration) -> Result<String, NixError> {
 
 /// `nix build --dry-run <installable>` — evaluates and reports the exact
 /// build/fetch partition WITHOUT realising anything (--dry-run stops before
-/// the store mutates). The answer is prose on STDERR, which is why this
+/// the store mutates).
+///
+/// The answer is prose on STDERR, which is why this
 /// returns stderr; the caller parses it defensively (graph.rs).
+///
+/// # Errors
+///
+/// Fails when the process cannot be spawned, exceeds `timeout`, or exits
+/// nonzero — the evaluation failing counts, since --dry-run still evaluates.
 pub async fn build_dry_run(installable: &str, timeout: Duration) -> Result<String, NixError> {
     let args = ["build", "--dry-run", "--impure", installable];
     let mut cmd = Command::new("nix");
@@ -197,7 +229,7 @@ async fn run_gated(
     mut cmd: Command,
     timeout: Duration,
 ) -> Result<(String, String), NixError> {
-    let _slot = enter_nix_gate().await;
+    let _slot = enter_nix_gate().await?;
     cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .stdin(Stdio::null());
@@ -206,8 +238,15 @@ async fn run_gated(
         .spawn()
         .map_err(|e| NixError::plain(format!("failed to spawn {program}: {e}")))?;
 
-    let mut stdout_pipe = child.stdout.take().unwrap();
-    let mut stderr_pipe = child.stderr.take().unwrap();
+    // Both pipes were requested three lines up, so take() can only come back
+    // empty if tokio's child plumbing broke; kill_on_drop reaps the child on
+    // this return path.
+    let (Some(mut stdout_pipe), Some(mut stderr_pipe)) = (child.stdout.take(), child.stderr.take())
+    else {
+        return Err(NixError::plain(format!(
+            "failed to capture {program} output pipes"
+        )));
+    };
     let read_all = async {
         let mut stdout = String::new();
         let mut stderr = String::new();
@@ -221,31 +260,29 @@ async fn run_gated(
         (stdout, stderr, status.and_then(|s| s.code()))
     };
 
-    let (stdout, stderr, exit_code) = match tokio::time::timeout(timeout, read_all).await {
-        Ok(r) => r,
-        Err(_) => {
-            return Err(NixError {
-                message: format!(
-                    "{program} {} timed out after {}s",
-                    args.first().unwrap_or(&""),
-                    timeout.as_secs()
-                ),
-                stderr: String::new(),
-                exit_code: None,
-            });
-        }
+    let Ok((stdout, stderr, exit_code)) = tokio::time::timeout(timeout, read_all).await else {
+        return Err(NixError {
+            message: format!(
+                "{program} {} timed out after {}s",
+                args.first().unwrap_or(&""),
+                timeout.as_secs()
+            ),
+            stderr: String::new(),
+            exit_code: None,
+        });
     };
 
     if exit_code != Some(0) {
         let tail: Vec<&str> = stderr.trim().lines().collect();
-        let tail = tail[tail.len().saturating_sub(15)..].join("\n");
+        let tail = tail
+            .get(tail.len().saturating_sub(15)..)
+            .unwrap_or_default()
+            .join("\n");
         return Err(NixError {
             message: format!(
                 "{program} {} failed (exit {}):\n{}",
-                args.iter().take(3).cloned().collect::<Vec<_>>().join(" "),
-                exit_code
-                    .map(|c| c.to_string())
-                    .unwrap_or_else(|| "?".into()),
+                args.iter().take(3).copied().collect::<Vec<_>>().join(" "),
+                exit_code.map_or_else(|| "?".into(), |c| c.to_string()),
                 tail
             ),
             stderr,
@@ -255,6 +292,12 @@ async fn run_gated(
     Ok((stdout, stderr))
 }
 
+/// Run `nix` and parse its stdout as JSON into `T`.
+///
+/// # Errors
+///
+/// Fails when the underlying [`run`] fails (spawn, timeout, nonzero exit), or
+/// when stdout is not JSON in the shape `T` expects.
 pub async fn run_json<T: serde::de::DeserializeOwned>(
     args: &[&str],
     timeout: Duration,
@@ -265,11 +308,21 @@ pub async fn run_json<T: serde::de::DeserializeOwned>(
 }
 
 /// `nix flake metadata --json <ref>`
+///
+/// # Errors
+///
+/// Fails when nix cannot resolve or fetch the flake, times out, or returns
+/// JSON that does not match [`FlakeMetadataJson`].
 pub async fn flake_metadata(r#ref: &str, timeout: Duration) -> Result<FlakeMetadataJson, NixError> {
     run_json(&["flake", "metadata", "--json", r#ref], timeout).await
 }
 
 /// `nix flake show --json <ref>`
+///
+/// # Errors
+///
+/// Fails when the flake's outputs cannot be evaluated (a broken flake, a
+/// fetch failure, a timeout), or when the output is not JSON.
 pub async fn flake_show(
     r#ref: &str,
     all_systems: bool,
@@ -308,11 +361,12 @@ fn cache_into(
 
 /// Materialize the embedded extract.nix into the cache dir once per process,
 /// keyed by content hash so upgrades never reuse a stale copy.
-fn extract_nix_path() -> &'static str {
-    static PATH: OnceLock<String> = OnceLock::new();
+fn extract_nix_path() -> Result<&'static str, NixError> {
+    static PATH: OnceLock<Option<String>> = OnceLock::new();
     PATH.get_or_init(|| {
         let hash = hex::encode(Sha256::digest(EXTRACT_NIX.as_bytes()));
-        let name = format!("extract-{}.nix", &hash[..16]);
+        let short = hash.get(..16).unwrap_or(&hash);
+        let name = format!("extract-{short}.nix");
         let cache = std::env::var_os("XDG_CACHE_HOME")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
@@ -320,37 +374,61 @@ fn extract_nix_path() -> &'static str {
             .join("flake-explorer");
         // HOME can be set but unwritable — a read-only home, a container, or a
         // nix build sandbox's /homeless-shelter. Fall back to the temp dir
-        // rather than panicking; this is a cache, not a user data directory.
+        // rather than erroring; this is a cache, not a user data directory.
         let temp = std::env::temp_dir().join("flake-explorer");
         cache_into([cache, temp], &name, EXTRACT_NIX)
-            .expect("cannot write extract.nix to the cache dir or the temp dir")
     })
+    .as_deref()
+    .ok_or_else(|| NixError::plain("cannot write extract.nix to the cache dir or the temp dir"))
 }
 
-/// Evaluate extract.nix with the given args. The args object is passed
+/// A JSON string literal for `s` — which is also a valid Nix string literal,
+/// and is how values travel into `--expr` code.
+fn nix_string_literal(s: &str) -> String {
+    serde_json::Value::from(s).to_string()
+}
+
+/// Evaluate extract.nix with the given args.
+///
+/// The args object is passed
 /// through JSON twice: a JSON string literal is a valid Nix string literal.
+///
+/// # Errors
+///
+/// Fails when extract.nix cannot be materialized into any cache dir, when the
+/// args do not encode as JSON, or when the nix eval fails, times out, or
+/// answers with JSON that does not match `T`.
 pub async fn eval_extract<T: serde::de::DeserializeOwned>(
     args: &ExtractArgs,
     timeout: Duration,
 ) -> Result<T, NixError> {
-    let json = serde_json::to_string(args).unwrap();
+    let json = serde_json::to_string(args)
+        .map_err(|e| NixError::plain(format!("failed to encode extract args as JSON: {e}")))?;
     let expr = format!(
         "import {} (builtins.fromJSON {})",
-        serde_json::to_string(extract_nix_path()).unwrap(),
-        serde_json::to_string(&json).unwrap()
+        nix_string_literal(extract_nix_path()?),
+        nix_string_literal(&json)
     );
     run_json(&["eval", "--impure", "--json", "--expr", &expr], timeout).await
 }
 
 /// Quote a flake attrpath segment unless it's already a bare nix identifier.
+#[must_use]
 pub fn attr_selector(path: &[String]) -> String {
-    let bare = regex::Regex::new(r"^[A-Za-z_][A-Za-z0-9_'-]*$").unwrap();
+    // A bare nix identifier: ^[A-Za-z_][A-Za-z0-9_'-]*$.
+    fn is_bare(seg: &str) -> bool {
+        let mut chars = seg.chars();
+        chars
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '\'' | '-'))
+    }
     path.iter()
         .map(|seg| {
-            if bare.is_match(seg) {
+            if is_bare(seg) {
                 seg.clone()
             } else {
-                serde_json::to_string(seg).unwrap()
+                nix_string_literal(seg)
             }
         })
         .collect::<Vec<_>>()
@@ -358,6 +436,11 @@ pub fn attr_selector(path: &[String]) -> String {
 }
 
 /// `nix derivation show <flakeRef>#<attr>` — instantiates the .drv, never builds.
+///
+/// # Errors
+///
+/// Fails when instantiation fails (the attr doesn't evaluate to a
+/// derivation, or evaluation itself errors) or the process times out.
 pub async fn derivation_show(
     flake_ref: &str,
     path: &[String],
@@ -368,9 +451,16 @@ pub async fn derivation_show(
 }
 
 /// `nix derivation show -r <installable>` — instantiates the FULL dependency
-/// closure, never builds. Returns the raw JSON string: at system-graph scale
+/// closure, never builds.
+///
+/// Returns the raw JSON string: at system-graph scale
 /// this is tens of MB, and the caller (graph.rs) projects it through typed
 /// structs — parsing it to a Value here would cost ~6× the input in RSS.
+///
+/// # Errors
+///
+/// Fails when instantiating the closure fails or the process times out —
+/// at this scale the timeout is the one to watch.
 pub async fn derivation_show_recursive(
     installable: &str,
     timeout: Duration,
@@ -388,10 +478,17 @@ const CHECK_VALIDITY_BATCH: usize = 2000;
 
 /// The subset of `paths` NOT valid in the local store right now, via
 /// `nix-store --check-validity --print-invalid` (prints each invalid path on
-/// stdout instead of failing). Pure store query: no eval, no network, and
+/// stdout instead of failing).
+///
+/// Pure store query: no eval, no network, and
 /// never a build. Paths MUST be full /nix/store/... strings — a bare
 /// basename is silently reported valid-shaped nonsense by nix-store, which
 /// is exactly the trap the graph projection's prefix guard exists for.
+///
+/// # Errors
+///
+/// Fails when any `nix-store` batch cannot be spawned, times out, or exits
+/// nonzero (--print-invalid means an invalid path is NOT a failure).
 pub async fn check_validity_invalid(
     paths: &[String],
     timeout: Duration,
@@ -399,7 +496,7 @@ pub async fn check_validity_invalid(
     let mut invalid = std::collections::HashSet::new();
     for chunk in paths.chunks(CHECK_VALIDITY_BATCH) {
         let mut args = vec!["--check-validity", "--print-invalid"];
-        args.extend(chunk.iter().map(|s| s.as_str()));
+        args.extend(chunk.iter().map(String::as_str));
         let out = run_nix_store(&args, timeout).await?;
         invalid.extend(
             out.lines()
@@ -420,8 +517,14 @@ pub struct PathInfoRaw {
 }
 
 /// `nix path-info` for one already-instantiated output path — query only.
+///
 /// An invalid/not-yet-built path maps to `null` in the JSON rather than a
 /// nonzero exit, so that's the signal checked (not the exit code).
+///
+/// # Errors
+///
+/// Fails when the `nix path-info` process itself fails or times out — an
+/// unknown path is `Ok(None)`, not an error.
 pub async fn path_info(out_path: &str, timeout: Duration) -> Result<Option<PathInfoRaw>, NixError> {
     let result: std::collections::HashMap<String, Option<PathInfoRaw>> = run_json(
         &[
@@ -440,7 +543,12 @@ pub async fn path_info(out_path: &str, timeout: Duration) -> Result<Option<PathI
 
 /// Batched `nix path-info` over many already-instantiated paths — query
 /// only, same null-means-invalid contract as `path_info`. Chunked like
-/// check_validity (argv limits); measured ~0.4 s for ~3k paths.
+/// `check_validity` (argv limits); measured ~0.4 s for ~3k paths.
+///
+/// # Errors
+///
+/// Fails when any batch's `nix path-info` process fails or times out —
+/// unknown paths come back as `None` values, not errors.
 pub async fn path_info_batch(
     paths: &[String],
     timeout: Duration,
@@ -454,7 +562,7 @@ pub async fn path_info_batch(
             "1",
             "--closure-size",
         ];
-        args.extend(chunk.iter().map(|s| s.as_str()));
+        args.extend(chunk.iter().map(String::as_str));
         let result: std::collections::HashMap<String, Option<PathInfoRaw>> =
             run_json(&args, timeout).await?;
         all.extend(result);
@@ -465,6 +573,11 @@ pub async fn path_info_batch(
 /// Read a file out of a flake input directly through Nix, bypassing the
 /// (possibly stale) store path. A directory-mounted "module" resolves to
 /// default.nix on retry.
+///
+/// # Errors
+///
+/// Fails when the flake or input cannot be fetched, or when the path exists
+/// neither as a file nor as a directory with a default.nix.
 pub async fn read_input_file(
     flake_ref: &str,
     input_name: &str,
@@ -494,9 +607,9 @@ async fn read_input_file_raw(
 ) -> Result<String, NixError> {
     let expr = format!(
         "builtins.readFile ((builtins.getFlake {}).inputs.{} + {})",
-        serde_json::to_string(flake_ref).unwrap(),
-        serde_json::to_string(input_name).unwrap(),
-        serde_json::to_string(&format!("/{rel_path}")).unwrap()
+        nix_string_literal(flake_ref),
+        nix_string_literal(input_name),
+        nix_string_literal(&format!("/{rel_path}"))
     );
     run(&["eval", "--impure", "--raw", "--expr", &expr], timeout).await
 }
@@ -598,7 +711,7 @@ pub struct InputsTreeNode {
     /// Store path of the input's source ("path" — see extract.nix outPath note).
     pub path: Option<String>,
     #[serde(default)]
-    pub inputs: indexmap::IndexMap<String, InputsTreeNode>,
+    pub inputs: indexmap::IndexMap<String, Self>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -667,6 +780,10 @@ pub struct PackageEval {
     pub deps: crate::schema::PackageDeps,
 }
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "deserialization mirror of extract.nix's marker object; the bools are four independent facts, not an encoded state"
+)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageMarkers {
@@ -793,7 +910,7 @@ mod tests {
         let mut handles = Vec::new();
         for _ in 0..limit * 4 {
             handles.push(tokio::spawn(async {
-                let _slot = enter_nix_gate().await;
+                let _slot = enter_nix_gate().await.unwrap();
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }));
         }

@@ -64,9 +64,7 @@ pub struct FlakeInfo {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum OutputNode {
     #[serde(rename = "attrset")]
-    Attrset {
-        children: IndexMap<String, OutputNode>,
-    },
+    Attrset { children: IndexMap<String, Self> },
     #[serde(rename = "leaf")]
     Leaf {
         r#type: String,
@@ -126,20 +124,23 @@ pub enum FileOrigin {
 }
 
 /// FileEntry.id codec — "self:<rel>" | "input:<name>:<rel>" (client-server protocol).
+#[must_use]
 pub fn make_file_id_self(rel_path: &str) -> String {
     format!("self:{rel_path}")
 }
 
+#[must_use]
 pub fn make_file_id_input(input: &str, rel_path: &str) -> String {
     format!("input:{input}:{rel_path}")
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParsedFileId {
     SelfFile { rel_path: String },
     InputFile { input: String, rel_path: String },
 }
 
+#[must_use]
 pub fn parse_file_id(id: &str) -> Option<ParsedFileId> {
     if let Some(rel) = id.strip_prefix("self:") {
         return Some(ParsedFileId::SelfFile {
@@ -147,8 +148,7 @@ pub fn parse_file_id(id: &str) -> Option<ParsedFileId> {
         });
     }
     let rest = id.strip_prefix("input:")?;
-    let colon = rest.find(':')?;
-    let (input, rel) = (&rest[..colon], &rest[colon + 1..]);
+    let (input, rel) = rest.split_once(':')?;
     if input.is_empty() || rel.is_empty() {
         return None;
     }
@@ -224,7 +224,7 @@ pub struct OverlayAttr {
     pub kind: OverlayAttrKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OverlayAttrKind {
     Add,
@@ -246,10 +246,11 @@ pub enum ConfigKind {
 }
 
 impl ConfigKind {
-    pub fn as_str(&self) -> &'static str {
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
         match self {
-            ConfigKind::Nixos => "nixos",
-            ConfigKind::Darwin => "darwin",
+            Self::Nixos => "nixos",
+            Self::Darwin => "darwin",
         }
     }
 }
@@ -280,17 +281,18 @@ pub struct ConfigRef {
     pub duration_ms: Option<u64>,
 }
 
-/// Manifest ref for a GraphData document (graph/<id>.json). Mirrors
-/// PackageRef; graph ids REUSE the underlying ref's id space (package-kind
-/// categories and config kinds are disjoint, so `packages/x/y` and `nixos/z`
-/// can never collide).
+/// Manifest ref for a `GraphData` document (graph/<id>.json).
+///
+/// Mirrors `PackageRef`; graph ids REUSE the underlying ref's id space
+/// (package-kind categories and config kinds are disjoint, so `packages/x/y`
+/// and `nixos/z` can never collide).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphRef {
     pub id: String,
     /// Attr path of the installable the graph is rooted at, e.g.
-    /// ["packages","x86_64-linux","rtk"] or
-    /// ["nixosConfigurations","nebula","config","system","build","toplevel"].
+    /// `["packages","x86_64-linux","rtk"]` or
+    /// `["nixosConfigurations","nebula","config","system","build","toplevel"]`.
     pub path: Vec<String>,
     pub data_file: String,
     pub status: RefStatus,
@@ -317,7 +319,7 @@ pub struct PackageRef {
     pub duration_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BuilderKind {
     #[serde(rename = "rustPlatform")]
     RustPlatform,
@@ -334,14 +336,15 @@ pub enum BuilderKind {
 }
 
 impl BuilderKind {
-    pub fn as_str(&self) -> &'static str {
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
         match self {
-            BuilderKind::RustPlatform => "rustPlatform",
-            BuilderKind::BuildGoModule => "buildGoModule",
-            BuilderKind::Node => "node",
-            BuilderKind::Trivial => "trivial",
-            BuilderKind::Stdenv => "stdenv",
-            BuilderKind::Unknown => "unknown",
+            Self::RustPlatform => "rustPlatform",
+            Self::BuildGoModule => "buildGoModule",
+            Self::Node => "node",
+            Self::Trivial => "trivial",
+            Self::Stdenv => "stdenv",
+            Self::Unknown => "unknown",
         }
     }
 }
@@ -576,11 +579,16 @@ pub struct GraphNodeOutput {
 }
 
 /// Which enrichment tiers this document actually carries; the UI must render
-/// an off tier as "not collected", never as zero. `substituters` (T4) is
-/// always false — out of scope for the extractor today, in the schema so the
-/// document format doesn't move when it lands.
+/// an off tier as "not collected", never as zero.
+///
+/// `substituters` (T4) is always false — out of scope for the extractor
+/// today, in the schema so the document format doesn't move when it lands.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "wire format: four independent tier flags mirrored by the client schema, not a state machine"
+)]
 pub struct GraphTiers {
     pub presence: bool,
     pub sizes: bool,

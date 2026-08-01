@@ -7,7 +7,9 @@
 
 use crate::package::name_from_drv_basename;
 use crate::run_nix::{attr_selector, check_validity_invalid, derivation_show_recursive};
-use crate::schema::*;
+use crate::schema::{
+    GraphData, GraphDryRun, GraphNode, GraphNodeOutput, GraphStats, GraphTiers, SCHEMA_VERSION,
+};
 use indexmap::IndexMap;
 use serde::Deserialize;
 use serde::de::IgnoredAny;
@@ -56,10 +58,9 @@ struct RawShowInputs {
 /// basenames, which always carry a hash prefix.
 fn parse_show(raw: &str) -> Result<IndexMap<String, RawShowDrv>, serde_json::Error> {
     let envelope: ShowEnvelope = serde_json::from_str(raw)?;
-    match envelope.derivations {
-        Some(drvs) => Ok(drvs),
-        None => serde_json::from_str(raw),
-    }
+    envelope
+        .derivations
+        .map_or_else(|| serde_json::from_str(raw), Ok)
 }
 
 /// `derivation show` returns bare store-path BASENAMES as its keys and each
@@ -73,54 +74,93 @@ fn store_path(basename_or_path: &str) -> String {
     }
 }
 
-/// Project one `derivation show -r` dump into a GraphData document.
+/// The root of a single-installable `-r` closure is its unique node with no
+/// incoming edge (the dump is a DAG, so one exists).
+fn pick_root(node_count: u32, edges: &[Vec<u32>], warnings: &mut Vec<String>) -> u32 {
+    let targets: HashSet<u32> = edges.iter().flatten().copied().collect();
+    let roots: Vec<u32> = (0..node_count).filter(|i| !targets.contains(i)).collect();
+    match roots.as_slice() {
+        [r] => *r,
+        [] => {
+            warnings.push("no in-degree-0 node (cycle?): using the first node as root".into());
+            0
+        }
+        [first, ..] => {
+            warnings.push(format!(
+                "{} in-degree-0 nodes: using the first by drvPath as root",
+                roots.len()
+            ));
+            *first
+        }
+    }
+}
+
+/// One drv's outputs, tallying total and unique path counts as a side
+/// effect. `unique_paths` keys on the raw (unprefixed) path strings, so it
+/// borrows from the dump rather than the built document.
+fn project_outputs<'d>(
+    d: &'d RawShowDrv,
+    output_path_count: &mut u32,
+    unique_paths: &mut HashSet<&'d str>,
+) -> Vec<GraphNodeOutput> {
+    d.outputs
+        .iter()
+        .map(|(out_name, o)| {
+            let raw_path = o.path.as_deref().filter(|p| !p.is_empty());
+            if let Some(p) = raw_path {
+                *output_path_count = output_path_count.saturating_add(1);
+                unique_paths.insert(p);
+            }
+            GraphNodeOutput {
+                name: out_name.clone(),
+                path: raw_path.map(store_path),
+                present: None,
+                nar_size: None,
+                closure_size: None,
+            }
+        })
+        .collect()
+}
+
+/// Project one `derivation show -r` dump into a `GraphData` document.
 ///
 /// `extracted_at` is injected rather than read from the clock so the output
 /// is a pure function of the dump: byte-identical modulo extractedAt.
 /// Tiers all start false — presence/sizes/dry-run are stamped on by the
 /// extraction pipeline, not here.
+///
+/// # Errors
+///
+/// Fails when the dump parses as neither `derivation show` envelope shape,
+/// when it contains no derivations at all, or when the closure is too large
+/// for the document's u32 node indices.
 pub fn project_graph(id: &str, raw_json: &str, extracted_at: &str) -> anyhow::Result<GraphData> {
-    let drvs = parse_show(raw_json)
+    let mut drvs = parse_show(raw_json)
         .map_err(|e| anyhow::anyhow!("unparseable derivation show output: {e}"))?;
     anyhow::ensure!(!drvs.is_empty(), "derivation show returned no derivations");
+    let node_count = u32::try_from(drvs.len()).map_err(|_| {
+        anyhow::anyhow!(
+            "closure of {} derivations overflows u32 indices",
+            drvs.len()
+        )
+    })?;
 
     let mut warnings: Vec<String> = Vec::new();
 
     // Deterministic indices: sort by basename, which is sorting by drvPath.
-    let mut basenames: Vec<&String> = drvs.keys().collect();
-    basenames.sort();
-    let index: HashMap<&str, u32> = basenames
-        .iter()
-        .enumerate()
-        .map(|(i, k)| (k.as_str(), i as u32))
+    drvs.sort_unstable_keys();
+    let index: HashMap<&str, u32> = (0..node_count)
+        .zip(drvs.keys())
+        .map(|(i, k)| (k.as_str(), i))
         .collect();
 
-    let mut nodes: Vec<GraphNode> = Vec::with_capacity(basenames.len());
-    let mut edges: Vec<Vec<u32>> = Vec::with_capacity(basenames.len());
+    let mut nodes: Vec<GraphNode> = Vec::with_capacity(drvs.len());
+    let mut edges: Vec<Vec<u32>> = Vec::with_capacity(drvs.len());
     let mut output_path_count: u32 = 0;
     let mut unique_paths: HashSet<&str> = HashSet::new();
 
-    for (i, basename) in basenames.iter().enumerate() {
-        let d = &drvs[basename.as_str()];
-
-        let outputs: Vec<GraphNodeOutput> = d
-            .outputs
-            .iter()
-            .map(|(out_name, o)| {
-                let path = o.path.as_deref().filter(|p| !p.is_empty()).map(store_path);
-                if path.is_some() {
-                    output_path_count += 1;
-                    unique_paths.insert(o.path.as_deref().unwrap());
-                }
-                GraphNodeOutput {
-                    name: out_name.clone(),
-                    path,
-                    present: None,
-                    nar_size: None,
-                    closure_size: None,
-                }
-            })
-            .collect();
+    for (i, (basename, d)) in (0..node_count).zip(drvs.iter()) {
+        let outputs = project_outputs(d, &mut output_path_count, &mut unique_paths);
 
         // Same precedence as normalize_derivation_show: nested inputs.drvs
         // wins over flat inputDrvs when both exist.
@@ -130,7 +170,7 @@ pub fn project_graph(id: &str, raw_json: &str, extracted_at: &str) -> anyhow::Re
             .map(|m| {
                 m.keys()
                     .filter_map(|dep| match index.get(dep.as_str()) {
-                        Some(&j) if j as usize == i => {
+                        Some(&j) if j == i => {
                             warnings.push(format!("self-loop dropped: {basename}"));
                             None
                         }
@@ -161,46 +201,21 @@ pub fn project_graph(id: &str, raw_json: &str, extracted_at: &str) -> anyhow::Re
         });
     }
 
-    // The root of a single-installable `-r` closure is its unique node with
-    // no incoming edge (the dump is a DAG, so one exists).
-    let mut indegree = vec![0u32; nodes.len()];
-    for deps in &edges {
-        for &j in deps {
-            indegree[j as usize] += 1;
-        }
-    }
-    let roots: Vec<u32> = indegree
-        .iter()
-        .enumerate()
-        .filter(|&(_, &d)| d == 0)
-        .map(|(i, _)| i as u32)
-        .collect();
-    let root = match roots.as_slice() {
-        [r] => *r,
-        [] => {
-            warnings.push("no in-degree-0 node (cycle?): using the first node as root".into());
-            0
-        }
-        [first, ..] => {
-            warnings.push(format!(
-                "{} in-degree-0 nodes: using the first by drvPath as root",
-                roots.len()
-            ));
-            *first
-        }
-    };
+    let root = pick_root(node_count, &edges, &mut warnings);
 
-    let edge_count: u32 = edges.iter().map(|e| e.len() as u32).sum();
+    // The u32 stats saturate rather than panic: they are display stats, not
+    // indices, and totals past 4 billion cannot occur in a real closure.
+    let edge_total: usize = edges.iter().map(Vec::len).sum();
     Ok(GraphData {
         version: SCHEMA_VERSION,
         id: id.to_string(),
         root,
         extracted_at: extracted_at.to_string(),
         stats: GraphStats {
-            node_count: nodes.len() as u32,
-            edge_count,
+            node_count,
+            edge_count: u32::try_from(edge_total).unwrap_or(u32::MAX),
             output_path_count,
-            unique_output_path_count: unique_paths.len() as u32,
+            unique_output_path_count: u32::try_from(unique_paths.len()).unwrap_or(u32::MAX),
             absent_count: None,
             to_build_count: None,
             to_fetch_count: None,
@@ -221,9 +236,11 @@ pub fn project_graph(id: &str, raw_json: &str, extracted_at: &str) -> anyhow::Re
 }
 
 /// The distinct output paths of a graph, sorted — the batch fed to store
-/// validity checks. Deduped because distinct outputs legitimately share a
-/// path (56 measured on a real system graph), and sorted so batching is
-/// deterministic.
+/// validity checks.
+///
+/// Deduped because distinct outputs legitimately share a path (56 measured
+/// on a real system graph), and sorted so batching is deterministic.
+#[must_use]
 pub fn unique_output_paths(g: &GraphData) -> Vec<String> {
     let mut paths: Vec<String> = g
         .nodes
@@ -236,11 +253,16 @@ pub fn unique_output_paths(g: &GraphData) -> Vec<String> {
 }
 
 /// Stamp tier T1 onto a projected graph from the set of paths the store
-/// reported INVALID. `present` means "valid in the local store at
-/// extractedAt" — a snapshot, not a claim about what a build would do.
-/// Pathless outputs (v4 fixed-output fetchers) stay untouched: the tier
-/// structurally cannot cover them.
-pub fn apply_presence(g: &mut GraphData, invalid: &std::collections::HashSet<String>) {
+/// reported INVALID.
+///
+/// `present` means "valid in the local store at extractedAt" — a snapshot,
+/// not a claim about what a build would do. Pathless outputs (v4
+/// fixed-output fetchers) stay untouched: the tier structurally cannot
+/// cover them.
+pub fn apply_presence<S: std::hash::BuildHasher>(
+    g: &mut GraphData,
+    invalid: &std::collections::HashSet<String, S>,
+) {
     let mut absent: std::collections::HashSet<&str> = std::collections::HashSet::new();
     for n in &mut g.nodes {
         for o in &mut n.outputs {
@@ -256,16 +278,16 @@ pub fn apply_presence(g: &mut GraphData, invalid: &std::collections::HashSet<Str
             }
         }
     }
-    g.stats.absent_count = Some(absent.len() as u32);
+    g.stats.absent_count = Some(u32::try_from(absent.len()).unwrap_or(u32::MAX));
     g.tiers.presence = true;
 }
 
 /// Stamp tier T2 (sizes) from a `path-info` answer map. Present paths only:
 /// a path that is absent (or was not asked about) keeps its sizes ABSENT —
 /// the UI must render "not collected", never zero.
-pub fn apply_sizes(
+pub fn apply_sizes<S: std::hash::BuildHasher>(
     g: &mut GraphData,
-    info: &std::collections::HashMap<String, Option<crate::run_nix::PathInfoRaw>>,
+    info: &std::collections::HashMap<String, Option<crate::run_nix::PathInfoRaw>, S>,
 ) {
     for n in &mut g.nodes {
         for o in &mut n.outputs {
@@ -286,7 +308,7 @@ pub fn apply_sizes(
 
 /// The exact partition `nix build --dry-run` reported. Both lists empty is a
 /// legal, meaningful answer: the closure is satisfied locally.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct DryRunPartition {
     pub to_build: Vec<String>,
     pub to_fetch: Vec<String>,
@@ -307,13 +329,25 @@ fn parse_size(s: &str) -> Option<u64> {
         "TiB" => 1024.0f64.powi(4),
         _ => return None,
     };
-    Some((v * mul).round() as u64)
+    let bytes = (v * mul).round();
+    // A NaN or negative "size" is as unrecognizable as an unknown unit.
+    if !bytes.is_finite() || bytes < 0.0 {
+        return None;
+    }
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "std has no f64→u64 TryFrom; the value is finite, non-negative, and rounded, and float `as` casts saturate rather than wrap"
+    )]
+    Some(bytes as u64)
 }
 
-/// Defensive parse of `nix build --dry-run` stderr. The output is PROSE, not
-/// a contract (version-sensitive, localizable in principle), so the parse is
-/// a strict LINE WHITELIST — a line is either something we recognize or the
-/// whole answer is refused:
+/// Defensive parse of `nix build --dry-run` stderr.
+///
+/// The output is PROSE, not a contract (version-sensitive, localizable in
+/// principle), so the parse is a strict LINE WHITELIST — a line is either
+/// something we recognize or the whole answer is refused:
 ///
 /// - `None` = unrecognized or inconsistent — the tier must be reported
 ///   ABSENT. This includes any line that is not blank, `warning:`/`error:`
@@ -328,13 +362,16 @@ fn parse_size(s: &str) -> Option<u64> {
 /// - A section's item count must equal the number its header stated;
 ///   `warning:` lines interleaved INSIDE a list are nix's own noise channel
 ///   and are skipped rather than ending the section.
+#[must_use]
 pub fn parse_dry_run_stderr(stderr: &str) -> Option<DryRunPartition> {
+    // The patterns are literals, so compilation cannot fail; if it somehow
+    // did, refusing the answer (tier absent) is the designed degradation.
     let built_re =
-        regex::Regex::new(r"^(?:these (\d+) derivations|this derivation) will be built:$").unwrap();
+        regex::Regex::new(r"^(?:these (\d+) derivations|this derivation) will be built:$").ok()?;
     let fetch_re = regex::Regex::new(
         r"^(?:these (\d+) paths|this path) will be fetched(?: \(([^)]+) download, ([^)]+) unpacked\))?:$",
     )
-    .unwrap();
+    .ok()?;
     // "waiting for …" is nix's lock/fetch-contention channel — observed live
     // ("waiting for another Nix process to finish fetching input '…'") when
     // several extractions share the gate. It can never carry partition
@@ -405,22 +442,22 @@ pub fn parse_dry_run_stderr(stderr: &str) -> Option<DryRunPartition> {
     Some(p)
 }
 
-/// Stamp tier T3 onto the graph. Fetch paths stay path-strings (they can
-/// name outputs of nodes we have, or paths outside every node); build items
-/// map onto node indices by drvPath, with a warning if any don't resolve.
+/// Stamp tier T3 onto the graph.
+///
+/// Fetch paths stay path-strings (they can name outputs of nodes we have,
+/// or paths outside every node); build items map onto node indices by
+/// drvPath, with a warning if any don't resolve.
 pub fn apply_dry_run(g: &mut GraphData, p: &DryRunPartition) {
-    let index: HashMap<&str, u32> = g
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(i, n)| (n.drv_path.as_str(), i as u32))
+    let index: HashMap<&str, u32> = (0..u32::MAX)
+        .zip(&g.nodes)
+        .map(|(i, n)| (n.drv_path.as_str(), i))
         .collect();
     let mut to_build_nodes: Vec<u32> = Vec::new();
     let mut unknown = 0usize;
     for drv in &p.to_build {
         match index.get(drv.as_str()) {
             Some(&i) => to_build_nodes.push(i),
-            None => unknown += 1,
+            None => unknown = unknown.saturating_add(1),
         }
     }
     if unknown > 0 {
@@ -429,8 +466,8 @@ pub fn apply_dry_run(g: &mut GraphData, p: &DryRunPartition) {
         ));
     }
     to_build_nodes.sort_unstable();
-    g.stats.to_build_count = Some(p.to_build.len() as u32);
-    g.stats.to_fetch_count = Some(p.to_fetch.len() as u32);
+    g.stats.to_build_count = Some(u32::try_from(p.to_build.len()).unwrap_or(u32::MAX));
+    g.stats.to_fetch_count = Some(u32::try_from(p.to_fetch.len()).unwrap_or(u32::MAX));
     g.stats.download_bytes = p.download_bytes;
     g.stats.unpacked_bytes = p.unpacked_bytes;
     g.dry_run = Some(GraphDryRun {
@@ -448,9 +485,16 @@ pub struct GraphResult {
 
 /// One installable's dependency graph: instantiate the closure
 /// (`derivation show -r`, never builds), project it, stamp T1 presence and
-/// T2 sizes, and — opt-in — the T3 dry-run partition. Every tier failure
-/// degrades to tier-absent with a warning — structure alone is still a
-/// useful document.
+/// T2 sizes, and — opt-in — the T3 dry-run partition.
+///
+/// Every tier failure degrades to tier-absent with a warning — structure
+/// alone is still a useful document.
+///
+/// # Errors
+///
+/// Fails only on the structural step: `derivation show` itself failing
+/// (bad installable, eval error, timeout) or its dump refusing to project
+/// (`project_graph`'s conditions). Tier failures never error.
 pub async fn extract_graph(
     flake_ref: &str,
     id: &str,
@@ -510,12 +554,18 @@ pub async fn extract_graph(
     Ok(GraphResult {
         data,
         warnings,
-        duration_ms: start.elapsed().as_millis() as u64,
+        duration_ms: u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
     })
 }
 
 #[cfg(test)]
 mod tests {
+    #![expect(
+        clippy::as_conversions,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "test code: panics are the failure mechanism, and the index/size casts act on small hand-built fixtures"
+    )]
     use super::*;
     use serde_json::json;
 
@@ -1032,7 +1082,7 @@ these 2 paths will be fetched (9.6 MiB download, 15.2 GiB unpacked):
     }
 
     /// The validator's full torture kit, when its path is provided (the kit
-    /// lives outside the repo). FLAKE_EXPLORER_DRYRUN_KIT=<dir> runs every
+    /// lives outside the repo). `FLAKE_EXPLORER_DRYRUN_KIT=<dir>` runs every
     /// fixture against its published expectation; unset skips.
     #[test]
     fn dry_run_validator_kit_expectations() {

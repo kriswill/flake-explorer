@@ -20,7 +20,9 @@
 
 use flake_explorer::options::{ExtractOptionsOpts, OptionsProgress, extract_options};
 use flake_explorer::schema::ConfigKind;
-use std::sync::{Arc, Mutex};
+use std::fmt::Write as _;
+use std::process::ExitCode;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 struct Event {
@@ -30,77 +32,90 @@ struct Event {
     current: String,
 }
 
-fn die(msg: &str) -> ! {
-    eprintln!("options-probe: {msg}");
-    eprintln!(
-        "usage: options-probe <flakeref> <kind/name> [--jobs N] [--jsonl FILE] [--timeout SECS]"
-    );
-    std::process::exit(1)
+/// A CLI mistake gets the usage line; a runtime failure just gets its message.
+enum Fail {
+    Usage(String),
+    Plain(String),
 }
 
-fn main() {
-    let argv: Vec<String> = std::env::args().skip(1).collect();
+fn usage(msg: impl Into<String>) -> Fail {
+    Fail::Usage(msg.into())
+}
+
+fn main() -> ExitCode {
+    let Err(fail) = run() else {
+        return ExitCode::SUCCESS;
+    };
+    let (msg, show_usage) = match fail {
+        Fail::Usage(m) => (m, true),
+        Fail::Plain(m) => (m, false),
+    };
+    eprintln!("options-probe: {msg}");
+    if show_usage {
+        eprintln!(
+            "usage: options-probe <flakeref> <kind/name> [--jobs N] [--jsonl FILE] [--timeout SECS]"
+        );
+    }
+    ExitCode::FAILURE
+}
+
+fn run() -> Result<(), Fail> {
+    let mut args = std::env::args().skip(1);
     let mut positional: Vec<String> = Vec::new();
     let mut jobs: Option<usize> = None;
     let mut jsonl: Option<String> = None;
-    let mut timeout = Duration::from_secs(1800);
-    let mut i = 0;
-    while i < argv.len() {
-        match argv[i].as_str() {
+    let mut timeout = Duration::from_mins(30);
+    while let Some(a) = args.next() {
+        match a.as_str() {
             "--jobs" => {
-                i += 1;
                 jobs = Some(
-                    argv.get(i)
+                    args.next()
                         .and_then(|v| v.parse().ok())
-                        .unwrap_or_else(|| die("--jobs expects a positive integer")),
+                        .ok_or_else(|| usage("--jobs expects a positive integer"))?,
                 );
             }
             "--jsonl" => {
-                i += 1;
-                jsonl = Some(
-                    argv.get(i)
-                        .cloned()
-                        .unwrap_or_else(|| die("--jsonl expects a path")),
-                );
+                jsonl = Some(args.next().ok_or_else(|| usage("--jsonl expects a path"))?);
             }
             "--timeout" => {
-                i += 1;
                 timeout = Duration::from_secs(
-                    argv.get(i)
+                    args.next()
                         .and_then(|v| v.parse().ok())
-                        .unwrap_or_else(|| die("--timeout expects seconds")),
+                        .ok_or_else(|| usage("--timeout expects seconds"))?,
                 );
             }
-            a if a.starts_with("--") => die(&format!("unknown flag: {a}")),
-            a => positional.push(a.to_string()),
+            a if a.starts_with("--") => return Err(usage(format!("unknown flag: {a}"))),
+            _ => positional.push(a),
         }
-        i += 1;
     }
     let [flake_ref, id] = positional.as_slice() else {
-        die("expected <flakeref> and <kind/name>")
+        return Err(usage("expected <flakeref> and <kind/name>"));
     };
     let Some((kind, name)) = id.split_once('/') else {
-        die("<kind/name> looks like nixos/nebula")
+        return Err(usage("<kind/name> looks like nixos/nebula"));
     };
     let kind = match kind {
         "nixos" => ConfigKind::Nixos,
         "darwin" => ConfigKind::Darwin,
-        k => die(&format!("unknown kind: {k}")),
+        k => return Err(usage(format!("unknown kind: {k}"))),
     };
 
     let events: Arc<Mutex<Vec<Event>>> = Arc::new(Mutex::new(Vec::new()));
     let started = Instant::now();
-    let sink = events.clone();
+    let sink = Arc::clone(&events);
     let on_progress: flake_explorer::options::ProgressFn = Arc::new(move |p: OptionsProgress| {
-        sink.lock().unwrap().push(Event {
-            ms: started.elapsed().as_millis(),
-            done: p.done,
-            total: p.total,
-            current: p.current,
-        });
+        sink.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Event {
+                ms: started.elapsed().as_millis(),
+                done: p.done,
+                total: p.total,
+                current: p.current,
+            });
     });
 
-    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| Fail::Plain(format!("failed to start tokio runtime: {e}")))?;
     let result = rt.block_on(extract_options(
         flake_ref,
         kind,
@@ -117,29 +132,27 @@ fn main() {
     ));
     let wall_ms = started.elapsed().as_millis();
 
-    let result = match result {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("options-probe: {e}");
-            std::process::exit(1)
-        }
-    };
+    let result = result.map_err(|e| Fail::Plain(e.to_string()))?;
 
-    let events = events.lock().unwrap();
+    // Take the events out rather than holding the lock across the write and
+    // the summary below; the workers holding the other Arc are gone by now.
+    let events = std::mem::take(&mut *events.lock().unwrap_or_else(PoisonError::into_inner));
     if let Some(path) = jsonl {
-        let body: String = events
-            .iter()
-            .map(|e| {
-                format!(
-                    "{{\"ms\":{},\"done\":{},\"total\":{},\"current\":{}}}\n",
-                    e.ms,
-                    e.done,
-                    e.total,
-                    serde_json::to_string(&e.current).unwrap()
-                )
-            })
-            .collect();
-        std::fs::write(&path, body).unwrap_or_else(|e| die(&format!("cannot write {path}: {e}")));
+        let mut body = String::new();
+        for e in &events {
+            // write! into a String cannot fail, and Value's Display emits the
+            // same compact escaping to_string did.
+            let _ = writeln!(
+                body,
+                "{{\"ms\":{},\"done\":{},\"total\":{},\"current\":{}}}",
+                e.ms,
+                e.done,
+                e.total,
+                serde_json::Value::from(e.current.as_str())
+            );
+        }
+        std::fs::write(&path, body)
+            .map_err(|e| Fail::Plain(format!("cannot write {path}: {e}")))?;
     }
 
     println!(
@@ -156,4 +169,5 @@ fn main() {
             "warnings": result.warnings.len(),
         })
     );
+    Ok(())
 }

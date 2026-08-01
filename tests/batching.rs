@@ -39,7 +39,7 @@ use std::time::Duration;
 /// again at the degraded rung, which is where one eval emits ladder notes for
 /// several chunks at once.
 ///
-/// Every call is appended to $NIX_SHIM_DIR/calls so the test can count what was
+/// Every call is appended to `$NIX_SHIM_DIR/calls` so the test can count what was
 /// actually asked of nix rather than infer it from timing.
 const SHIM: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> "$NIX_SHIM_DIR/calls"

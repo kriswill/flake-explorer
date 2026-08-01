@@ -20,6 +20,27 @@ version = "0.7.0"
 edition = "2024"
 license = "MIT"
 
+# Panic-capable code is banned outright: no unwrap/expect/indexing/unchecked
+# arithmetic anywhere, with pedantic and nursery denied underneath (priority -1
+# so the named lints stay authoritative over the group levels).
+[workspace.lints.clippy]
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+# DENY PANICS:
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+unreachable = "deny"
+unimplemented = "deny"
+unchecked_time_subtraction = "deny"
+todo = "deny"
+string_slice = "deny"
+panic_in_result_fn = "deny"
+panic = "deny"
+exit = "deny"
+as_conversions = "deny"
+
 # One version list for both crates. Two dependency tables are two places for
 # serde or tree-sitter to drift into two copies of themselves in one binary.
 [workspace.dependencies]
@@ -89,6 +110,9 @@ tokio-stream.workspace = true
 # Thin was the better call even before those two changes (61.7s of compile
 # against 72.7s across build+test), but only barely; it is 2.7x now.
 lto = "thin"
+
+[lints]
+workspace = true
 
 [dev-dependencies]
 tower = { version = "0.5.3", features = ["util"] }
