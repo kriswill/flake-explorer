@@ -151,7 +151,8 @@ fn run() -> Result<(), Fail> {
                 serde_json::Value::from(e.current.as_str())
             );
         }
-        std::fs::write(&path, body).map_err(|e| usage(format!("cannot write {path}: {e}")))?;
+        std::fs::write(&path, body)
+            .map_err(|e| Fail::Plain(format!("cannot write {path}: {e}")))?;
     }
 
     println!(
