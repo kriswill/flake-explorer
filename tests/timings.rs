@@ -20,6 +20,12 @@ struct Run {
 
 /// One `extract` of the fixture into a fresh directory. `timings` sets the
 /// env var; `all` adds --all so the options and package passes actually run.
+// clippy.toml's unwrap-in-tests exemption reaches `#[test]` fns but not the
+// helpers around them.
+#[expect(
+    clippy::unwrap_used,
+    reason = "test code: panics are the failure mechanism"
+)]
 fn extract(dir: &std::path::Path, timings: bool, all: bool) -> Run {
     let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_flake-explorer"));
     cmd.arg("extract")
@@ -120,8 +126,11 @@ fn the_env_var_does_not_change_what_the_run_prints() {
         without_out_dir(&timed.stderr, &timed_dir)
             .lines()
             .filter(|l| !l.trim_start().starts_with("timing:"))
-            .map(|l| format!("{l}\n"))
-            .collect::<String>(),
+            .fold(String::new(), |mut s, l| {
+                s.push_str(l);
+                s.push('\n');
+                s
+            }),
         "FLAKE_EXPLORER_TIMINGS changed stderr beyond adding timing lines"
     );
 }

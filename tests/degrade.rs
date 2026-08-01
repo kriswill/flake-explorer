@@ -39,6 +39,10 @@ esac
 "#;
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "ONE test fn by design (see file header): PATH mutation is process-global"
+)]
 async fn unresolvable_transitive_input_degrades_with_warning_and_scans_still_run() {
     let shim = TempDir::new("degrade-shim");
     let self_dir = TempDir::new("degrade-self");
@@ -145,7 +149,7 @@ async fn unresolvable_transitive_input_degrades_with_warning_and_scans_still_run
 
     // Every input still appears — the lock graph never depended on the eval.
     let mut names: Vec<&str> = m.inputs.keys().map(String::as_str).collect();
-    names.sort();
+    names.sort_unstable();
     assert_eq!(names, ["nixpkgs", "nixpkgs/nixos-hardware"]);
     assert_eq!(m.inputs["nixpkgs"].store_path.as_deref(), Some(NIXPKGS));
     // ...but the transitive one lost the store path the deep walk would have
@@ -168,7 +172,7 @@ async fn unresolvable_transitive_input_degrades_with_warning_and_scans_still_run
     // Degrading the INPUT walk must not quietly drop the file-level scans —
     // they read self files off disk and never touched the failing eval.
     let mut rel_paths: Vec<&str> = m.files.iter().map(|f| f.rel_path.as_str()).collect();
-    rel_paths.sort();
+    rel_paths.sort_unstable();
     assert_eq!(rel_paths, ["flake.nix", "overlays.nix"]);
 
     // Both overlay definition forms, attributed to the file defining them.

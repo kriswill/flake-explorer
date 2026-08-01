@@ -1,0 +1,8 @@
+# The panic bans in Cargo.toml's [workspace.lints.clippy] are for production
+# code. In tests a panic IS the failure mechanism — assert! panics — so
+# unwrap/expect/indexing there are exempted here rather than watered down to
+# `warn` for everyone.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true

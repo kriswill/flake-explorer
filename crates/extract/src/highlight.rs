@@ -52,6 +52,26 @@ fn bash_grammar() -> Option<&'static Grammar> {
 /// inside, and among captures on the exact same node the earliest-declared
 /// query pattern wins — the highlights.scm convention.
 fn tokenize(g: &Grammar, text: &str) -> Vec<TokenRun> {
+    struct Cap {
+        start: usize,
+        end: usize,
+        pattern: usize,
+        name_idx: u32,
+    }
+
+    /// Close a run: resolve the capture index back to its query name. The
+    /// index came out of this same query, so resolution only fails if
+    /// tree-sitter misbehaves — in which case the run is dropped, not mislabeled.
+    fn push_run(runs: &mut Vec<TokenRun>, names: &[&str], start: usize, end: usize, name_idx: u32) {
+        if let Some(name) = usize::try_from(name_idx).ok().and_then(|i| names.get(i)) {
+            runs.push(TokenRun {
+                start,
+                end,
+                name: (*name).to_string(),
+            });
+        }
+    }
+
     let mut parser = Parser::new();
     if parser.set_language(&g.language).is_err() {
         return Vec::new();
@@ -60,17 +80,13 @@ fn tokenize(g: &Grammar, text: &str) -> Vec<TokenRun> {
         return Vec::new();
     };
 
-    struct Cap {
-        start: usize,
-        end: usize,
-        pattern: usize,
-        name_idx: u32,
-    }
     let mut caps: Vec<Cap> = Vec::new();
     let mut cursor = QueryCursor::new();
     let mut it = cursor.captures(&g.query, tree.root_node(), text.as_bytes());
     while let Some((m, i)) = it.next() {
-        let c = m.captures[*i];
+        let Some(c) = m.captures.get(*i) else {
+            continue;
+        };
         caps.push(Cap {
             start: c.node.start_byte(),
             end: c.node.end_byte(),
@@ -83,7 +99,7 @@ fn tokenize(g: &Grammar, text: &str) -> Vec<TokenRun> {
         a.start
             .cmp(&b.start)
             // broader first — narrower paints over it below
-            .then((b.end - b.start).cmp(&(a.end - a.start)))
+            .then((b.end.saturating_sub(b.start)).cmp(&(a.end.saturating_sub(a.start))))
             // same node: earlier-declared pattern paints last (wins)
             .then(b.pattern.cmp(&a.pattern))
     });
@@ -96,37 +112,45 @@ fn tokenize(g: &Grammar, text: &str) -> Vec<TokenRun> {
         }
     }
 
-    // Byte offset -> UTF-16 code-unit offset, defined at char boundaries.
-    let mut utf16_at = vec![0usize; text.len() + 1];
+    // Byte offset -> UTF-16 code-unit offset. Every byte of a char carries the
+    // char's offset; run boundaries come from node byte offsets, which fall on
+    // char boundaries in valid UTF-8, so only boundary entries are ever read.
+    let mut utf16_at: Vec<usize> = Vec::with_capacity(text.len().saturating_add(1));
     let mut u16_pos = 0usize;
-    for (byte_pos, ch) in text.char_indices() {
-        utf16_at[byte_pos] = u16_pos;
-        u16_pos += ch.len_utf16();
+    for ch in text.chars() {
+        for _ in 0..ch.len_utf8() {
+            utf16_at.push(u16_pos);
+        }
+        u16_pos = u16_pos.saturating_add(ch.len_utf16());
     }
-    utf16_at[text.len()] = u16_pos;
 
     let names = g.query.capture_names();
     let mut runs: Vec<TokenRun> = Vec::new();
-    let mut start = 0usize;
-    for i in 1..=text.len() {
-        if i == text.len() || paint[i] != paint[start] {
-            if let Some(name_idx) = paint[start] {
-                runs.push(TokenRun {
-                    start: utf16_at[start],
-                    end: utf16_at[i],
-                    name: names[name_idx as usize].to_string(),
-                });
+    // The (utf16 start, capture index) of the run currently being painted.
+    let mut open: Option<(usize, u32)> = None;
+    for (&p, &off) in paint.iter().zip(utf16_at.iter()) {
+        match (open, p) {
+            (Some((_, idx)), Some(name_idx)) if idx == name_idx => {}
+            (prev, next) => {
+                if let Some((run_start, idx)) = prev {
+                    push_run(&mut runs, names, run_start, off, idx);
+                }
+                open = next.map(|name_idx| (off, name_idx));
             }
-            start = i;
         }
+    }
+    if let Some((run_start, idx)) = open {
+        push_run(&mut runs, names, run_start, u16_pos, idx);
     }
     runs
 }
 
+#[must_use]
 pub fn tokenize_nix(text: &str) -> Vec<TokenRun> {
     nix_grammar().map(|g| tokenize(g, text)).unwrap_or_default()
 }
 
+#[must_use]
 pub fn tokenize_bash(text: &str) -> Vec<TokenRun> {
     bash_grammar()
         .map(|g| tokenize(g, text))

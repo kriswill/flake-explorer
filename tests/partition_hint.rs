@@ -110,6 +110,12 @@ struct Walk {
     plan: Vec<ChunkHint>,
 }
 
+// clippy.toml's unwrap-in-tests exemption reaches `#[test]` fns but not the
+// helpers around them.
+#[expect(
+    clippy::unwrap_used,
+    reason = "test code: panics are the failure mechanism"
+)]
 async fn walk(hint: Option<Vec<ChunkHint>>) -> Walk {
     let r = extract_options(
         "github:example/hint-flake",
@@ -133,9 +139,7 @@ async fn walk(hint: Option<Vec<ChunkHint>>) -> Walk {
 }
 
 fn calls(dir: &std::path::Path) -> usize {
-    let n = std::fs::read_to_string(dir.join("calls"))
-        .map(|s| s.lines().count())
-        .unwrap_or(0);
+    let n = std::fs::read_to_string(dir.join("calls")).map_or(0, |s| s.lines().count());
     std::fs::write(dir.join("calls"), "").ok();
     n
 }

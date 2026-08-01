@@ -18,7 +18,7 @@ use std::time::Duration;
 /// Extract the same fixture into fresh data dirs repeatedly and require the
 /// blob bytes to match. Before options were sorted by loc this failed: the
 /// chunk walk accumulates results in completion order on a pool sized from
-/// available_parallelism(), and ten runs on a 10-core host produced five
+/// `available_parallelism()`, and ten runs on a 10-core host produced five
 /// distinct blob hashes.
 ///
 /// Four runs rather than two on purpose. As a regression detector this is
@@ -49,7 +49,7 @@ async fn blob_bytes_are_identical_across_runs() {
                 configs: Selection::Ids(vec!["nixos/mini".to_string()]),
                 packages: Selection::None,
                 all_systems: false,
-                timeout: Duration::from_secs(60),
+                timeout: Duration::from_mins(1),
             },
         )
         .await
@@ -125,7 +125,7 @@ async fn the_whole_data_dir_is_identical_across_all_runs() {
                 configs: Selection::All,
                 packages: Selection::All,
                 all_systems: false,
-                timeout: Duration::from_secs(60),
+                timeout: Duration::from_mins(1),
             },
         )
         .await
@@ -159,6 +159,12 @@ async fn the_whole_data_dir_is_identical_across_all_runs() {
 /// Every JSON file in the data dir, keyed by relative path, with the fields
 /// that are timing rather than content stripped: extractedAt/generatedAt are
 /// clocks, durationMs is a stopwatch.
+// clippy.toml's unwrap-in-tests exemption reaches `#[test]` fns but not the
+// helpers around them.
+#[expect(
+    clippy::unwrap_used,
+    reason = "test code: panics are the failure mechanism"
+)]
 fn read_normalized(dir: &Path) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     let mut stack = vec![dir.to_path_buf()];
@@ -203,7 +209,7 @@ fn strip_timings(v: &mut serde_json::Value) {
 /// already ignores that on purpose. It is someone adding code to the ROOT crate
 /// that writes a persisted artifact. That compiles cleanly today: the root crate
 /// depends on the extraction crate, so every schema type is in scope and a new
-/// serve.rs helper could build a ConfigData and write it to the data dir, giving
+/// serve.rs helper could build a `ConfigData` and write it to the data dir, giving
 /// blobs a content model the fingerprint does not describe and no error to
 /// notice.
 ///
@@ -217,7 +223,7 @@ fn strip_timings(v: &mut serde_json::Value) {
 /// - A root-crate value reaching a blob through an extraction-crate API. That
 ///   needs the extraction crate's signature to change, which moves the
 ///   fingerprint, so it is covered — except through parameters that already
-///   exist (the timeout, the refs handed to extract_and_persist). Those are the
+///   exist (the timeout, the refs handed to `extract_and_persist`). Those are the
 ///   documented residual in crates/extract/build.rs, and no source-shape test
 ///   reaches them.
 /// - Anything at all inside crates/extract, which is the fingerprint's job.
@@ -232,7 +238,7 @@ fn root_crate_persists_nothing_but_the_manifest_and_the_export() {
     let mut found: BTreeMap<String, usize> = BTreeMap::new();
     let mut scanned = 0usize;
 
-    let mut stack = vec![src.clone()];
+    let mut stack = vec![src];
     while let Some(dir) = stack.pop() {
         for e in std::fs::read_dir(&dir).unwrap().flatten() {
             let p = e.path();

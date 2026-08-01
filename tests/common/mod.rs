@@ -11,7 +11,7 @@ pub fn fixture() -> PathBuf {
 }
 
 /// True when real `nix` is on PATH. When absent: panics if
-/// FLAKE_EXPLORER_REQUIRE_NIX is set (CI must never skip silently),
+/// `FLAKE_EXPLORER_REQUIRE_NIX` is set (CI must never skip silently),
 /// otherwise logs the skip.
 #[allow(dead_code)]
 pub fn nix_available() -> bool {
@@ -20,12 +20,11 @@ pub fn nix_available() -> bool {
         .output()
         .is_ok_and(|o| o.status.success());
     if !found {
-        if std::env::var_os("FLAKE_EXPLORER_REQUIRE_NIX").is_some() {
-            panic!(
-                "FLAKE_EXPLORER_REQUIRE_NIX is set but `nix` is not on PATH — \
-                 the integration suite would silently skip"
-            );
-        }
+        assert!(
+            std::env::var_os("FLAKE_EXPLORER_REQUIRE_NIX").is_none(),
+            "FLAKE_EXPLORER_REQUIRE_NIX is set but `nix` is not on PATH — \
+             the integration suite would silently skip"
+        );
         eprintln!("skipping: `nix` not on PATH (sandboxed check build)");
     }
     found
@@ -35,7 +34,13 @@ pub fn nix_available() -> bool {
 pub struct TempDir(pub PathBuf);
 
 impl TempDir {
-    pub fn new(prefix: &str) -> TempDir {
+    // clippy.toml's unwrap-in-tests exemption reaches `#[test]` fns but not
+    // the helpers around them.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "test code: panics are the failure mechanism"
+    )]
+    pub fn new(prefix: &str) -> Self {
         let dir = std::env::temp_dir().join(format!(
             "{prefix}-{}-{:x}",
             std::process::id(),
@@ -45,7 +50,7 @@ impl TempDir {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        TempDir(dir)
+        Self(dir)
     }
 }
 

@@ -23,6 +23,12 @@ use std::time::Duration;
 /// what makes "did these two passes overlap each other" answerable at all.
 const JOBS: usize = 8;
 
+// clippy.toml's unwrap-in-tests exemption reaches `#[test]` fns but not the
+// helpers around them.
+#[expect(
+    clippy::unwrap_used,
+    reason = "test code: panics are the failure mechanism"
+)]
 async fn extract(flake_ref: &str, out: &Path, configs: Selection, packages: Selection) {
     std::fs::create_dir_all(out).unwrap();
     extract_to_dir(
@@ -35,7 +41,7 @@ async fn extract(flake_ref: &str, out: &Path, configs: Selection, packages: Sele
             configs,
             packages,
             all_systems: false,
-            timeout: Duration::from_secs(60),
+            timeout: Duration::from_mins(1),
         },
     )
     .await

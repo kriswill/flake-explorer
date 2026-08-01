@@ -8,6 +8,12 @@ struct Run {
     code: Option<i32>,
 }
 
+// clippy.toml's unwrap-in-tests exemption reaches `#[test]` fns but not the
+// helpers around them.
+#[expect(
+    clippy::unwrap_used,
+    reason = "test code: panics are the failure mechanism"
+)]
 fn run(args: &[&str]) -> Run {
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_flake-explorer"))
         .args(args)

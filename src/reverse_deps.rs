@@ -7,6 +7,7 @@ use indexmap::IndexMap;
 use std::collections::{HashMap, HashSet};
 
 /// Depended-on package refId -> sorted refIds that depend on it.
+#[must_use]
 pub fn build_package_reverse_deps(
     package_data: &IndexMap<String, PackageData>,
 ) -> IndexMap<String, Vec<String>> {
@@ -45,7 +46,7 @@ mod tests {
     use super::*;
     use crate::schema::*;
 
-    /// Minimal PackageData: just the id + a drv with a drvPath and inputDrvs.
+    /// Minimal `PackageData`: just the id + a drv with a drvPath and inputDrvs.
     fn pkg(id: &str, drv_path: Option<&str>, input_drv_paths: &[&str]) -> PackageData {
         PackageData {
             version: SCHEMA_VERSION,

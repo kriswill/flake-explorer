@@ -6,6 +6,13 @@
 // mutation (PATH, shim vars, app-dist) is process-global, and one test per
 // process keeps it race-free.
 
+// clippy.toml's unwrap-in-tests exemption reaches `#[test]` fns but not the
+// helpers around them, and this whole file is test code.
+#![expect(
+    clippy::unwrap_used,
+    reason = "test code: panics are the failure mechanism"
+)]
+
 mod common;
 
 use axum::body::Body;
@@ -102,6 +109,10 @@ async fn get_manifest(ctx: &Ctx) -> Manifest {
 }
 
 /// Shim invocations per mode since the log was last reset.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "test code: panics are the failure mechanism"
+)]
 fn shim_counts(ctx: &Ctx) -> HashMap<String, usize> {
     let text = std::fs::read_to_string(&ctx.log_file).unwrap_or_default();
     let mut counts = HashMap::new();
@@ -139,6 +150,10 @@ fn pkg_sidecar_path(ctx: &Ctx) -> PathBuf {
         .join(PKG_DATA_FILE.replace(".json", ".meta.json"))
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the whole shim fixture contract written in one place; splitting it would scatter what the shim answers"
+)]
 fn write_fixtures(shim_dir: &Path, self_dir: &Path) {
     let self_path = self_dir.to_string_lossy();
     // nix flake metadata --json: one simple locked input, resolvedUrl not
@@ -158,7 +173,7 @@ fn write_fixtures(shim_dir: &Path, self_dir: &Path) {
                 "nixpkgs": {
                     "locked": {
                         "type": "github", "owner": "NixOS", "repo": "nixpkgs", "rev": "cafebabe",
-                        "narHash": "sha256-nixpkgsnarhash=", "lastModified": 1700000000i64
+                        "narHash": "sha256-nixpkgsnarhash=", "lastModified": 1_700_000_000_i64
                     },
                     "original": { "type": "github", "owner": "NixOS", "repo": "nixpkgs" }
                 }
@@ -217,7 +232,7 @@ fn write_fixtures(shim_dir: &Path, self_dir: &Path) {
     });
 
     let w = |name: &str, v: &serde_json::Value| {
-        std::fs::write(shim_dir.join(name), v.to_string()).unwrap()
+        std::fs::write(shim_dir.join(name), v.to_string()).unwrap();
     };
     w("metadata.json", &metadata);
     w("show.json", &show);
@@ -287,7 +302,7 @@ fn flags(data_dir: &Path, dev: bool) -> ServeFlags {
         config_graphs: false,
         graph_dry_run: false,
         all_systems: false,
-        timeout: Duration::from_secs(60),
+        timeout: Duration::from_mins(1),
         port: 0,
         host: "127.0.0.1".to_string(),
         dev,
@@ -295,6 +310,10 @@ fn flags(data_dir: &Path, dev: bool) -> ServeFlags {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "ordered sub-steps in ONE test fn by design (see file header): env mutation is process-global"
+)]
 async fn serve_routing_and_on_demand_extraction() {
     let shim = TempDir::new("serve-shim");
     let data_parent = TempDir::new("serve-data");
@@ -510,7 +529,7 @@ async fn serve_routing_and_on_demand_extraction() {
     assert_eq!(g["tiers"]["presence"], true);
     // The nix-store shim declared demo's own output invalid; dep's is valid.
     assert_eq!(g["stats"]["absentCount"], 1);
-    let root = g["root"].as_u64().unwrap() as usize;
+    let root = usize::try_from(g["root"].as_u64().unwrap()).unwrap();
     assert_eq!(g["nodes"][root]["name"], "demo-1.0");
     assert_eq!(g["nodes"][root]["outputs"][0]["present"], false);
     let counts = shim_counts(&ctx);

@@ -4,7 +4,10 @@
 
 use crate::highlight::tokenize_bash;
 use crate::run_nix::{ExtractArgs, PackageEval, derivation_show, eval_extract, path_info};
-use crate::schema::*;
+use crate::schema::{
+    BuilderKind, DrvInfo, DrvInputRef, DrvPhase, PackageData, PackageLicense, PackageMaintainer,
+    PackageMeta, PackageOutput, PackageSrc, RuntimeInfo, SCHEMA_VERSION,
+};
 use indexmap::IndexMap;
 use serde_json::Value;
 use std::time::{Duration, Instant};
@@ -15,6 +18,14 @@ pub struct PackageResult {
     pub duration_ms: u64,
 }
 
+/// Extracts one package: eval, then best-effort `derivation show` and
+/// `path-info` enrichment.
+///
+/// # Errors
+///
+/// Only the eval stage is fatal — a nix eval failure or timeout, or an attr
+/// at `path` that is not (or no longer) a derivation. `derivation show` and
+/// `path-info` failures degrade to warnings carried on the document.
 pub async fn extract_package(
     flake_ref: &str,
     id: &str,
@@ -120,7 +131,7 @@ pub async fn extract_package(
     Ok(PackageResult {
         data,
         warnings,
-        duration_ms: start.elapsed().as_millis() as u64,
+        duration_ms: u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
     })
 }
 
@@ -128,6 +139,7 @@ pub async fn extract_package(
 
 /// markers first, then a nativeBuildInputs hook-name scan, then phase
 /// presence -> plain stdenv, else unknown.
+#[must_use]
 pub fn classify_builder(
     markers: &crate::run_nix::PackageMarkers,
     native_build_inputs: &[String],
@@ -145,23 +157,19 @@ pub fn classify_builder(
     if markers.build_command {
         return BuilderKind::Trivial;
     }
-    let hooks: [(regex::Regex, BuilderKind); 3] = [
+    // Case-insensitive substring scan over hook derivation names.
+    let hooks: [(&[&str], BuilderKind); 3] = [
         (
-            regex::Regex::new(r"(?i)cargo-build-hook|rust-cargo").unwrap(),
+            &["cargo-build-hook", "rust-cargo"],
             BuilderKind::RustPlatform,
         ),
-        (
-            regex::Regex::new(r"(?i)go-modules-hook").unwrap(),
-            BuilderKind::BuildGoModule,
-        ),
-        (
-            regex::Regex::new(r"(?i)npm-install-hook|node-gyp").unwrap(),
-            BuilderKind::Node,
-        ),
+        (&["go-modules-hook"], BuilderKind::BuildGoModule),
+        (&["npm-install-hook", "node-gyp"], BuilderKind::Node),
     ];
     for dep in native_build_inputs {
-        for (re, kind) in &hooks {
-            if re.is_match(dep) {
+        let dep = dep.to_lowercase();
+        for (needles, kind) in &hooks {
+            if needles.iter().any(|n| dep.contains(n)) {
                 return *kind;
             }
         }
@@ -236,26 +244,37 @@ fn phases_from_env(env: &serde_json::Map<String, Value>) -> Vec<DrvPhase> {
 }
 
 pub(crate) fn name_from_drv_basename(basename: &str) -> String {
-    let re = regex::Regex::new(r"^[a-z0-9]{32}-(.+)\.drv$").unwrap();
-    match re.captures(basename) {
-        Some(c) => c[1].to_string(),
-        None => basename
-            .strip_suffix(".drv")
-            .unwrap_or(basename)
-            .to_string(),
+    // "<32-char base32 hash>-<name>.drv" -> name; otherwise keep the
+    // basename (minus any ".drv") rather than guessing.
+    if let Some(stem) = basename.strip_suffix(".drv")
+        && let Some((hash, rest)) = stem.split_at_checked(32)
+        && hash
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        && let Some(name) = rest.strip_prefix('-')
+        && !name.is_empty()
+    {
+        return name.to_string();
     }
+    basename
+        .strip_suffix(".drv")
+        .unwrap_or(basename)
+        .to_string()
 }
 
 /// `nix derivation show` returns bare store-path BASENAMES as both its
-/// top-level key and each output's `path`. Newer nix wraps the result in
-/// {"derivations": {...}} and nests input drvs under `inputs.drvs`; older nix
-/// returns the drv map at top level with `inputDrvs`. Both normalized here.
+/// top-level key and each output's `path`.
+///
+/// Newer nix wraps the result in {"derivations": {...}} and nests input drvs
+/// under `inputs.drvs`; older nix returns the drv map at top level with
+/// `inputDrvs`. Both normalized here.
+#[must_use]
 pub fn normalize_derivation_show(raw: &Value) -> Option<DrvInfo> {
     let r = raw.as_object()?;
-    let container = match r.get("derivations").and_then(|d| d.as_object()) {
-        Some(d) => d,
-        None => r,
-    };
+    let container = r
+        .get("derivations")
+        .and_then(|d| d.as_object())
+        .unwrap_or(r);
     let (basename, entry) = container.iter().next()?;
     let e = entry.as_object()?;
 
@@ -325,7 +344,6 @@ fn as_string(v: Option<&Value>) -> Option<String> {
 
 fn normalize_license(v: &Value) -> Vec<PackageLicense> {
     match v {
-        Value::Null => Vec::new(),
         Value::String(s) => vec![PackageLicense {
             short_name: Some(s.clone()),
             full_name: None,
@@ -339,7 +357,7 @@ fn normalize_license(v: &Value) -> Vec<PackageLicense> {
             full_name: as_string(o.get("fullName")),
             spdx_id: as_string(o.get("spdxId")),
             url: as_string(o.get("url")),
-            free: o.get("free").and_then(|f| f.as_bool()),
+            free: o.get("free").and_then(Value::as_bool),
         }],
         _ => Vec::new(),
     }
@@ -362,7 +380,7 @@ fn normalize_maintainers(v: Option<&Value>) -> Vec<PackageMaintainer> {
         .collect()
 }
 
-/// Shapes extract.nix's raw scrubbed `meta` attrset into PackageMeta.
+/// Shapes extract.nix's raw scrubbed `meta` attrset into `PackageMeta`.
 pub fn normalize_package_meta(raw: &serde_json::Map<String, Value>) -> PackageMeta {
     let license = raw
         .get("license")
@@ -383,8 +401,8 @@ pub fn normalize_package_meta(raw: &serde_json::Map<String, Value>) -> PackageMe
         main_program: as_string(raw.get("mainProgram")),
         maintainers: (!maintainers.is_empty()).then_some(maintainers),
         position: as_string(raw.get("position")),
-        broken: raw.get("broken").and_then(|v| v.as_bool()),
-        unfree: raw.get("unfree").and_then(|v| v.as_bool()),
+        broken: raw.get("broken").and_then(Value::as_bool),
+        unfree: raw.get("unfree").and_then(Value::as_bool),
     }
 }
 

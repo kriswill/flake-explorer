@@ -88,7 +88,10 @@ use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
 fn main() {
-    let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    // Cargo always sets CARGO_MANIFEST_DIR for build scripts; "." is an inert
+    // stand-in that keeps this panic-free rather than a path anyone builds from.
+    let root =
+        std::env::var_os("CARGO_MANIFEST_DIR").map_or_else(|| PathBuf::from("."), PathBuf::from);
 
     let mut files: Vec<PathBuf> = Vec::new();
     // EVERY file under src/, whatever its extension — not the .rs files plus a
@@ -146,7 +149,7 @@ fn main() {
     let digest = hex::encode(hasher.finalize());
     println!(
         "cargo:rustc-env=FLAKE_EXPLORER_FINGERPRINT=rs-{}",
-        &digest[..14]
+        digest.get(..14).unwrap_or(&digest)
     );
 }
 
@@ -255,9 +258,10 @@ fn lock_closure(lock: &str, root_name: &str) -> Option<(Vec<String>, HashSet<Str
     let mut names: HashSet<String> = HashSet::new();
 
     while let Some(i) = queue.pop_front() {
+        let Some(pkg) = pkgs.get(i) else { continue };
         // A dependency reads as "name" or, when the lock carries more than one
         // version of it, "name version".
-        for dep in &pkgs[i].deps {
+        for dep in &pkg.deps {
             let (dname, dver) = match dep.split_once(' ') {
                 Some((n, v)) => (n, Some(v)),
                 None => (dep.as_str(), None),
@@ -274,8 +278,7 @@ fn lock_closure(lock: &str, root_name: &str) -> Option<(Vec<String>, HashSet<Str
         }
     }
 
-    for i in seen {
-        let p = &pkgs[i];
+    for p in seen.into_iter().filter_map(|i| pkgs.get(i)) {
         names.insert(p.name.replace('_', "-"));
         // Workspace members carry no source; their contents are hashed as
         // files, and folding their version in here would invalidate every
@@ -378,7 +381,7 @@ fn workspace_dep_entries(manifest: &str, names: &HashSet<String>) -> String {
             kept.push(t);
         }
     }
-    kept.sort();
+    kept.sort_unstable();
     kept.join("\n")
 }
 

@@ -5,7 +5,10 @@
 use crate::run_nix::{
     ChunkSpec, ExtractArgs, OptionsBatchEval, OptionsEval, RawOption, ValueEnvelope, eval_extract,
 };
-use crate::schema::*;
+use crate::schema::{
+    ConfigData, ConfigKind, DeclarationRef, DefinitionRef, FileOptionRefs, OptionEntry,
+    PRIO_OPTION_DEFAULT, SCHEMA_VERSION,
+};
 use indexmap::IndexMap;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -18,7 +21,7 @@ pub struct OptionsResult {
     pub warnings: Vec<String>,
     pub duration_ms: u64,
     /// How this walk ended up splitting the option tree, for the next one to
-    /// start from. Only the shape — see ChunkHint on why the rungs stay out.
+    /// start from. Only the shape — see `ChunkHint` on why the rungs stay out.
     pub partition: Vec<ChunkHint>,
 }
 
@@ -89,7 +92,7 @@ struct Chunk {
 /// would never ask again. Degradation may only ever subtract what the flake
 /// currently refuses, so every hinted chunk is attempted at full detail and a
 /// still-poisoned one re-earns its rung for the price of one failed eval.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChunkHint {
     pub path: Vec<String>,
@@ -101,10 +104,10 @@ pub struct ChunkHint {
 /// it has been narrowed to one. Doubles as the sort key for anything the walk
 /// reports about that chunk.
 fn chunk_key(c: &Chunk) -> Vec<String> {
-    match &c.children {
-        Some(ch) if ch.len() == 1 => {
+    match c.children.as_deref() {
+        Some([only]) => {
             let mut p = c.path.clone();
-            p.push(ch[0].clone());
+            p.push(only.clone());
             p
         }
         _ => c.path.clone(),
@@ -142,12 +145,11 @@ async fn verify_hint(shared: &Shared, chunk: &Chunk, actual: &[String]) {
     // worker has already taken are in neither the queue nor the results, so the
     // clearing below cannot reach them; the bump is what stops them appending
     // into the walk that is about to replace them.
-    let epoch = {
-        let mut epochs = shared.epochs.lock().await;
-        let e = epochs.entry(ns.clone()).or_insert(0);
-        *e += 1;
-        *e
-    };
+    let mut epochs = shared.epochs.lock().await;
+    let e = epochs.entry(ns.clone()).or_insert(0);
+    *e = e.saturating_add(1);
+    let epoch = *e;
+    drop(epochs);
     let is_ns = |p: &[String]| p.first() == Some(ns);
     shared.results.lock().await.retain(|o| !is_ns(&o.loc));
     shared.warnings.lock().await.retain(|(k, _)| !is_ns(k));
@@ -164,6 +166,7 @@ async fn verify_hint(shared: &Shared, chunk: &Chunk, actual: &[String]) {
             epoch,
         },
     );
+    drop(q);
 }
 
 /// Whether a finished chunk still speaks for its namespace, or has been
@@ -274,7 +277,7 @@ type ExpectedChildren = std::collections::HashMap<Vec<String>, HashSet<String>>;
 /// looking at it: not a slow extraction, a silently incomplete one.
 fn seed_from_hint(namespaces: &[String], hint: &[ChunkHint]) -> (Vec<Chunk>, ExpectedChildren) {
     let known: HashSet<&str> = namespaces.iter().map(String::as_str).collect();
-    let mut expected: ExpectedChildren = Default::default();
+    let mut expected = ExpectedChildren::default();
     let mut whole: HashSet<Vec<String>> = HashSet::new();
     let mut seeded: HashSet<&str> = HashSet::new();
     let mut out: Vec<Chunk> = Vec::new();
@@ -340,6 +343,22 @@ fn seed_from_hint(namespaces: &[String], hint: &[ChunkHint]) -> (Vec<Chunk>, Exp
     (out, expected)
 }
 
+/// The cold start: one whole-namespace chunk each, in queue order.
+fn seed_cold(namespaces: &[String]) -> Vec<Chunk> {
+    let mut q: Vec<Chunk> = namespaces
+        .iter()
+        .map(|n| Chunk {
+            path: vec![n.clone()],
+            children: None,
+            rung: 0,
+            cap: BATCH_MAX,
+            epoch: 0,
+        })
+        .collect();
+    q.sort_by(chunk_order);
+    q
+}
+
 struct Shared {
     /// Everything still to do, kept in sorted order. Workers take batches off
     /// the front as they free; splits and rung escalations go straight back in,
@@ -358,8 +377,7 @@ struct Shared {
     /// just replaced would throw it away again, forever.
     expected: ExpectedChildren,
     discarded: Mutex<HashSet<String>>,
-    /// Current generation per namespace; see Chunk::epoch.
-    /// Current generation per namespace; see Chunk::epoch.
+    /// Current generation per namespace; see `Chunk::epoch`.
     epochs: Mutex<std::collections::HashMap<String, u64>>,
     warnings: Mutex<Vec<KeyedWarning>>,
     done: std::sync::atomic::AtomicUsize,
@@ -380,8 +398,8 @@ pub struct ExtractOptionsOpts {
 
 impl Default for ExtractOptionsOpts {
     fn default() -> Self {
-        ExtractOptionsOpts {
-            timeout: Duration::from_secs(600),
+        Self {
+            timeout: Duration::from_mins(10),
             concurrency: None,
             skip_invisible: true,
             on_progress: None,
@@ -390,6 +408,14 @@ impl Default for ExtractOptionsOpts {
     }
 }
 
+/// Walk one configuration's option tree and assemble its `ConfigData`.
+///
+/// # Errors
+///
+/// Only the initial `optionNames` eval — the top-level namespace listing — can
+/// fail this function: the flake does not evaluate at all, the eval times out,
+/// or its output cannot be parsed. Every failure after that point degrades into
+/// warnings on the result instead, chunk by chunk.
 pub async fn extract_options(
     flake_ref: &str,
     kind: ConfigKind,
@@ -414,29 +440,16 @@ pub async fn extract_options(
     )
     .await?;
 
-    let (seed, expected) = match &opts.hint {
-        Some(h) => seed_from_hint(&namespaces, h),
-        None => {
-            let mut q: Vec<Chunk> = namespaces
-                .iter()
-                .map(|n| Chunk {
-                    path: vec![n.clone()],
-                    children: None,
-                    rung: 0,
-                    cap: BATCH_MAX,
-                    epoch: 0,
-                })
-                .collect();
-            q.sort_by(chunk_order);
-            (q, Default::default())
-        }
-    };
+    let (seed, expected) = opts.hint.as_ref().map_or_else(
+        || (seed_cold(&namespaces), ExpectedChildren::default()),
+        |h| seed_from_hint(&namespaces, h),
+    );
 
     let shared = Arc::new(Shared {
         queue: Mutex::new(seed),
         expected,
         discarded: Mutex::new(HashSet::new()),
-        epochs: Mutex::new(Default::default()),
+        epochs: Mutex::new(std::collections::HashMap::new()),
         results: Mutex::new(Vec::new()),
         partition: Mutex::new(Vec::new()),
         warnings: Mutex::new(Vec::new()),
@@ -497,8 +510,8 @@ pub async fn extract_options(
     keyed.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
     let mut warnings: Vec<String> = keyed.into_iter().map(|(_, w)| w).collect();
     // Dedup preserving order, like `[...new Set(warnings)]`.
-    let mut seen = HashSet::new();
-    warnings.retain(|w| seen.insert(w.clone()));
+    let mut uniq = HashSet::new();
+    warnings.retain(|w| uniq.insert(w.clone()));
 
     // Sort by loc so a blob is a function of (code, flake) and nothing else.
     // Workers above extend `results` as their chunks COMPLETE, and the worker
@@ -545,7 +558,7 @@ pub async fn extract_options(
     Ok(OptionsResult {
         data,
         warnings,
-        duration_ms: t0.elapsed().as_millis() as u64,
+        duration_ms: u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX),
         partition,
     })
 }
@@ -570,7 +583,7 @@ async fn worker(
         // Progress counts CHUNKS, not batches — the caller's totals mean the
         // same thing they meant before batching existed.
         shared.in_flight.fetch_add(n, Ordering::SeqCst);
-        let current = chunk_label(&batch[0]);
+        let current = batch.first().map_or_else(String::new, chunk_label);
         run_batch(
             shared,
             flake_ref,
@@ -583,10 +596,11 @@ async fn worker(
         )
         .await;
         shared.in_flight.fetch_sub(n, Ordering::SeqCst);
-        let done = shared.done.fetch_add(n, Ordering::SeqCst) + n;
+        let done = shared.done.fetch_add(n, Ordering::SeqCst).saturating_add(n);
         if let Some(cb) = &on_progress {
-            let total =
-                done + shared.queue.lock().await.len() + shared.in_flight.load(Ordering::SeqCst);
+            let total = done
+                .saturating_add(shared.queue.lock().await.len())
+                .saturating_add(shared.in_flight.load(Ordering::SeqCst));
             cb(OptionsProgress {
                 done,
                 total,
@@ -612,10 +626,10 @@ async fn run_batch(
     label: &str,
     timeout: Duration,
     skip_invisible: bool,
-    batch: Vec<Chunk>,
+    mut batch: Vec<Chunk>,
 ) {
     if batch.len() == 1 {
-        let chunk = batch.into_iter().next().unwrap();
+        let Some(chunk) = batch.pop() else { return };
         run_chunk(
             shared,
             flake_ref,
@@ -630,7 +644,12 @@ async fn run_batch(
         return;
     }
 
-    let rung = &LADDER[batch[0].rung];
+    // Every rung ever assigned is 0 or a ladder-checked increment, so the
+    // lookup cannot actually miss; bailing beats panicking a worker if that
+    // ever stops holding.
+    let Some(rung) = batch.first().and_then(|head| LADDER.get(head.rung)) else {
+        return;
+    };
     let attempt: Result<OptionsBatchEval, _> = eval_extract(
         &ExtractArgs {
             flake_ref: flake_ref.to_string(),
@@ -690,6 +709,9 @@ async fn run_batch(
                     results.extend(got.options);
                     seen.push((chunk.clone(), got.children));
                 }
+                drop(results);
+                drop(warnings);
+                drop(partition);
             }
             for (chunk, children) in seen {
                 verify_hint(shared, &chunk, &children).await;
@@ -703,7 +725,6 @@ async fn run_batch(
             // Halve the cap as well as the batch. The halves go back in sorted
             // order, land adjacent, and would otherwise be picked up as exactly
             // the batch that just died.
-            let mut batch = batch;
             let cap = (batch.len() / 2).max(1);
             let mid = batch.len().div_ceil(2);
             let tail = batch.split_off(mid);
@@ -717,6 +738,10 @@ async fn run_batch(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the failure ladder is one ordered policy — split first, degrade last, give up — and splitting the function would scatter the ordering argument the comments below depend on"
+)]
 async fn run_chunk(
     shared: &Shared,
     flake_ref: &str,
@@ -727,7 +752,11 @@ async fn run_chunk(
     skip_invisible: bool,
     chunk: Chunk,
 ) {
-    let rung = &LADDER[chunk.rung];
+    // Same impossibility as in run_batch: rungs are only ever 0 or a
+    // ladder-checked increment.
+    let Some(rung) = LADDER.get(chunk.rung) else {
+        return;
+    };
     let attempt: Result<OptionsEval, _> = eval_extract(
         &ExtractArgs {
             flake_ref: flake_ref.to_string(),
@@ -781,33 +810,33 @@ async fn run_chunk(
 
     if let Some(children) = &chunk.children
         && children.len() > 1
+        && let Some((head, tail)) = children.split_at_checked(children.len().div_ceil(2))
     {
-        let mid = children.len().div_ceil(2);
         let mut q = shared.queue.lock().await;
         enqueue(
             &mut q,
             Chunk {
-                children: Some(children[..mid].to_vec()),
+                children: Some(head.to_vec()),
                 ..chunk.clone()
             },
         );
         enqueue(
             &mut q,
             Chunk {
-                children: Some(children[mid..].to_vec()),
+                children: Some(tail.to_vec()),
                 ..chunk
             },
         );
         return;
     }
     // Single child descends a level; a bare namespace splits by its children.
-    let deeper: Vec<String> = match &chunk.children {
-        Some(children) => {
+    let deeper: Vec<String> = match chunk.children.as_deref() {
+        Some([only]) => {
             let mut p = chunk.path.clone();
-            p.push(children[0].clone());
+            p.push(only.clone());
             p
         }
-        None => chunk.path.clone(),
+        _ => chunk.path.clone(),
     };
     if deeper.len() < MAX_DEPTH {
         let kids: Result<Vec<String>, _> = eval_extract(
@@ -842,11 +871,12 @@ async fn run_chunk(
         // unlistable — fall through to rung escalation
     }
     // Unsplittable: walk down the ladder, then give up.
-    if chunk.rung + 1 < LADDER.len() {
+    let next_rung = chunk.rung.saturating_add(1);
+    if next_rung < LADDER.len() {
         enqueue(
             &mut *shared.queue.lock().await,
             Chunk {
-                rung: chunk.rung + 1,
+                rung: next_rung,
                 ..chunk
             },
         );
@@ -885,14 +915,12 @@ pub fn err_line(s: &str) -> String {
 }
 
 /// "path, via option foo.bar" -> (path, Some("foo.bar")); plain paths pass through.
+#[must_use]
 pub fn split_via(file: &str) -> (String, Option<String>) {
-    match file.find(", via option ") {
-        None => (file.to_string(), None),
-        Some(i) => (
-            file[..i].to_string(),
-            Some(file[i + ", via option ".len()..].to_string()),
-        ),
-    }
+    file.split_once(", via option ").map_or_else(
+        || (file.to_string(), None),
+        |(path, via)| (path.to_string(), Some(via.to_string())),
+    )
 }
 
 pub struct Unwrapped {
@@ -902,6 +930,7 @@ pub struct Unwrapped {
     pub value_names: Option<Vec<String>>,
 }
 
+#[must_use]
 pub fn unwrap(v: &ValueEnvelope) -> Unwrapped {
     let mut out = Unwrapped {
         value: None,
@@ -934,8 +963,8 @@ pub fn unwrap(v: &ValueEnvelope) -> Unwrapped {
 
 /// Definition values are pre-merge, so the {mkOverride, content} envelope
 /// survives here — lift it into a first-class per-definition priority.
-fn to_definition(file: String, value: &ValueEnvelope) -> DefinitionRef {
-    let (file, via) = split_via(&file);
+fn to_definition(file: &str, value: &ValueEnvelope) -> DefinitionRef {
+    let (file, via) = split_via(file);
     let u = unwrap(value);
     let mut r#ref = DefinitionRef {
         file,
@@ -952,7 +981,7 @@ fn to_definition(file: String, value: &ValueEnvelope) -> DefinitionRef {
         && o.contains_key("mkOverride")
         && o.contains_key("content")
     {
-        if let Some(prio) = o.get("mkOverride").and_then(|p| p.as_i64()) {
+        if let Some(prio) = o.get("mkOverride").and_then(serde_json::Value::as_i64) {
             r#ref.prio = Some(prio);
         }
         v = o.get("content").cloned();
@@ -961,6 +990,7 @@ fn to_definition(file: String, value: &ValueEnvelope) -> DefinitionRef {
     r#ref
 }
 
+#[must_use]
 pub fn to_entry(o: RawOption) -> OptionEntry {
     let val = unwrap(&o.value);
     let def = unwrap(&o.default);
@@ -996,13 +1026,14 @@ pub fn to_entry(o: RawOption) -> OptionEntry {
         definitions: o
             .definitions
             .into_iter()
-            .map(|d| to_definition(d.file, &d.value))
+            .map(|d| to_definition(&d.file, &d.value))
             .collect(),
     }
 }
 
 /// storePath (or "<unknown-file>") -> option indices, split by role.
 /// "defines" only counts CUSTOMIZED definitions.
+#[must_use]
 pub fn build_file_index(options: &[OptionEntry]) -> IndexMap<String, FileOptionRefs> {
     let mut index: IndexMap<String, FileOptionRefs> = IndexMap::new();
     for (i, o) in options.iter().enumerate() {
@@ -1133,7 +1164,10 @@ mod batching {
             "batch size must not grow back: {sizes:?}"
         );
         assert!(
-            sizes.len() <= BATCH_MAX.ilog2() as usize + 2,
+            sizes.len()
+                <= usize::try_from(BATCH_MAX.ilog2())
+                    .unwrap_or(usize::MAX)
+                    .saturating_add(2),
             "took {} rounds to halve from {BATCH_MAX} to 1: {sizes:?}",
             sizes.len()
         );
@@ -1176,7 +1210,7 @@ mod tests {
     #[test]
     fn mkoverride_lifted() {
         let d = to_definition(
-            "/f.nix".into(),
+            "/f.nix",
             &Some(json!({"ok": {"mkOverride": 50, "content": "forced"}})),
         );
         assert_eq!(d.prio, Some(50));

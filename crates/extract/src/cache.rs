@@ -7,13 +7,13 @@ use crate::graph::{GraphResult, extract_graph};
 use crate::manifest::{FINGERPRINT, now_iso};
 use crate::options::{ChunkHint, ExtractOptionsOpts, OptionsResult, ProgressFn, extract_options};
 use crate::package::{PackageResult, extract_package};
-use crate::schema::*;
+use crate::schema::{ConfigRef, GraphRef, Manifest, PackageRef, RefStatus};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CacheKey {
     /// The flake's narHash when it has one; else its self store path.
     pub flake_key: String,
@@ -33,7 +33,7 @@ pub struct CacheKey {
     /// would still close most of the hole and would re-extract less often, but
     /// it means choosing which of the two numbers here to keep, and dropping
     /// the Determinate wrapper version discards exactly the signal the
-    /// lazy-trees concern in run_nix.rs turns on — a wrapper change at a
+    /// lazy-trees concern in `run_nix.rs` turns on — a wrapper change at a
     /// constant underlying version. Erring coarse errs toward silently serving
     /// stale data, which is the direction this whole cache key is built to
     /// avoid. If the churn ever outweighs that, truncating here is a one-line
@@ -41,12 +41,12 @@ pub struct CacheKey {
     pub nix_version: String,
 }
 
+#[must_use]
 pub fn cache_key_of(manifest: &Manifest, nix_version: &str) -> CacheKey {
     let mut hasher = Sha256::new();
-    let mut names: Vec<&String> = manifest.inputs.keys().collect();
-    names.sort();
-    for name in names {
-        let i = &manifest.inputs[name];
+    let mut inputs: Vec<_> = manifest.inputs.iter().collect();
+    inputs.sort_by_key(|(name, _)| *name);
+    for (name, i) in inputs {
         let id = i
             .nar_hash
             .as_deref()
@@ -55,13 +55,15 @@ pub fn cache_key_of(manifest: &Manifest, nix_version: &str) -> CacheKey {
             .unwrap_or("");
         hasher.update(format!("{name}={id}\n"));
     }
+    let mut lock_hash = hex::encode(hasher.finalize());
+    lock_hash.truncate(16);
     CacheKey {
         flake_key: manifest
             .flake
             .nar_hash
             .clone()
             .unwrap_or_else(|| manifest.flake.path.clone()),
-        lock_hash: hex::encode(hasher.finalize())[..16].to_string(),
+        lock_hash,
         nix_version: nix_version.to_string(),
     }
 }
@@ -70,9 +72,9 @@ pub fn cache_key_of(manifest: &Manifest, nix_version: &str) -> CacheKey {
 #[serde(rename_all = "camelCase")]
 struct SidecarMeta {
     /// All three optional only so older sidecars still parse; absent always
-    /// means stale. nix_version is absent in every sidecar written before it
+    /// means stale. `nix_version` is absent in every sidecar written before it
     /// joined the key, which is why adding it re-extracts once — see the field
-    /// on CacheKey.
+    /// on `CacheKey`.
     flake_key: Option<String>,
     lock_hash: Option<String>,
     nix_version: Option<String>,
@@ -111,6 +113,7 @@ struct SidecarMeta {
 ///
 /// What this must never do is influence whether the blob beside it is fresh.
 /// That decision belongs to `reconcile_one` and its key comparison, alone.
+#[must_use]
 pub fn partition_hint(out_dir: &str, data_file: &str) -> Option<Vec<ChunkHint>> {
     let raw = std::fs::read_to_string(sidecar_path(out_dir, data_file)).ok()?;
     let meta: SidecarMeta = serde_json::from_str(&raw).ok()?;
@@ -119,11 +122,10 @@ pub fn partition_hint(out_dir: &str, data_file: &str) -> Option<Vec<ChunkHint>> 
 }
 
 fn sidecar_path(out_dir: &str, data_file: &str) -> PathBuf {
-    let meta = if let Some(stripped) = data_file.strip_suffix(".json") {
-        format!("{stripped}.meta.json")
-    } else {
-        format!("{data_file}.meta.json")
-    };
+    let meta = data_file.strip_suffix(".json").map_or_else(
+        || format!("{data_file}.meta.json"),
+        |stripped| format!("{stripped}.meta.json"),
+    );
     Path::new(out_dir).join(meta)
 }
 
@@ -184,9 +186,16 @@ pub struct Extracted<T> {
 }
 
 /// Extraction driver shared by the CLI and serve: evaluate one
-/// configuration's options, write the blob + sidecar. Deliberately does NOT
-/// touch the ConfigRef — the caller applies the outcome to whichever
-/// manifest is current when the extraction settles.
+/// configuration's options, write the blob + sidecar.
+///
+/// Deliberately does NOT touch the `ConfigRef` — the caller applies the
+/// outcome to whichever manifest is current when the extraction settles.
+///
+/// # Errors
+///
+/// Fails if the blob path escapes the data dir (or the dir cannot be
+/// canonicalized), if the option eval itself fails or times out, or if
+/// writing the blob or sidecar fails.
 pub async fn extract_and_persist(
     out_dir: &str,
     flake_ref: &str,
@@ -230,7 +239,7 @@ pub async fn extract_and_persist(
     })
 }
 
-/// Record a finished extraction on a (current-manifest) ConfigRef.
+/// Record a finished extraction on a (current-manifest) `ConfigRef`.
 pub fn apply_extracted(r#ref: &mut ConfigRef, r: &Extracted<OptionsResult>) {
     r#ref.status = RefStatus::Ok;
     r#ref.extracted_at = Some(r.extracted_at.clone());
@@ -239,7 +248,13 @@ pub fn apply_extracted(r#ref: &mut ConfigRef, r: &Extracted<OptionsResult>) {
 }
 
 /// Extraction driver for one derivation-typed output — same blob+sidecar
-/// shape and path-traversal guard as extract_and_persist.
+/// shape and path-traversal guard as `extract_and_persist`.
+///
+/// # Errors
+///
+/// Fails if the blob path escapes the data dir (or the dir cannot be
+/// canonicalized), if the package eval fails or times out, or if writing the
+/// blob or sidecar fails.
 pub async fn extract_and_persist_package(
     out_dir: &str,
     flake_ref: &str,
@@ -267,7 +282,7 @@ pub async fn extract_and_persist_package(
     })
 }
 
-/// Record a finished extraction on a (current-manifest) PackageRef.
+/// Record a finished extraction on a (current-manifest) `PackageRef`.
 pub fn apply_extracted_package(r#ref: &mut PackageRef, r: &Extracted<PackageResult>) {
     r#ref.status = RefStatus::Ok;
     r#ref.extracted_at = Some(r.extracted_at.clone());
@@ -276,6 +291,12 @@ pub fn apply_extracted_package(r#ref: &mut PackageRef, r: &Extracted<PackageResu
 
 /// Extraction driver for one dependency graph — same blob+sidecar shape and
 /// path-traversal guard as the other two document kinds.
+///
+/// # Errors
+///
+/// Fails if the blob path escapes the data dir (or the dir cannot be
+/// canonicalized), if the graph eval fails or times out, or if writing the
+/// blob or sidecar fails.
 pub async fn extract_and_persist_graph(
     out_dir: &str,
     flake_ref: &str,
@@ -304,7 +325,7 @@ pub async fn extract_and_persist_graph(
     })
 }
 
-/// Record a finished extraction on a (current-manifest) GraphRef.
+/// Record a finished extraction on a (current-manifest) `GraphRef`.
 pub fn apply_extracted_graph(r#ref: &mut GraphRef, r: &Extracted<GraphResult>) {
     r#ref.status = RefStatus::Ok;
     r#ref.extracted_at = Some(r.extracted_at.clone());
@@ -333,9 +354,10 @@ fn reconcile_one(out_dir: &str, key: &CacheKey, data_file: &str) -> Option<(Side
 }
 
 /// Reconcile a freshly built manifest with blobs already on disk: refs whose
-/// sidecar matches the current cache key flip to "ok". `nix_version` is the
-/// string `check_nix` returned for this run — the caller has already had to
-/// call it, so there is nothing to discover here.
+/// sidecar matches the current cache key flip to "ok".
+///
+/// `nix_version` is the string `check_nix` returned for this run — the caller
+/// has already had to call it, so there is nothing to discover here.
 pub fn reconcile(out_dir: &str, manifest: &mut Manifest, nix_version: &str) {
     let key = cache_key_of(manifest, nix_version);
     let mut cached_warnings: Vec<String> = Vec::new();
@@ -372,11 +394,12 @@ pub fn reconcile(out_dir: &str, manifest: &mut Manifest, nix_version: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::{ConfigKind, FlakeInfo, OutputNode, SCHEMA_VERSION};
     use indexmap::IndexMap;
 
     /// The narrowest manifest reconcile will look at: one pending config ref
     /// pointing at `data_file`, and the flake identity + inputs that
-    /// cache_key_of reads.
+    /// `cache_key_of` reads.
     fn manifest_with(data_file: &str) -> Manifest {
         Manifest {
             version: SCHEMA_VERSION,
@@ -532,7 +555,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// The reason nix_version is in the key at all: a nix upgrade can change
+    /// The reason `nix_version` is in the key at all: a nix upgrade can change
     /// what extraction produces, and before this the blob stayed "fresh".
     #[test]
     fn nix_version_change_invalidates_the_blob() {
@@ -561,7 +584,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Sidecars written before nix_version joined the key have no such field.
+    /// Sidecars written before `nix_version` joined the key have no such field.
     /// Absent must read as stale, not as "matches".
     #[test]
     fn sidecar_without_nix_version_is_stale() {

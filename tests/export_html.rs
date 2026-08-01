@@ -19,12 +19,17 @@ const CHECK: &str = "checks/x86_64-linux/mini-check";
 
 fn embedded_json(html: &str, name: &str) -> Option<serde_json::Value> {
     let tag = format!(r#"<script type="application/json" id="data:{name}">"#);
-    let start = html.find(&tag)? + tag.len();
-    let end = start + html[start..].find("</script>")?;
-    serde_json::from_str(&html[start..end]).ok()
+    let start = html.find(&tag)?.checked_add(tag.len())?;
+    let rest = html.get(start..)?;
+    let end = rest.find("</script>")?;
+    serde_json::from_str(rest.get(..end)?).ok()
 }
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "ONE test fn by design (see file header): env mutation is process-global"
+)]
 async fn export_embeds_blobs_and_downgrades_unembedded_refs() {
     if !nix_available() {
         return;
@@ -67,7 +72,7 @@ async fn export_embeds_blobs_and_downgrades_unembedded_refs() {
             configs: Selection::All,
             packages: Selection::Ids(vec![MINI.to_string(), CHECK.to_string()]),
             all_systems: false,
-            timeout: Duration::from_secs(120),
+            timeout: Duration::from_mins(2),
         },
     )
     .await
@@ -85,7 +90,7 @@ async fn export_embeds_blobs_and_downgrades_unembedded_refs() {
             out_dir: out_dir.clone(),
             html_path: html_path.to_string_lossy().into_owned(),
             sources_all: false,
-            timeout: Duration::from_secs(60),
+            timeout: Duration::from_mins(1),
             wanted: r.wanted.clone(),
             wanted_packages: vec![MINI.to_string()],
             // Two graphs extracted, ONE embedded — the other must downgrade.
@@ -162,7 +167,7 @@ async fn export_embeds_blobs_and_downgrades_unembedded_refs() {
             out_dir,
             html_path: html_all_path.to_string_lossy().into_owned(),
             sources_all: true,
-            timeout: Duration::from_secs(60),
+            timeout: Duration::from_mins(1),
             wanted: r.wanted,
             wanted_packages: vec![MINI.to_string()],
             wanted_graphs: vec![MINI.to_string()],

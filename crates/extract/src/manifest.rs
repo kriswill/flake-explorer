@@ -8,7 +8,10 @@ use crate::run_nix::{
     eval_extract, flake_metadata, flake_show,
 };
 use crate::scan::{canonical_input_names, import_graph, scan_input_refs, scan_overlay_defs};
-use crate::schema::*;
+use crate::schema::{
+    ConfigKind, ConfigRef, FileEntry, FileOrigin, FlakeInfo, GitFileInfo, GraphRef, InputFollow,
+    InputInfo, Manifest, OutputNode, PackageRef, RefStatus, SCHEMA_VERSION, make_file_id_self,
+};
 use indexmap::IndexMap;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -27,6 +30,11 @@ pub struct ManifestOptions {
 
 pub const FINGERPRINT: &str = env!("FLAKE_EXPLORER_FINGERPRINT");
 
+/// # Errors
+///
+/// Fails when `nix flake metadata` fails, or when the manifest eval fails
+/// even after its direct-inputs-only retry; a `nix flake show` failure only
+/// degrades to a warning.
 pub async fn build_manifest(flake_ref: &str, opts: &ManifestOptions) -> anyhow::Result<Manifest> {
     let mut warnings: Vec<String> = Vec::new();
     let timeout = opts.timeout;
@@ -99,28 +107,14 @@ pub async fn build_manifest(flake_ref: &str, opts: &ManifestOptions) -> anyhow::
     );
     let overlay_defs = scan_overlay_defs(&self_files, &read, &self_id);
 
-    let outputs = match show_json {
-        Some(j) => normalize_show(&j),
-        None => OutputNode::Attrset {
+    let outputs = show_json.map_or_else(
+        || OutputNode::Attrset {
             children: IndexMap::new(),
         },
-    };
+        |j| normalize_show(&j),
+    );
     let packages = package_refs(&outputs);
-    let configurations: Vec<ConfigRef> = ev
-        .configurations
-        .iter()
-        .map(|c| ConfigRef {
-            id: format!("{}/{}", c.kind.as_str(), c.n),
-            kind: c.kind,
-            name: c.n.clone(),
-            data_file: format!("config/{}.{}.json", c.kind.as_str(), safe_name(&c.n)),
-            status: RefStatus::Pending,
-            error: None,
-            extracted_at: None,
-            option_count: None,
-            duration_ms: None,
-        })
-        .collect();
+    let configurations = config_refs(&ev);
     let mut graphs = graph_refs(&packages);
     if opts.config_graphs {
         graphs.extend(config_graph_refs(&configurations));
@@ -133,7 +127,7 @@ pub async fn build_manifest(flake_ref: &str, opts: &ManifestOptions) -> anyhow::
         flake: FlakeInfo {
             r#ref: flake_ref.to_string(),
             path: ev.self_path.clone(),
-            description: meta.description.clone().or(ev.description.clone()),
+            description: meta.description.clone().or_else(|| ev.description.clone()),
             rev: meta.revision.clone(),
             nar_hash: meta.locked.as_ref().and_then(|l| l.nar_hash.clone()),
         },
@@ -154,6 +148,24 @@ pub async fn build_manifest(flake_ref: &str, opts: &ManifestOptions) -> anyhow::
     })
 }
 
+fn config_refs(ev: &ManifestEval) -> Vec<ConfigRef> {
+    ev.configurations
+        .iter()
+        .map(|c| ConfigRef {
+            id: format!("{}/{}", c.kind.as_str(), c.n),
+            kind: c.kind,
+            name: c.n.clone(),
+            data_file: format!("config/{}.{}.json", c.kind.as_str(), safe_name(&c.n)),
+            status: RefStatus::Pending,
+            error: None,
+            extracted_at: None,
+            option_count: None,
+            duration_ms: None,
+        })
+        .collect()
+}
+
+#[must_use]
 pub fn now_iso() -> String {
     chrono::Utc::now()
         .format("%Y-%m-%dT%H:%M:%S%.3fZ")
@@ -202,6 +214,7 @@ async fn manifest_eval(
 
 /// Derivation-typed outputs (packages, devShells, checks, formatter),
 /// enumerated straight from the normalized outputs tree.
+#[must_use]
 pub fn package_refs(outputs: &OutputNode) -> Vec<PackageRef> {
     let mut refs = Vec::new();
     let OutputNode::Attrset { children } = outputs else {
@@ -242,8 +255,9 @@ pub fn package_refs(outputs: &OutputNode) -> Vec<PackageRef> {
 }
 
 /// One graph ref per derivation-typed output, same id space as the package
-/// refs they mirror. data_file follows the package convention with the graph/
-/// prefix: safe_name'd path segments joined by ".".
+/// refs they mirror. `data_file` follows the package convention with the
+/// graph/ prefix: `safe_name`'d path segments joined by ".".
+#[must_use]
 pub fn graph_refs(packages: &[PackageRef]) -> Vec<GraphRef> {
     packages
         .iter()
@@ -266,10 +280,12 @@ pub fn graph_refs(packages: &[PackageRef]) -> Vec<GraphRef> {
         .collect()
 }
 
-/// Graph refs for configurations — OPT-IN only (see ManifestOptions).
+/// Graph refs for configurations — OPT-IN only (see `ManifestOptions`).
+///
 /// The graph is rooted at the configuration's system.build.toplevel, which is
 /// exactly the closure `nixos-rebuild` would realise; the attr path IS the
 /// installable, so extraction needs no special casing downstream.
+#[must_use]
 pub fn config_graph_refs(configurations: &[ConfigRef]) -> Vec<GraphRef> {
     configurations
         .iter()
@@ -314,9 +330,12 @@ fn make_package_ref(path: Vec<String>) -> PackageRef {
 }
 
 /// Config names are arbitrary Nix attr names — anything that could escape the
-/// data dir becomes a slug plus a short collision hash. "%" is excluded from
-/// the passthrough charset — a literal "%" would be reinterpreted by the
-/// serve route's percent-decoding (the "..%2F" traversal vector).
+/// data dir becomes a slug plus a short collision hash.
+///
+/// "%" is excluded from the passthrough charset — a literal "%" would be
+/// reinterpreted by the serve route's percent-decoding (the "..%2F" traversal
+/// vector).
+#[must_use]
 pub fn safe_name(name: &str) -> String {
     let ok = name
         .chars()
@@ -335,7 +354,10 @@ pub fn safe_name(name: &str) -> String {
         })
         .collect();
     let digest = Sha256::digest(name.as_bytes());
-    let n = u64::from_be_bytes(digest[..8].try_into().unwrap());
+    // SHA-256 digests are 32 bytes, so the leading 8-byte chunk always exists.
+    let n = digest
+        .first_chunk::<8>()
+        .map_or(0, |b| u64::from_be_bytes(*b));
     format!(
         "{slug}-{}",
         to_base36(n).chars().take(8).collect::<String>()
@@ -343,21 +365,22 @@ pub fn safe_name(name: &str) -> String {
 }
 
 fn to_base36(mut n: u64) -> String {
-    const DIGITS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
     if n == 0 {
         return "0".to_string();
     }
-    let mut out = Vec::new();
+    let mut out: Vec<char> = Vec::new();
     while n > 0 {
-        out.push(DIGITS[(n % 36) as usize]);
+        // n % 36 < 36, so the conversion and the digit lookup cannot fail.
+        let rem = u32::try_from(n % 36).unwrap_or(0);
+        out.push(char::from_digit(rem, 36).unwrap_or('0'));
         n /= 36;
     }
-    out.reverse();
-    String::from_utf8(out).unwrap()
+    out.into_iter().rev().collect()
 }
 
 /// Existing local directory of a path-like flakeref (`path:` prefix and
 /// ?query stripped), or None.
+#[must_use]
 pub fn local_flake_dir(r#ref: &str) -> Option<String> {
     let bare = r#ref.strip_prefix("path:").unwrap_or(r#ref);
     let bare = bare.split('?').next().unwrap_or(bare);
@@ -384,9 +407,27 @@ fn detect_local_checkout(flake_ref: &str, meta: &FlakeMetadataJson) -> Option<St
     Path::new(path).exists().then(|| path.to_string())
 }
 
+struct Item<'a> {
+    name: String,
+    node_key: Option<String>,
+    ev_node: Option<&'a InputsTreeNode>,
+    depth: u32,
+    follows: Option<String>,
+    aliases: Option<Vec<String>>,
+}
+
+struct RootEntry<'a> {
+    name: &'a str,
+    r#ref: &'a LockInputRef,
+}
+
 /// Flatten the recursive inputs tree (eval side: store paths) against the
 /// lock graph (metadata side: provenance), breadth-first — see inline notes
 /// for the full dedup/alias-merge rationale.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one BFS over the lock graph; the root alias-grouping and the walk share the queue and dedup state, and splitting them would scatter it"
+)]
 pub fn input_infos(
     meta: &FlakeMetadataJson,
     ev: &ManifestEval,
@@ -397,25 +438,12 @@ pub fn input_infos(
     let mut seen_nodes: HashSet<String> = HashSet::new();
     let mut name_by_node: HashMap<String, String> = HashMap::new();
 
-    struct Item<'a> {
-        name: String,
-        node_key: Option<String>,
-        ev_node: Option<&'a InputsTreeNode>,
-        depth: u32,
-        follows: Option<String>,
-        aliases: Option<Vec<String>>,
-    }
-
     let mut queue: VecDeque<Item> = VecDeque::new();
     let empty = LockNode::default();
     let root_node = meta.locks.nodes.get(&meta.locks.root).unwrap_or(&empty);
 
     // Group root inputs by resolved lock node before queueing, so aliases
     // merge deterministically. Unresolvable refs stay ungrouped.
-    struct RootEntry<'a> {
-        name: &'a str,
-        r#ref: &'a LockInputRef,
-    }
     let mut by_node: IndexMap<String, Vec<RootEntry>> = IndexMap::new();
     if let Some(root_inputs) = &root_node.inputs {
         for (name, r#ref) in root_inputs {
@@ -446,7 +474,10 @@ pub fn input_infos(
             .iter()
             .position(|e| matches!(e.r#ref, LockInputRef::Key(_)))
             .unwrap_or(0);
-        let primary = &group[primary_idx];
+        // Groups are built by push, so they are never empty.
+        let Some(primary) = group.get(primary_idx) else {
+            continue;
+        };
         let mut aliases: Vec<String> = group
             .iter()
             .enumerate()
@@ -478,8 +509,11 @@ pub fn input_infos(
     }
 
     while let Some(item) = queue.pop_front() {
-        let node = item.node_key.as_ref().and_then(|k| meta.locks.nodes.get(k));
-        let Some(node) = node else {
+        let found = item
+            .node_key
+            .as_ref()
+            .and_then(|k| meta.locks.nodes.get(k).map(|n| (k.clone(), n)));
+        let Some((node_key, node)) = found else {
             if item.depth == 0 {
                 warnings.push(format!(
                     "flake.lock: could not resolve input \"{}\"",
@@ -488,7 +522,6 @@ pub fn input_infos(
             }
             continue;
         };
-        let node_key = item.node_key.clone().unwrap();
         if seen_nodes.contains(&node_key) {
             // The node already has an entry under another name — record the
             // edge the dedup would otherwise silently drop.
@@ -538,7 +571,7 @@ pub fn input_infos(
                         LockInputRef::Follows(p) => resolve_follows(meta, p),
                     },
                     ev_node: item.ev_node.and_then(|n| n.inputs.get(child_name)),
-                    depth: item.depth + 1,
+                    depth: item.depth.saturating_add(1),
                     follows: match child_ref {
                         LockInputRef::Follows(p) => Some(p.join("/")),
                         LockInputRef::Key(_) => None,
@@ -566,7 +599,7 @@ fn url_from_locked(locked: Option<&crate::run_nix::LockedInfo>) -> Option<String
     }
 }
 
-/// Walk a follows path (["nixpkgs"] or ["home-manager","nixpkgs"]) to its node key.
+/// Walk a follows path (`["nixpkgs"]` or `["home-manager","nixpkgs"]`) to its node key.
 fn resolve_follows(meta: &FlakeMetadataJson, path: &[String]) -> Option<String> {
     let mut key = meta.locks.root.clone();
     for seg in path {
@@ -649,6 +682,7 @@ fn file_entries(
 
 /// Normalize `nix flake show --json`. Two formats: classic (Nix/Lix) nested
 /// objects, and Determinate Nix "inventory" v2.
+#[must_use]
 pub fn normalize_show(json: &Value) -> OutputNode {
     if let Some(inventory) = json.get("inventory").and_then(|v| v.as_object()) {
         let mut children = IndexMap::new();
