@@ -1,0 +1,11 @@
+# Inputs mirror flake.nix (same nixpkgs branch, independently locked in
+# devenv.lock — refresh with `devenv update`); treefmt-nix feeds the same
+# `treefmt` wrapper the flake's `nix fmt` uses.
+inputs:
+  nixpkgs:
+    url: github:NixOS/nixpkgs/nixpkgs-unstable
+  treefmt-nix:
+    url: github:numtide/treefmt-nix
+    inputs:
+      nixpkgs:
+        follows: nixpkgs
