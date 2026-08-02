@@ -5,10 +5,18 @@
 # environment's enterTest contract, and its parity step makes a half-update
 # unmergeable.
 #
-# Uses a fine-grained PAT (LOCK_UPDATE_PAT — NOT the default GITHUB_TOKEN) so
-# the resulting PR triggers ci.yml: GitHub never runs workflows on events
-# created with GITHUB_TOKEN. PAT scope: this repo only, Contents R/W +
-# Pull requests R/W.
+# The PR is opened with a repo-scoped GitHub App token, not the default
+# GITHUB_TOKEN and not a PAT. GITHUB_TOKEN-created PRs never trigger ci.yml —
+# a deliberate recursion guard (that token is itself the github-actions app's
+# installation token) with no opt-out — and a PAT expires and is tied to a
+# user account. The app-minted installation token lives one hour, is revoked
+# when the job ends, and the PR is authored by the app's bot identity.
+#
+# One-time setup: create a GitHub App (Settings → Developer settings; no
+# webhook) with repository permissions Contents R/W + Pull requests R/W,
+# install it on THIS repo only, then set the LOCK_APP_CLIENT_ID repo
+# variable and the LOCK_APP_PRIVATE_KEY secret (generate the key on the
+# app's settings page).
 name: update-locks
 
 on:
@@ -35,9 +43,14 @@ jobs:
         run: |
           rev=$(jq -r '.nodes[.nodes[.root].inputs.nixpkgs].locked.rev' flake.lock)
           nix shell "github:NixOS/nixpkgs/$rev#devenv" --command bun scripts/sync-devenv-lock.ts
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ vars.LOCK_APP_CLIENT_ID }}
+          private-key: ${{ secrets.LOCK_APP_PRIVATE_KEY }}
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
-          token: ${{ secrets.LOCK_UPDATE_PAT }}
+          token: ${{ steps.app-token.outputs.token }}
           # Only the lock artifacts — never `.devenv/` state or anything else
           # the update run leaves in the workspace.
           add-paths: |
