@@ -1,0 +1,68 @@
+# Weekly bump of flake.lock AND the derived devenv pins in one PR:
+# `nix flake update` moves flake.lock, then scripts/sync-devenv-lock.ts pins
+# devenv.yaml's shared inputs to the same revs and regenerates devenv.lock.
+# ci.yml's `devenv` job on the PR proves the derived lock still passes the
+# environment's enterTest contract, and its parity step makes a half-update
+# unmergeable.
+#
+# The PR is opened with a repo-scoped GitHub App token, not the default
+# GITHUB_TOKEN and not a PAT. GITHUB_TOKEN-created PRs never trigger ci.yml —
+# a deliberate recursion guard (that token is itself the github-actions app's
+# installation token) with no opt-out — and a PAT expires and is tied to a
+# user account. The app-minted installation token lives one hour, is revoked
+# when the job ends, and the PR is authored by the app's bot identity.
+#
+# One-time setup: create a GitHub App (Settings → Developer settings; no
+# webhook) with repository permissions Contents R/W + Pull requests R/W,
+# install it on THIS repo only, then set the LOCK_APP_CLIENT_ID repo
+# variable and the LOCK_APP_PRIVATE_KEY secret (generate the key on the
+# app's settings page).
+name: update-locks
+
+on:
+  schedule:
+    - cron: "0 10 * * 1" # Mondays 10:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read # the PAT, not this token, does the writing
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DeterminateSystems/determinate-nix-action@d96678350ffd6a456235832eb11e1c491589b7bb # v3.21.8
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - run: nix flake update
+      # The devenv CLI comes from the freshly locked nixpkgs rev — the same
+      # binary ci.yml's `devenv` job runs, so the two can never disagree
+      # about what a valid lock looks like.
+      - name: sync devenv pins to flake.lock
+        run: |
+          rev=$(jq -r '.nodes[.nodes[.root].inputs.nixpkgs].locked.rev' flake.lock)
+          nix shell "github:NixOS/nixpkgs/$rev#devenv" --command bun scripts/sync-devenv-lock.ts
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        with:
+          client-id: ${{ vars.LOCK_APP_CLIENT_ID }}
+          private-key: ${{ secrets.LOCK_APP_PRIVATE_KEY }}
+      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          # Only the lock artifacts — never `.devenv/` state or anything else
+          # the update run leaves in the workspace.
+          add-paths: |
+            flake.lock
+            devenv.yaml
+            devenv.lock
+          commit-message: Update flake.lock and the derived devenv pins
+          title: "locks: weekly update"
+          body: >
+            Weekly `nix flake update`, with the devenv pins re-derived from
+            flake.lock by `scripts/sync-devenv-lock.ts`. The `devenv` CI job
+            verifies lock parity and the environment's enterTest contract.
+          branch: update-locks
+          delete-branch: true
+          labels: dependencies

@@ -67,6 +67,26 @@ in
     LLVM_PROFDATA = "${pkgs.rustc.llvmPackages.llvm}/bin/llvm-profdata";
   };
 
+  # The contract `devenv test` asserts — run by CI's `devenv` job so a lock
+  # sync can't merge unless the environment still provides what the flake
+  # devShell promises, not merely "evaluation didn't crash".
+  enterTest = ''
+    set -euo pipefail
+    for tool in bun bunx git cargo rustc clippy-driver rustfmt rust-analyzer \
+      cargo-llvm-cov treefmt flake-explorer; do
+      command -v "$tool" > /dev/null || {
+        echo "devenv contract: $tool missing from PATH" >&2
+        exit 1
+      }
+    done
+    test "$(bun --version)" = "${bun.version}" || {
+      echo "devenv contract: bun $(bun --version), expected ${bun.version}" >&2
+      exit 1
+    }
+    test -x "$LLVM_COV"
+    test -x "$LLVM_PROFDATA"
+  '';
+
   # Live-source `flake-explorer`: builds and runs the enclosing checkout's
   # crate (a flake only sees a store copy of itself, so the working tree must
   # be resolved at call time). Mirrors the flake devShell's shim.
