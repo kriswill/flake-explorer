@@ -17,9 +17,9 @@ concurrency:
 
 # `test typescript`, `check typescript` and `build` are required check
 # contexts in main's ruleset ("main-guardrails") — rename them only together
-# with the ruleset. `nix-check`, `nix-build` and `rust-coverage` are not named
-# there; they reach the ruleset only through the `build` aggregator at the
-# bottom of this file.
+# with the ruleset. `nix-check`, `nix-build`, `rust-coverage` and `devenv`
+# are not named there; they reach the ruleset only through the `build`
+# aggregator at the bottom of this file.
 jobs:
   # SPA test suite (Svelte components, client indexes, page composition).
   test-typescript:
@@ -113,6 +113,27 @@ jobs:
       - uses: DeterminateSystems/flakehub-cache-action@77c6bddd7d747943530aaa578c57f233ee5d920e # main 2026-07
       - run: nix build .#default -L
 
+  # The devenv environment (devenv.nix, the flake devShell's twin) must keep
+  # matching the flake and keep working. The parity step fails any PR that
+  # moves one lock without the other — including a hand-run `devenv update` —
+  # before nix is even installed; `devenv test` then builds the environment
+  # and runs its enterTest contract (every promised tool resolves, bun is the
+  # pinned version, the LLVM env vars point at executables). The devenv CLI
+  # comes from the rev flake.lock pins, so this job wants the same store
+  # paths the other nix jobs already keep cached.
+  devenv:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - run: bun scripts/sync-devenv-lock.ts --check
+      - uses: DeterminateSystems/determinate-nix-action@d96678350ffd6a456235832eb11e1c491589b7bb # v3.21.8
+      - uses: DeterminateSystems/flakehub-cache-action@77c6bddd7d747943530aaa578c57f233ee5d920e # main 2026-07
+      - run: nix run "github:NixOS/nixpkgs/$(jq -r '.nodes[.nodes[.root].inputs.nixpkgs].locked.rev' flake.lock)#devenv" -- test
+
   # Coverage, OUTSIDE the sandbox so the real-nix integration tests
   # (tests/mini_flake.rs) run and count — this is the only place they execute.
   # REQUIRE_NIX turns a silent skip into a failure. The devShell provides
@@ -192,7 +213,7 @@ jobs:
     # the comment below — it is its own required context and the gate at the
     # end deliberately does not re-judge it. It finishes long before the nix
     # jobs, so waiting on it costs nothing.
-    needs: [nix-check, nix-build, rust-coverage, test-typescript]
+    needs: [nix-check, nix-build, rust-coverage, devenv, test-typescript]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -272,7 +293,9 @@ jobs:
       - run: |
           echo "nix-check=${{ needs.nix-check.result }}" \
                "nix-build=${{ needs.nix-build.result }}" \
-               "rust-coverage=${{ needs.rust-coverage.result }}"
+               "rust-coverage=${{ needs.rust-coverage.result }}" \
+               "devenv=${{ needs.devenv.result }}"
           [ "${{ needs.nix-check.result }}" = success ] \
             && [ "${{ needs.nix-build.result }}" = success ] \
-            && [ "${{ needs.rust-coverage.result }}" = success ]
+            && [ "${{ needs.rust-coverage.result }}" = success ] \
+            && [ "${{ needs.devenv.result }}" = success ]

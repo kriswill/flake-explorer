@@ -127,6 +127,10 @@ client-side typing of the same contract lives in `web/lib/schema.ts`.
 
 ```console
 $ nix develop          # cargo + bun + git (plus a live-source `flake-explorer` shim)
+$ devenv shell         # the same environment via devenv; `devenv allow` once for
+                       #   cd auto-activation. devenv.lock is derived from
+                       #   flake.lock by scripts/sync-devenv-lock.ts — never
+                       #   run a bare `devenv update`
 $ bun install
 $ cargo run -- serve /etc/nixos
 $ cargo test           # unit + integration tests (real nix + scripted-nix shims)
