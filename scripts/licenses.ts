@@ -3,7 +3,8 @@
 // MIT terms require the notice to accompany every redistributed copy, so the
 // page embeds each bundled runtime dependency's LICENSE text alongside
 // flake-explorer's own. Collection is driven by package.json `dependencies`
-// minus BUILD_ONLY, and a dep with no findable license file fails the build.
+// minus BUILD_ONLY; a dep with no license file falls back to its README's
+// License section, and one with neither fails the build.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
@@ -48,8 +49,28 @@ export function packageDir(name: string, from: string): string {
   }
 }
 
-/** One package's license record, located from `from`. A bundled dep with no
- *  findable license file fails the build — its notice must ship with the copy. */
+/** Fallback for packages whose tarball ships the notice only as a README
+ *  section (fastdom): the verbatim text under a `License` heading, up to the
+ *  next heading of the same or higher level. Null when the README has no
+ *  such section — that is still a missing notice, not a license to invent. */
+function readmeLicenseSection(pkgDir: string): string | null {
+  const readme = readdirSync(pkgDir)
+    .filter((f) => /^readme([.-]|$)/i.test(f))
+    .sort((a, b) => a.length - b.length || a.localeCompare(b))[0]
+  if (!readme) return null
+  const md = readFileSync(join(pkgDir, readme), "utf8")
+  const head = /^(#{1,6})\s*licen[cs]e\b.*\r?\n/im.exec(md)
+  if (!head) return null
+  const rest = md.slice(head.index + head[0].length)
+  const next = rest.search(new RegExp(`^#{1,${head[1].length}}\\s`, "m"))
+  const body = (next === -1 ? rest : rest.slice(0, next)).trim()
+  return body || null
+}
+
+/** One package's license record, located from `from`. The notice comes from
+ *  a standalone license file, or failing that the README's License section;
+ *  a bundled dep with neither fails the build — its notice must ship with
+ *  the copy. */
 export function readDepLicense(name: string, from: string): DepLicense {
   const pkgDir = packageDir(name, from)
   const meta = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")) as {
@@ -60,7 +81,8 @@ export function readDepLicense(name: string, from: string): DepLicense {
   const file = readdirSync(pkgDir)
     .filter((f) => /^licen[cs]e([.-]|$)/i.test(f))
     .sort((a, b) => a.length - b.length || a.localeCompare(b))[0]
-  if (!file) {
+  const text = file ? readFileSync(join(pkgDir, file), "utf8").trim() : readmeLicenseSection(pkgDir)
+  if (!text) {
     throw new Error(
       `no license file in node_modules/${name} — its notice must ship with the bundled copy`,
     )
@@ -69,7 +91,7 @@ export function readDepLicense(name: string, from: string): DepLicense {
     name,
     version: meta.version ?? "",
     license: (typeof meta.license === "string" ? meta.license : meta.license?.type) ?? "",
-    text: readFileSync(join(pkgDir, file), "utf8").trim(),
+    text,
   }
 }
 
