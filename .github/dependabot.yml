@@ -1,14 +1,27 @@
+# Bun and Actions bumps arrive as grouped dependabot PRs. The nix side is
+# deliberately NOT here: update-locks.yml owns flake.lock (plus the derived
+# devenv pins) in one weekly PR, and a dependabot flake.lock-only bump can
+# never pass the devenv parity gate — every such PR just got closed unmerged.
 version: 2
 updates:
   - package-ecosystem: bun
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # Compatible bumps land as one PR; semver-major bumps still arrive
+      # solo, since those are the ones that deserve their own review.
+      bun-minor-patch:
+        update-types:
+          - minor
+          - patch
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-  - package-ecosystem: nix
-    directory: /
-    schedule:
-      interval: weekly
+    groups:
+      # One PR for the week's action bumps — they are SHA-pinned and every
+      # one is exercised by the CI run on the PR itself.
+      actions:
+        patterns:
+          - "*"
