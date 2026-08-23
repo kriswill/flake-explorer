@@ -47,6 +47,20 @@ describe("collectAbout failure modes (synthetic project dir)", () => {
     expect(() => collectAbout(dir)).toThrow("no license file in node_modules/ghost")
   })
 
+  test("a README License section stands in for a missing license file", async () => {
+    await Bun.write(
+      join(dir, "node_modules/ghost/README.md"),
+      "# ghost\n\nDoes things.\n\n## License\n\n(The MIT License)\n\nCopyright (c) 2026 Ghost\n",
+    )
+    const about = collectAbout(dir)
+    expect(about.deps[0]!.text).toBe("(The MIT License)\n\nCopyright (c) 2026 Ghost")
+  })
+
+  test("a README without a License section is still a missing notice", async () => {
+    await Bun.write(join(dir, "node_modules/ghost/README.md"), "# ghost\n\nDoes things.\n")
+    expect(() => collectAbout(dir)).toThrow("no license file in node_modules/ghost")
+  })
+
   test("object-form license and missing first-party LICENSE degrade cleanly", async () => {
     await Bun.write(join(dir, "node_modules/ghost/LICENSE.md"), "Copyright (c) 2026 Ghost")
     const about = collectAbout(dir)
