@@ -43,12 +43,12 @@
     "svelte": "^5.56.10"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.9",
+    "@biomejs/biome": "^2.5.10",
     "@happy-dom/global-registrator": "^20.11.6",
     "@types/bun": "^1.4.0",
     "happy-dom": "^20.11.6",
-    "marked": "^18.0.10",
-    "mermaid": "^11.17.0",
+    "marked": "^18.0.11",
+    "mermaid": "^11.17.1",
     "svelte-check": "^4.7.6",
     "typedoc": "^0.28.20",
     "typedoc-plugin-markdown": "^4.12.0",
