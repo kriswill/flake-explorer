@@ -40,18 +40,18 @@
   },
   "dependencies": {
     "bun-plugin-svelte": "^0.0.6",
-    "svelte": "^5.56.10"
+    "svelte": "^5.57.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.9",
-    "@happy-dom/global-registrator": "^20.11.6",
+    "@biomejs/biome": "^2.5.11",
+    "@happy-dom/global-registrator": "^20.12.0",
     "@types/bun": "^1.4.0",
-    "happy-dom": "^20.11.6",
-    "marked": "^18.0.10",
-    "mermaid": "^11.17.0",
+    "happy-dom": "^20.12.0",
+    "marked": "^18.0.11",
+    "mermaid": "^11.17.2",
     "svelte-check": "^4.7.6",
     "typedoc": "^0.28.20",
-    "typedoc-plugin-markdown": "^4.12.0",
+    "typedoc-plugin-markdown": "^4.13.0",
     "typescript": "^6.0.3"
   }
 }
