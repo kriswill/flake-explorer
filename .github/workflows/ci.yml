@@ -54,7 +54,7 @@ jobs:
       - if: always() && hashFiles('coverage-report.md') != ''
         run: cat coverage-report.md >> "$GITHUB_STEP_SUMMARY"
       - if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-report-spa
           path: coverage-report.md
@@ -94,8 +94,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: DeterminateSystems/determinate-nix-action@668647a33843b1f280cb2ef4c41736f86b29f826 # v3.22.1
-      - uses: DeterminateSystems/flakehub-cache-action@9ad836c31b7e8f416874ca582bf19b71cee755d0 # main 2026-07
+      - uses: DeterminateSystems/determinate-nix-action@e847f25223456b3058e12f7fc9d777b6a6f25060 # v3.23.2
+      - uses: DeterminateSystems/flakehub-cache-action@0975873945367f5239ebb5f49c133bf3543a08f6 # main 2026-07
       - run: nix flake check -L
 
   # flake check builds only checks.* ("build skipped" for packages), so the
@@ -109,8 +109,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: DeterminateSystems/determinate-nix-action@668647a33843b1f280cb2ef4c41736f86b29f826 # v3.22.1
-      - uses: DeterminateSystems/flakehub-cache-action@9ad836c31b7e8f416874ca582bf19b71cee755d0 # main 2026-07
+      - uses: DeterminateSystems/determinate-nix-action@e847f25223456b3058e12f7fc9d777b6a6f25060 # v3.23.2
+      - uses: DeterminateSystems/flakehub-cache-action@0975873945367f5239ebb5f49c133bf3543a08f6 # main 2026-07
       - run: nix build .#default -L
 
   # The devenv environment (devenv.nix, the flake devShell's twin) must keep
@@ -130,8 +130,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - run: bun scripts/sync-devenv-lock.ts --check
-      - uses: DeterminateSystems/determinate-nix-action@668647a33843b1f280cb2ef4c41736f86b29f826 # v3.22.1
-      - uses: DeterminateSystems/flakehub-cache-action@9ad836c31b7e8f416874ca582bf19b71cee755d0 # main 2026-07
+      - uses: DeterminateSystems/determinate-nix-action@e847f25223456b3058e12f7fc9d777b6a6f25060 # v3.23.2
+      - uses: DeterminateSystems/flakehub-cache-action@0975873945367f5239ebb5f49c133bf3543a08f6 # main 2026-07
       - run: nix run "github:NixOS/nixpkgs/$(jq -r '.nodes[.nodes[.root].inputs.nixpkgs].locked.rev' flake.lock)#devenv" -- test
 
   # Coverage, OUTSIDE the sandbox so the real-nix integration tests
@@ -150,8 +150,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: DeterminateSystems/determinate-nix-action@668647a33843b1f280cb2ef4c41736f86b29f826 # v3.22.1
-      - uses: DeterminateSystems/flakehub-cache-action@9ad836c31b7e8f416874ca582bf19b71cee755d0 # main 2026-07
+      - uses: DeterminateSystems/determinate-nix-action@e847f25223456b3058e12f7fc9d777b6a6f25060 # v3.23.2
+      - uses: DeterminateSystems/flakehub-cache-action@0975873945367f5239ebb5f49c133bf3543a08f6 # main 2026-07
       # rust-cache derives its key partly from the rustc it can see on PATH —
       # which here is the runner's preinstalled toolchain, not the devShell's.
       # The cargo below runs under `nix develop`, so the artifacts are built by
@@ -193,7 +193,7 @@ jobs:
       - if: always() && hashFiles('coverage-report.md') != ''
         run: cat coverage-report.md >> "$GITHUB_STEP_SUMMARY"
       - if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-report-rust
           path: coverage-report.md
@@ -226,7 +226,7 @@ jobs:
       # posted as one. This job is the only writer of that comment: the two
       # producers cannot race each other because neither of them writes it.
       - if: github.event_name == 'pull_request'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: coverage-report-*
           path: reports
