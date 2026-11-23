@@ -5,9 +5,9 @@
 # treefmt-nix feeds the same `treefmt` wrapper the flake's `nix fmt` uses.
 inputs:
   nixpkgs:
-    url: github:NixOS/nixpkgs/391b592eb44808b3bd0cb80bb71b63a5a118b8bb
+    url: github:NixOS/nixpkgs/619c39f6eac5d1ed6b8f073a9414baf7034b2356
   treefmt-nix:
-    url: github:numtide/treefmt-nix/27b3b12a8e6375f28ebe122f07d230ca5459bbfa
+    url: github:numtide/treefmt-nix/a0a97e31a897a3537eea5c49df4f8adaa83b3b37
     inputs:
       nixpkgs:
         follows: nixpkgs
